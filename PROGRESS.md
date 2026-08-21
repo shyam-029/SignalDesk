@@ -3,7 +3,7 @@
 > **Purpose:** The operational counterpart to `PLANNING.md`. This is the file to read FIRST to pick up
 > where we left off. Updated after every phase.
 > **Rules:** What's done → in progress → next. Command cheatsheet. Known gotchas.
-> **Last updated:** 2026-08-19 (Session 12 — Phase 4 complete: technical indicators + Alpha Score)
+> **Last updated:** 2026-08-21 (Session 14 — Phase 5 complete: grounded LLM explanation)
 > **Roadmap audit completed 2026-08-19 — see PLANNING §18 (4-tier product taxonomy).**
 
 ---
@@ -25,15 +25,32 @@
 | 2.5 — HARDENING (analysis service, N+1, retry, logging, coverage) | ✅ **COMPLETE** |
 | 3 — News RSS ingestion + FinBERT sentiment | ✅ **COMPLETE** |
 | 4 — Technical indicators + Alpha Score composite | ✅ **COMPLETE** |
-| 5 — Grounded LLM explanation | ⏳ **NEXT UP** |
+| 5 — Grounded LLM explanation | ✅ **COMPLETE** |
+| 6 — React dashboard + charts | ⏳ **NEXT UP** |
 
-**One-line status:** Phase 4 COMPLETE — SMA/EMA/RSI/MACD indicators, Alpha Score composite
-(40/30/30 renormalized + separate value signal), `alpha_scores` snapshot table, `/alpha` endpoint,
-118/118 tests green, coverage 76%. Next: Phase 5 (grounded LLM explanation).
+**One-line status:** Phase 5 COMPLETE — `/alpha` gains a **grounded LLM `explanation`** (OpenRouter via raw httpx behind an `LLMProvider` ABC; explicit allow-list `_alpha_facts()`; rule-based fallback for no-key/model/failure/budget; in-process TTL cache + daily cap; cost logging). **133/133 tests green, coverage 78%.** Live `/alpha` verified (rule-based path; no LLM key configured). Next: Phase 6 (React dashboard + charts).
 
 ---
 
 ## 2. Completed Work
+
+### Session 14 — Phase 5: grounded LLM explanation (2026-08-21)
+- [x] **`app/config.py`** — added `llm_api_key`, `llm_base_url` (default `https://openrouter.ai/api/v1`), `llm_model` (**empty = LLM disabled**), `llm_daily_cap` (default 100). `.env.example` documents the OpenRouter key + a sample free model + cap note.
+- [x] **`app/providers/llm_base.py`** — `LLMProvider` ABC + `LLMResult` (`text`, `tokens_used` optional, `model`) + `LLMError`. Provider returns the structured result (no separate usage reconstruction).
+- [x] **`app/providers/openrouter_provider.py`** — raw **async httpx** → OpenAI-compatible `POST /chat/completions` (no OpenAI/Anthropic SDK). Low temperature 0.2; parses `usage.total_tokens` + echoed `model`; non-2xx / invalid-JSON / missing choices / empty text → `LLMError`.
+- [x] **`app/services/llm_narrative.py`** — **`_alpha_facts()` explicit allow-list** (never `AlphaResult.__dict__`/`asdict`); `build_alpha_prompt()` returns (`system`=output contract, `user`=JSON facts only); `_alpha_narrative()` rule-based fallback. `generate_alpha_explanation()`: TTL cache → disabled-check (no key/model) → budget check → provider call → fallback on `LLMError`. **Placed here, not `explanation.py`**, to avoid the import cycle `alpha → analysis → explanation → alpha`.
+- [x] **Output contract** enforced in the system prompt (short text ≤3 sentences, no invented numbers, no investment advice, no guaranteed future-return claims, "not investment advice" tag). No second model polices output — prompt boundary + tests are the guardrail (D-less design choice, see PLANNING D39).
+- [x] **`app/routers/alpha.py`** — `AlphaResponse` gains `explanation: str`; wired via `generate_alpha_explanation(stock, result)`.
+- [x] Tests: **`tests/test_llm.py` (15)**: allow-list exact keys, free-text exclusion, prompt grounding, output-contract instructions, no-key / no-model / provider-error / budget-cap fallbacks, provider-success path, TTL cache (provider called once), cost-logging (tokens + None-safe), OpenRouter success / non-2xx / malformed / invalid-JSON (mocked httpx, zero network). **`tests/test_alpha.py`** extended: endpoint asserts `explanation` is a non-empty string.
+- [x] **Full suite: 133/133 passed** (118 existing + 15 new), network-free.
+- [x] **Coverage: 78%** (up from 76%). New modules: `llm_narrative.py` 95%.
+- [x] **Live verification (Postgres back up):** `GET /api/v1/stocks/RELIANCE/alpha` → 200, composite 59, `explanation` populated via rule-based fallback (no LLM key configured); `llm_disabled reason=no_key` logged; second TCS call hit `llm_cache hit` (TTL cache works), same explanation returned; snapshot persisted.
+- [x] **LLM key stays unset in `.env`** — the free-model availability check is left as a manual `.env` step; the app degrades gracefully by design.
+
+### Session 13 — Phase 5 partial / Postgres environment blocker (2026-08-21)
+- The session began with **PostgreSQL failing to accept connections** on Windows: the postmaster bound port 5432 but **every backend worker died with `0xC0000142` (STATUS_DLL_INIT_FAILED)** — logged as `server process (PID ...) was terminated by exception 0xC0000142`, with the Postgres hint "antivirus, backup, or similar software interfering". Evidence recorded: `psql: server closed the connection unexpectedly`, `ConnectionRefusedError [WinError 1225]` in pytest-backed tests.
+- DB-backed verifications were **blocked**, not failed. Pure/network-free work completed and verified first (71 pure tests + 19-point direct verification script). Postgres later recovered (clean `pg_postmaster_start_time`); DB-backed steps then ran green.
+- **No PostgreSQL / antivirus / security settings were modified.**
 
 ### Session 12 — Phase 4: technical indicators + Alpha Score (2026-08-19)
 - [x] `app/services/indicators.py` — pure functions: SMA20, EMA12 (SMA-seeded), RSI14 (Wilder, avgLoss=0→100), MACD 12/26/9 (line/signal/histogram). `score_technicals()` = trend 50% + momentum 30% + reversion 20%, renormalized over available components, bounded 0-100.
@@ -162,12 +179,19 @@
 
 ## 3. In Progress / Next Steps
 
-### Phase 5: Grounded LLM explanation (start here)
-1. LLM provider abstraction (OpenAI/Claude) — prompt **only with computed facts** (scores, components, valuation, sentiment) so it narrates, never hallucinates.
-2. Wire into the `/alpha` (and optionally `/scores`, `/valuation`) responses as an `explanation` field.
-3. Mock the LLM in tests; cap/cache calls; log cost.
-4. Keep the rule-based explanations as the always-available fallback.
-5. API tests (LLM mocked, no network).
+### Phase 6: React dashboard + charts (start here)
+1. Scaffold a React + Vite + TypeScript app (frontend/ dir) with Tailwind + shadcn/ui.
+2. Build the stock list / detail pages consuming the existing `/api/v1` endpoints.
+3. Add TradingView Lightweight Charts for price history; surface Alpha Score + explanation on the detail page.
+4. Screener UI (backend already done).
+5. No backend changes expected unless the frontend surfaces an API gap (e.g. aggregate `/overview` endpoint, P6 tracked item — see PLANNING §18).
+
+### Phase 5 recap (done — grounded LLM explanation)
+- LLM provider abstraction (`LLMProvider`, `LLMResult`, `OpenRouterProvider`) — prompt **only with allow-listed computed facts** via `_alpha_facts()`.
+- Wired into `/alpha` only (`explanation` field). `/scores` + `/valuation` reuse the ABC later.
+- LLM mocked in tests (FakeLLMProvider + mocked httpx); rule-based fallback always available.
+- In-process TTL cache + daily cap + cost logging; Redis deferred.
+- **To enable the LLM live:** set `LLM_API_KEY` + a currently-available `LLM_MODEL` in `backend/.env` (see `.env.example`). Verify the free model is still served by OpenRouter first.
 
 ### Note on test DB
 Tests use dedicated `signaldesk_test`; `conftest.py` handles schema rebuild + dependency override. Never hit the real `signaldesk` DB.
@@ -306,6 +330,12 @@ git push
 - **Valuation is deliberately separate** from the Alpha composite (40/30/30) — blending multiples would double-count fundamentals. `value_signal` surfaces it prominently instead.
 - **`components` vs `weights` in the /alpha response are separate dicts** — pydantic rejects a nested dict in a `dict[str,float]` (hit in the first alpha test run).
 - **`get_close_series` returns oldest-first** (reverses the DESC query) — feed indicators chronological closes.
+- **LLM narrative lives in `services/llm_narrative.py`, NOT `explanation.py`** — `explanation.py` is imported by `analysis.py` → `alpha.py`; importing `AlphaResult` there would create a circular import.
+- **`LLM_MODEL` empty = LLM disabled** — the code default is `""`; never hard-code a model ID in source. Set key + model in `backend/.env` to enable.
+- **Free OpenRouter models rotate** — a `:free` model ID that works today may 404/429 later; the app falls back to the rule-based explanation on `LLMError`, so this is non-fatal.
+- **Module-level `_cache`/`_calls_today` in `llm_narrative.py` persist across tests** — the `_reset_state` autouse fixture in `test_llm.py` clears them per test.
+- **Redis still deferred** — the Phase 5 explanation cache + daily cap are in-process; a restart clears them.
+- **PostgreSQL on Windows `0xC0000142` (STATUS_DLL_INIT_FAILED)** — the postmaster bound port 5432 but backend workers died on connection; log hint points at antivirus/backup interference. `pg_ctl status` may say "no server running" while the port listens briefly. Recovery was external; if DB-backed tests start erroring with `ConnectionRefusedError`/`server closed the connection`, re-check the server before assuming app bugs.
 
 ---
 

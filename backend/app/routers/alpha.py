@@ -11,6 +11,7 @@ from app.db import get_session
 from app.repositories import alpha as alpha_repo
 from app.routers.common import resolve_stock
 from app.services import alpha as alpha_svc
+from app.services.llm_narrative import generate_alpha_explanation
 
 router = APIRouter(prefix="/stocks", tags=["alpha"])
 
@@ -34,6 +35,7 @@ class AlphaResponse(BaseModel):
     components: dict[str, float]
     weights: dict[str, float]
     value_signal: ValueSignalResponse | None
+    explanation: str
     insufficient_data: bool
 
 
@@ -55,6 +57,9 @@ async def get_alpha(symbol: str, session: SessionDep) -> AlphaResponse:
         components_json=result.components,
     )
 
+    # Grounded LLM explanation (falls back to rule-based internally).
+    explanation = await generate_alpha_explanation(stock, result)
+
     return AlphaResponse(
         symbol=result.symbol,
         date=date.today(),
@@ -74,5 +79,6 @@ async def get_alpha(symbol: str, session: SessionDep) -> AlphaResponse:
             if result.value_signal
             else None
         ),
+        explanation=explanation,
         insufficient_data=result.insufficient_data,
     )

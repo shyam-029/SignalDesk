@@ -31,6 +31,24 @@ class Settings(BaseSettings):
     openai_api_key: str = ""
     anthropic_api_key: str = ""
 
+    # --- LLM provider (Phase 5: grounded explanation narrative) ---
+    # API key for the LLM gateway. Empty string => LLM disabled; the app falls
+    # back to the rule-based explanation.
+    llm_api_key: str = ""
+
+    # Base URL for an OpenAI-compatible chat-completions endpoint.
+    # Defaults to OpenRouter's API (no SDK required; we call it with httpx).
+    llm_base_url: str = "https://openrouter.ai/api/v1"
+
+    # Model ID (e.g. an OpenRouter model name). Empty string (the code default)
+    # means "not configured" -> LLM disabled. Free OpenRouter models rotate; the
+    # actual ID is set via .env, never hard-coded here.
+    llm_model: str = ""
+
+    # Daily budget cap: max LLM calls per process-day. In-process counter only
+    # (Redis stays deferred to a later caching phase).
+    llm_daily_cap: int = 100
+
     # Finnhub key for live prices (deferred).
     finnhub_api_key: str = ""
 

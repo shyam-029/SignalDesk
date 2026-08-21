@@ -3,7 +3,7 @@
 > **Purpose:** Living document. Records every product, technical, and scope decision for the project.
 > **Owner:** Shyam (3rd-year CS student)
 > **Timeline:** 2 semesters (~8 months) before recruiter season.
-> **Status:** **Phase 4 COMPLETE** (technical indicators + Alpha Score composite). Phase 5 next: grounded LLM explanation.
+> **Status:** **Phase 5 COMPLETE** (grounded LLM explanation on `/alpha`). Phase 6 next: React dashboard + charts.
 >
 > **Companion file:** `PROGRESS.md` — operational status, what's done/in-progress/next, command
 > cheatsheet, and gotchas. **Read PROGRESS.md first to pick up where we left off.**
@@ -94,7 +94,7 @@ For each stock, produce:
 - News ingestion (RSS) + FinBERT sentiment scoring
 
 ### Stretch (P2) / Semester 2
-- LLM-generated explanation narrative
+- LLM-generated explanation narrative (shipped — grounded `/alpha` narrative, Phase 5)
 - NL screener (LLM function calling)
 - Three.js holdings graph
 - DCF valuation (Semester 2 upgrade)
@@ -138,7 +138,7 @@ stock_universe  (universe_id, stock_id)  -- membership (many-to-many)
 | Cache | **Redis** | Cache hot endpoints (quotes, scores) with TTL + explicit invalidation |
 | Scheduler | APScheduler | Background ingestion/scoring jobs |
 | ML | FinBERT (HuggingFace) | Free, local sentiment scoring |
-| LLM | OpenAI `gpt-4o-mini` or Claude Haiku | Score-explanation narrative + NL screener (~$5 lasts 6+ months) |
+| LLM | OpenRouter via raw httpx (OpenAI-compatible; `LLMProvider` ABC) | Score-explanation narrative (Phase 5) + NL screener (STRETCH); configurable free model, empty = disabled; rule-based fallback |
 | Frontend | React + Vite + TypeScript, shadcn/ui, Tailwind, Framer Motion | Transferable stack; professional components |
 | Charts | TradingView Lightweight Charts | Finance-native, free, looks real |
 | 3D | Three.js / react-three-fiber | Holdings graph (stretch) |
@@ -308,7 +308,7 @@ Base path: `/api/v1`. All responses JSON. Swagger docs auto-generated at `/docs`
 ### Alpha Score (composite)
 | Method | Path | Request | Response |
 |---|---|---|---|
-| GET | `/api/v1/stocks/{symbol}/alpha` | — | `Alpha` (composite, fundamental, technical, sentiment, components, weights, value_signal, insufficient_data) |
+| GET | `/api/v1/stocks/{symbol}/alpha` | — | `Alpha` (composite, fundamental, technical, sentiment, components, weights, value_signal, explanation, insufficient_data) |
 
 ### Health / Meta
 | Method | Path | Response |
@@ -407,7 +407,7 @@ StockSummary: { symbol, name, sector, last_price, change_pct }
 | Negative/zero earnings | Exclude that metric (P/E) from valuation for that stock; note it |
 | Partial ingestion failure | Per-symbol error isolation — one bad symbol doesn't fail the whole run |
 | Secret leaked to repo | `.gitignore` + `.env` + `config.py` startup validation; no secrets in tests/logs |
-| LLM key cost runaway | Single-purpose calls, mock in tests, cache explanations, `$5` budget cap |
+| LLM key cost runaway | Single-purpose calls, mock in tests, in-process TTL cache + `llm_daily_cap`, cost logging, rule-based fallback |
 | Rate limit from free APIs | Backoff + scheduler throttling; provider abstraction to swap source |
 | DB migration drift | Alembic migrations versioned; CI checks `alembic upgrade head` |
 
@@ -424,7 +424,7 @@ StockSummary: { symbol, name, sector, last_price, change_pct }
 | 2 | 4–5 | **Relative valuation + fundamental scores (profitability/solvency) + rule-based explanation** |
 | 3 | 6–7 | News RSS ingestion + FinBERT sentiment |
 | 4 | 8–9 | Technical indicators + Alpha Score composite |
-| 5 | 10–11 | LLM explanation narrative + tests |
+| 5 | 10–11 | ✅ LLM explanation narrative + tests (DONE) |
 | 6 | 12–13 | React dashboard + charts |
 | 7 | 14–15 | Observability (structured logging, stale-data flags, /debug/jobs) — Redis and Three.js moved to conditional/stretch, see §18 |
 | 8 | 16 | Deploy (Render/Railway) + polish + README |
@@ -456,6 +456,20 @@ StockSummary: { symbol, name, sector, last_price, change_pct }
 ## 16. Definition of Done — Phase 1
 
 > **STATUS: MET** (2026-08-18). All 8 items below verified.
+
+## 16b. Definition of Done — Phase 5 (grounded LLM explanation)
+
+> **STATUS: MET** (2026-08-21). All items verified.
+
+Phase 5 is complete only when all of the following pass:
+
+1. `/alpha` returns a populated `explanation` — LLM-narrated when key+model+provider work, rule-based otherwise.
+2. Every number in the LLM prompt comes from the `_alpha_facts()` allow-list (explicit serialization, not `AlphaResult.__dict__`); prompt carries no free-text fields → no injection path.
+3. `LLMResult` carries `text`/`tokens_used`/`model`; cost logged from it, `None`-safe.
+4. `LLM_MODEL` configurable via env; empty default = disabled; no model hard-coded in code; `.env.example` documents the example model + changeability.
+5. Prompt enforces the output contract (short, factual, no recommendation, no guaranteed returns); tests verify the instructions.
+6. LLM mocked in tests; suite passes zero-network; coverage measured.
+7. `PROGRESS.md` + `PLANNING.md` updated; Git commit + push done.
 
 Phase 1 is **complete** only when all of the following pass:
 
@@ -548,6 +562,18 @@ Chronological record of decisions. Append as time progresses.
   Overlooked capabilities tracked: aggregate `/overview` endpoint (P6),
   per-period financials, stale-data flags (P7), 429 handling, screener
   precompute. MVP roadmap unchanged; Phase 5 (grounded LLM) is next.
+
+### 2026-08-21 — Session 14 (Phase 5: grounded LLM explanation)
+- **D39.** **Grounded LLM explanation implemented on `/alpha` only**, per the approved REV 2 plan.
+  - **Provider:** OpenRouter via **raw async httpx** (OpenAI-compatible `chat/completions`) behind an `LLMProvider` ABC. **No OpenAI/Anthropic SDKs.** `LLMResult` carries `text`, `tokens_used` (None-safe), `model` so cost logging needs no separate usage reconstruction.
+  - **`LLM_MODEL` is configurable; empty string is the code default = LLM disabled.** No model ID is hard-coded in source; `.env.example` documents a sample (free) model and warns that free OpenRouter models rotate. Model unavailability degrades to the rule-based fallback (non-fatal by design).
+  - **Security boundary:** `_alpha_facts()` is an explicit **allow-list** (explicit field serialization, never `AlphaResult.__dict__`/`asdict`), so a future free-text field cannot become an injection path. `value_signal` is limited to structured `metric`/`status`/`margin_pct` — its free-text `explanation` never reaches the prompt.
+  - **Output contract enforced in the system prompt** (short ≤3 sentences, no invented numbers, no investment advice, no guaranteed future-return claims, "not investment advice" tag). **No second model polices output** — the prompt boundary + tests are the guardrail.
+  - **Fallback chain (all → rule-based `_alpha_narrative()`):** no key → no model → provider `LLMError` (network/non-2xx/malformed) → budget exhausted. `/alpha` never fails and always returns a populated `explanation`.
+  - **In-process TTL cache** (24h, keyed `(symbol, date)`) + **in-process daily cap** (`llm_daily_cap`, default 100) + structured `llm_usage tokens= model=` cost logging. **Redis stays deferred.**
+  - **Placement:** narrative lives in `services/llm_narrative.py`, not `explanation.py`, to avoid the import cycle `alpha → analysis → explanation → alpha`.
+  - **Tests:** `tests/test_llm.py` (15) — allow-list boundary, grounding, output contract, all fallback paths, budget cap, TTL cache, cost logging, and OpenRouter success/non-2xx/malformed/invalid-JSON via mocked httpx (zero network). **133/133 tests; coverage 78%** (from 76%; `llm_narrative.py` 95%). Live `/alpha` verified via the rule-based path (no key configured).
+  - **Deferred (intentional):** LLM on `/scores` + `/valuation` (reuse the ABC later), NL screener (STRETCH), Redis/persistent telemetry, storing explanations in `alpha_scores` (no migration this phase).
 
 ---
 
