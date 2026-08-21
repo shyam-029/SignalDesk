@@ -212,6 +212,12 @@ cd C:\Users\shyam\Desktop\Projects\signaldesk\backend
 cd C:\Users\shyam\Desktop\Projects\signaldesk\backend
 .\.venv\Scripts\python.exe -m pytest -v                            # run full suite (test DB, no network)
 .\.venv\Scripts\python.exe -m pytest --cov=app --cov-report=term    # coverage report
+
+# --- Git (commit + push after each phase) ---
+cd C:\Users\shyam\Desktop\Projects\signaldesk
+git add -A
+git commit -m "Phase X: description"
+git push
 ```
 
 ---
@@ -227,7 +233,9 @@ cd C:\Users\shyam\Desktop\Projects\signaldesk\backend
 | Postgres superuser | `postgres` / `postgres` (dev only) |
 | Database | `signaldesk` |
 | DB connection (expected) | `postgresql+asyncpg://postgres:postgres@localhost:5432/signaldesk` |
-| Planning doc | `C:\Users\shyam\Desktop\Projects\PLANNING.md` |
+| Planning doc | `C:\Users\shyam\Desktop\Projects\signaldesk\PLANNING.md` |
+| Progress doc | `C:\Users\shyam\Desktop\Projects\signaldesk\PROGRESS.md` |
+| GitHub repo | `https://github.com/shyam-029/SignalDesk` (public) |
 
 ---
 
