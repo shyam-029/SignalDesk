@@ -339,4 +339,31 @@ git push
 
 ---
 
+### PostgreSQL Incident / Operational Gotcha (2026-08-21)
+
+**Install/run facts (durable):**
+- PostgreSQL **17.11** install path: `C:\Users\shyam\PostgreSQL` (NOTE: not `PostgresSQL` — that spelling does not exist).
+- Data directory: `C:\Users\shyam\PostgreSQL\data`.
+- SignalDesk database: `signaldesk` (superuser `postgres` / `postgres`, dev only).
+- PostgreSQL is started locally for development (no Windows service).
+
+**Incident:** On 2026-08-21 PostgreSQL intermittently crashed with backend-worker exception **`0xC0000142` (STATUS_DLL_INIT_FAILED)**. The postmaster could temporarily bind port 5432 while real connections failed (`server closed the connection unexpectedly`).
+
+**Likely cause (not conclusively proven):** Evidence strongly implicated external logfile handling/file locking and possible **antivirus (Defender/Malwarebytes) and/or VSS shadow-copy interference**:
+- `could not open file "./server.log": sharing violation` + PostgreSQL's own hint: "You might have antivirus, backup, or similar software interfering with the database system."
+- Volsnap/VSS shadow-copy events on volume C: immediately before the crash.
+- Instances started with `pg_ctl -l <shared server.log>` crashed; the instance started directly was stable.
+
+**Proven stable launch method (use this):**
+```
+& "C:\Users\shyam\PostgreSQL\bin\postgres.exe" -D "C:\Users\shyam\PostgreSQL\data"
+```
+Avoid `pg_ctl -l` with the old shared `server.log` arrangement.
+
+**Outcome:** PostgreSQL eventually recovered; the complete Phase 5 suite subsequently passed (**133/133 tests, 78% coverage**, live `/alpha` verification succeeded). No data/WAL deletion, database reinitialization, password reset, or PostgreSQL reinstall was performed.
+
+**If the problem recurs:** read `docs/incidents/postgresql-2026-08-21.md` before troubleshooting.
+
+---
+
 *Append progress after every phase. When a phase hits its Definition of Done, mark it complete here.*
