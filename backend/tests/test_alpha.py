@@ -140,6 +140,8 @@ async def test_alpha_endpoint_full(client, session_factory):
     assert 0 <= body["composite"] <= 100
     assert "weights" in body and body["weights"]  # renormalized weights present
     assert body["insufficient_data"] is False
+    assert isinstance(body["explanation"], str)
+    assert len(body["explanation"]) > 0  # rule-based fallback always available
 
 
 async def test_alpha_endpoint_unknown_symbol_404(client, session_factory):
