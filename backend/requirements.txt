@@ -1,0 +1,27 @@
+# --- Web framework ---
+fastapi
+uvicorn[standard]
+
+# --- Database ---
+sqlalchemy[asyncio]
+asyncpg
+alembic
+pydantic-settings
+
+# --- Data provider ---
+yfinance
+pandas
+numpy
+
+# --- Scheduling ---
+apscheduler
+
+# --- Testing ---
+pytest
+pytest-asyncio
+pytest-cov
+httpx
+# --- FinBERT sentiment ---
+torch
+transformers
+feedparser
