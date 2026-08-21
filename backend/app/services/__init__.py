@@ -1,0 +1,1 @@
+# Business-logic services (pure functions: valuation, scores, explanation).
