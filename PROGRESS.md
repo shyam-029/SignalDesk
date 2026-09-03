@@ -3,7 +3,7 @@
 > **Purpose:** The operational counterpart to `PLANNING.md`. This is the file to read FIRST to pick up
 > where we left off. Updated after every phase.
 > **Rules:** What's done → in progress → next. Command cheatsheet. Known gotchas.
-> **Last updated:** 2026-08-21 (Session 14 — Phase 5 complete: grounded LLM explanation)
+> **Last updated:** 2026-09-04 (Session 15 — Phase 6 complete: production React frontend + 4 backend additions)
 > **Roadmap audit completed 2026-08-19 — see PLANNING §18 (4-tier product taxonomy).**
 
 ---
@@ -26,13 +26,45 @@
 | 3 — News RSS ingestion + FinBERT sentiment | ✅ **COMPLETE** |
 | 4 — Technical indicators + Alpha Score composite | ✅ **COMPLETE** |
 | 5 — Grounded LLM explanation | ✅ **COMPLETE** |
-| 6 — React dashboard + charts | ⏳ **NEXT UP** |
+| **6 — React dashboard + charts (frontend + backend gaps)** | ✅ **COMPLETE** |
 
-**One-line status:** Phase 5 COMPLETE — `/alpha` gains a **grounded LLM `explanation`** (OpenRouter via raw httpx behind an `LLMProvider` ABC; explicit allow-list `_alpha_facts()`; rule-based fallback for no-key/model/failure/budget; in-process TTL cache + daily cap; cost logging). **133/133 tests green, coverage 78%.** Live `/alpha` verified (rule-based path; no LLM key configured). Next: Phase 6 (React dashboard + charts).
+**One-line status:** Phase 6 COMPLETE — production **React 19 + Vite + TS + Tailwind v4** frontend
+(landing / markets / screener / stock-research / methodology) consuming the existing `/api/v1`;
+4 smallest-coherent backend additions (CORS config, `GET /stocks/{symbol}` detail+quote,
+`GET /stocks/{symbol}/technicals` raw indicators, `POST /stocks/{symbol}/explain` grounded contextual
+explanations reusing the Phase 5 LLM architecture). **Backend 155/155 tests, frontend 38/38 vitest,
+tsc clean, vite build OK. Live uvicorn+Vite integration verified (CORS, deep link, all endpoints).**
 
 ---
 
 ## 2. Completed Work
+
+### Session 15 — Phase 6: production frontend + backend gaps (2026-09-04)
+
+**Backend additions (4, smallest-coherent; no refactor of existing code):**
+- [x] **CORS** — `cors_origins` setting (comma-separated, default `http://localhost:5173`, empty disables) + `CORSMiddleware` in `main.py` (GET/POST). `.env.example` documents `CORS_ORIGINS`.
+- [x] **`GET /stocks/{symbol}`** — fills the PLANNING §9 contract gap: profile (name/sector/industry) + quote block (last_price, change_abs/pct, open/high/low, prev_close, volume, bar date) + market_cap from the financials snapshot. Fields are **null when data is absent** — nothing fabricated.
+- [x] **`GET /stocks/{symbol}/technicals`** — raw SMA20/EMA12/RSI14/MACD(line/signal/histogram) + the existing trend/momentum/reversion sub-scores + score; reuses `services/indicators.py` (no duplicated math); `insufficient_data` flag under 26 closes.
+- [x] **`POST /stocks/{symbol}/explain`** — grounded contextual explanations for 5 FIXED question types (alpha/technical/valuation/fundamental/sentiment). Reuses Phase 5 architecture: per-type fact **allow-lists** (`_ALLOWED_FACT_KEYS`), alpha facts reuse `llm_narrative._alpha_facts()` verbatim, output contract prompt, rule-based fallback on every path (facts unavailable / no key / no model / budget / provider error), in-process TTL cache, **shared daily cap** with `/alpha` (new public `budget_ok()`/`register_llm_call()` in `llm_narrative.py`). Not a chatbot: no free text, fixed types only; unsupported type → 422 envelope.
+- [x] Tests: `test_stock_detail_technicals.py` (12: detail/quote/market-cap/null-quote/404, technicals vs pure functions/insufficient/404, CORS preflight allowed+methods/disallowed-origin) + `test_explain_api.py` (11: all 5 question types rule-based, 404, 422, insufficient-data, LLM path w/ grounded prompt assertion, TTL cache, budget cap, allow-list strips unknown keys). **Full suite: 155/155 passed** (133 baseline + 22 new), zero-network.
+
+**Frontend (`frontend/`, new):**
+- [x] **Stack:** Vite 6 + React 19 + TypeScript (strict), Tailwind CSS v4 (`@tailwindcss/vite`), shadcn-style primitives (button/badge/tooltip/popover/tabs/collapsible/skeleton/input over Radix), TanStack Query v5 + TanStack Table v8, React Router v7 (lazy route chunks), Framer Motion 12, TradingView **Lightweight Charts v5** (candlesticks, crosshair OHLC legend, theme-aware, ResizeObserver), lucide-react, self-hosted **@fontsource** tri-font (Libre Caslon Text display / Hanken Grotesk body / JetBrains Mono data).
+- [x] **Design tokens (`src/index.css`):** light **Warm Paper + Cobalt** default + **Deep Ink + Jade** dark as a genuine alternate token system (`@custom-variant dark`), band tokens (strong/positive/moderate/weak/veryweak) consumed only by analytical conclusions; raw metrics neutral. Class-based toggle in the site header.
+- [x] **Foundations:** typed API client (`lib/api.ts`) with `ApiError` parsing the backend error envelope (status/code/detail; `isNotFound`/`isNoPeers`/`isInsufficientData`); wire-format types (`lib/types.ts`); Indian formatters (₹ grouping, lakh/crore compact, signed pct); semantic system (`lib/semantic.ts`: `scoreBand` 80/60/40/20, `valuationSemantics` (independent of Alpha), `technicalVerdict`, `sentimentSemantics`); **METRIC_INFO registry + InfoDot** (tooltip short def → popover methodology → expandable longer context) covering 30+ metrics; **DataState** (loading skeletons / empty / insufficient / stale as-of / API error+retry / unknown-symbol); per-endpoint TanStack Query hooks with keyed caching + targeted retry (404/NO_PEERS/INSUFFICIENT_DATA never retry).
+- [x] **Landing page:** editorial story (RAW NUMBERS → STRUCTURE → ANALYSIS → RESEARCH → SIGNAL): hero with real 6-month RELIANCE sparkline + Alpha object, numbers-cloud→structure choreography, four-inputs→Alpha convergence (weights, valuation kept separate), score-responsive Alpha states (82/59/34 labeled examples), grounded-explanation panel, **live product preview** (real detail/alpha/technicals/prices via the API with honest DataState), live Nifty-50 universe strip (featured names from the real catalog), honest Equities/ETF/MF roadmap, expandable methodology, quiet CTA. Motion = reveals, count-ups, chart draw, component convergence only.
+- [x] **Markets:** server-paginated table (API page/limit; DOM bounded to one 25-row page), sector filter via the API param, TanStack Table columns, semantic day-change color only.
+- [x] **Screener:** the exact backend filters (status select, min profitability/solvency inputs clamped 0–100), scored cells with mini bars, valuation-state badges, honest empty state.
+- [x] **Stock detail (`/stocks/:symbol`, deep-linkable):** header (identity, price+change, market cap, OHLC stats, as-of date, AskPanel) → Alpha (composite + weighted component bars + technical evidence sub-scores + value signal chip + grounded explanation + "Why is Alpha X?") → Valuation (tabbed metric; verdict + relative-position marker vs peer median; **all four multiples P/E, EV/EBITDA, P/B, P/S each with its own backend peer median**; expandable EV/EBITDA/market-cap inputs; NO_PEERS/INSUFFICIENT_DATA states) → Fundamentals (profitability/solvency scores + per-ratio threshold bars) → Price (Lightweight Charts, 1M–2Y) + Technical Positioning (verdict word — technical evidence only — + sub-scores + SMA/EMA/RSI/MACD readings with interpretations + heuristic disclaimer + "Why?") → News & Sentiment (net sentiment + expandable articles with labels) → compact methodology. Contextual **ExplainAction** ("Why?") + **AskPanel** (5 fixed grounded questions) — no chatbot UI.
+- [x] **Methodology page:** documented weights/thresholds table, technicals-heuristic disclaimer, valuation-vs-Alpha separation, data freshness, no-fabrication policy.
+- [x] Tests (Vitest + RTL, jsdom): 38 — formatters (null-safe, Indian grouping), semantic bands/verdicts, API client (envelope parsing, network error, query shapes), DataState states, InfoDot content, ScoreBlock banding, METRIC_INFO completeness.
+- [x] **Verification actually performed:** `npx tsc -b` clean; `vitest run` **38/38**; `vite build` OK (per-page chunks; landing 31.9 kB gz 8.7, stock page 47.4 kB gz 14.0); **live integration**: uvicorn :8000 + `vite` :5173 — `/health` ok; direct API with `Origin: http://localhost:5173` returns `access-control-allow-origin`; OPTIONS preflight 200 (GET,POST); `GET /stocks/RELIANCE` real quote (₹1,322.00, +0.46%, mcap ₹17.9L Cr, bar 2026-08-18); `/technicals` score 55 (SMA20 1302.9, RSI14 54.3, MACD hist +1.91, 200 closes); `POST /explain` technical → rule-based grounded text; bad question_type → 422; `/valuation?metric=EV_EBITDA` → 11.64 vs 5.77 overvalued (1 peer); `/alpha` composite 59 (70/55/48) with populated explanation; `/screener?status=undervalued&min_profitability=50` → 13 matches; unknown symbol → 404; Vite serves `/` and deep link `/stocks/RELIANCE` (200) and proxies `/api` to the backend.
+
+**Durable decisions (see PLANNING D40–D48):** markets page paginates server-side; stock detail composes
+multiple focused endpoints (one per section) rather than one mega-endpoint; every valuation multiple
+has its own query so peer medians show for all four simultaneously; the frontend never recomputes
+backend math (EV/EBITDA comes only from the valuation endpoint); verdict wording lives client-side
+(presentation), values/evidence live backend-side; design-reference folders git-ignored (local-only).
 
 ### Session 14 — Phase 5: grounded LLM explanation (2026-08-21)
 - [x] **`app/config.py`** — added `llm_api_key`, `llm_base_url` (default `https://openrouter.ai/api/v1`), `llm_model` (**empty = LLM disabled**), `llm_daily_cap` (default 100). `.env.example` documents the OpenRouter key + a sample free model + cap note.
@@ -179,12 +211,15 @@
 
 ## 3. In Progress / Next Steps
 
-### Phase 6: React dashboard + charts (start here)
-1. Scaffold a React + Vite + TypeScript app (frontend/ dir) with Tailwind + shadcn/ui.
-2. Build the stock list / detail pages consuming the existing `/api/v1` endpoints.
-3. Add TradingView Lightweight Charts for price history; surface Alpha Score + explanation on the detail page.
-4. Screener UI (backend already done).
-5. No backend changes expected unless the frontend surfaces an API gap (e.g. aggregate `/overview` endpoint, P6 tracked item — see PLANNING §18).
+### Phase 7: Observability (next up per roadmap §14)
+- Structured logging, stale-data flags surfaced via API (`stale: true`), `/debug/jobs`.
+- Optional: aggregate `/overview` endpoint (tracked in §18 — was not needed for Phase 6; the landing preview composes existing endpoints).
+- Redis stays deferred/conditional.
+
+### Phase 6 recap (done — production frontend + 4 backend additions)
+- Frontend runs with: backend `uvicorn app.main:app` + `frontend/` `npm run dev` (Vite proxies `/api` → :8000; or set `VITE_API_BASE` for direct/CORS access).
+- Enable the LLM live for `/alpha` + `/explain`: set `LLM_API_KEY` + a currently-available `LLM_MODEL` in `backend/.env` (rule-based fallback otherwise, by design).
+- ETFs/Mutual Funds remain honest roadmap sections (no fake capabilities); auth deliberately absent.
 
 ### Phase 5 recap (done — grounded LLM explanation)
 - LLM provider abstraction (`LLMProvider`, `LLMResult`, `OpenRouterProvider`) — prompt **only with allow-listed computed facts** via `_alpha_facts()`.
@@ -237,6 +272,15 @@ cd C:\Users\shyam\Desktop\Projects\signaldesk\backend
 .\.venv\Scripts\python.exe -m pytest -v                            # run full suite (test DB, no network)
 .\.venv\Scripts\python.exe -m pytest --cov=app --cov-report=term    # coverage report
 
+# --- Frontend (Phase 6) ---
+cd C:\Users\shyam\Desktop\Projects\signaldesk\frontend
+npm install                                                         # install deps
+npm run dev                                                         # Vite dev server (:5173, proxies /api -> :8000)
+npm run typecheck                                                   # tsc -b (strict, zero errors expected)
+npm run test                                                        # vitest run (38 tests, jsdom)
+npm run build                                                       # tsc -b && vite build (per-page chunks)
+npm run preview                                                     # serve the production build
+
 # --- Git (commit + push after each phase) ---
 cd C:\Users\shyam\Desktop\Projects\signaldesk
 git add -A
@@ -252,6 +296,7 @@ git push
 |---|---|
 | Project root | `C:\Users\shyam\Desktop\Projects\signaldesk` |
 | Backend | `backend/` (venv at `backend/.venv`) |
+| Frontend | `frontend/` (Node ≥ 20; built with Node 24) |
 | Postgres binaries | `C:\Users\shyam\PostgreSQL\bin` |
 | Postgres data dir | `C:\Users\shyam\PostgreSQL\data` |
 | Postgres superuser | `postgres` / `postgres` (dev only) |
@@ -336,6 +381,18 @@ git push
 - **Module-level `_cache`/`_calls_today` in `llm_narrative.py` persist across tests** — the `_reset_state` autouse fixture in `test_llm.py` clears them per test.
 - **Redis still deferred** — the Phase 5 explanation cache + daily cap are in-process; a restart clears them.
 - **PostgreSQL on Windows `0xC0000142` (STATUS_DLL_INIT_FAILED)** — the postmaster bound port 5432 but backend workers died on connection; log hint points at antivirus/backup interference. `pg_ctl status` may say "no server running" while the port listens briefly. Recovery was external; if DB-backed tests start erroring with `ConnectionRefusedError`/`server closed the connection`, re-check the server before assuming app bugs.
+
+### Phase 6 frontend/backend gotchas
+- **Radix nested triggers (Tooltip.Trigger asChild → Popover.Trigger asChild) do not respond to `@testing-library/user-event` in jsdom** (events hang or state stays closed). Tests assert the accessible trigger + extract the popover body (`InfoContent`) as a plain component; the composition itself works in real browsers.
+- **jsdom needs stubs**: `ResizeObserver` (chart/layout), `IntersectionObserver` (framer-motion `useInView`), `matchMedia`. All in `frontend/src/test/setup.ts`.
+- **Lightweight Charts v5 changed the API** — `chart.addSeries(CandlestickSeries, opts)` (import the series definition), NOT v4's `chart.addCandlestickSeries()`.
+- **framer-motion `useInView` requires a ref argument** (`useInView(ref, { once: true })`); the zero-arg form is a TS error.
+- **en-IN compact grouping is manual** — `Intl.NumberFormat("en-IN")` gives digit grouping but NOT "Cr/L" words; scaled values (v/1e7 etc.) are formatted by hand, thousands-grouped above 100.
+- **Valuation multiples are per-metric endpoints** — the stock page issues one `/valuation?metric=` query per multiple (4 total) so every row shows its own peer median; TanStack Query dedupes the selected one. EV/EBITDA is never computed client-side (backend-only math rule).
+- **Quote nulls are meaningful** — `GET /stocks/{symbol}` returns null quote fields when a stock has no price bars; the list endpoint's `0.0` sentinel was deliberately NOT copied (nulls drive the UI's "no data" states).
+- **Vite dev proxy** (`/api` → `http://localhost:8000`) is the default frontend transport; CORS middleware exists for direct/production access and is verified with a raw `Origin` header. `VITE_API_BASE` overrides the default.
+- **Shared LLM daily cap** — `llm_narrative.budget_ok()`/`register_llm_call()` are the single budget counter for BOTH `/alpha` and `/explain` (don't create a second counter).
+- **Design-reference folders are git-ignored** (`/Refine design concept*/`, `/Stock Detail Page Frames(1)/`, `/stitch_signaldesk_landing_experience(1)/`) — local visual references only, never part of the app.
 
 ---
 

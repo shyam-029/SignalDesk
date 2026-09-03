@@ -3,7 +3,7 @@
 > **Purpose:** Living document. Records every product, technical, and scope decision for the project.
 > **Owner:** Shyam (3rd-year CS student)
 > **Timeline:** 2 semesters (~8 months) before recruiter season.
-> **Status:** **Phase 5 COMPLETE** (grounded LLM explanation on `/alpha`). Phase 6 next: React dashboard + charts.
+> **Status:** **Phase 6 COMPLETE** (production React frontend + backend API gaps filled). Phase 7 next: observability.
 >
 > **Companion file:** `PROGRESS.md` — operational status, what's done/in-progress/next, command
 > cheatsheet, and gotchas. **Read PROGRESS.md first to pick up where we left off.**
@@ -286,9 +286,10 @@ Base path: `/api/v1`. All responses JSON. Swagger docs auto-generated at `/docs`
 | Method | Path | Request | Response |
 |---|---|---|---|
 | GET | `/api/v1/stocks` | `?sector=&page=1&limit=50` | `{ items: [StockSummary], total, page, limit }` |
-| GET | `/api/v1/stocks/{symbol}` | — | `StockDetail` (profile + overview) |
-| GET | `/api/v1/stocks/{symbol}/quote` | — | `Quote` (price, change, market_cap) |
+| GET | `/api/v1/stocks/{symbol}` | — | `StockDetail` (profile + quote block + market_cap; fields null when absent) |
+| GET | `/api/v1/stocks/{symbol}/quote` | — | *(subsumed by StockDetail.quote — not a separate endpoint)* |
 | GET | `/api/v1/stocks/{symbol}/prices` | `?range=1y&resample=1d` | `{ symbol, range, items: [OHLCV] }` |
+| GET | `/api/v1/stocks/{symbol}/technicals` | — | `Technicals` (SMA20, EMA12, RSI14, MACD{line,signal,histogram}, sub-scores, score, closes_used, insufficient_data) |
 
 ### Fundamentals & Valuation (core)
 | Method | Path | Request | Response |
@@ -309,11 +310,14 @@ Base path: `/api/v1`. All responses JSON. Swagger docs auto-generated at `/docs`
 | Method | Path | Request | Response |
 |---|---|---|---|
 | GET | `/api/v1/stocks/{symbol}/alpha` | — | `Alpha` (composite, fundamental, technical, sentiment, components, weights, value_signal, explanation, insufficient_data) |
+| POST | `/api/v1/stocks/{symbol}/explain` | `{question_type}` | `Explanation` (grounded contextual explanation; types: alpha/technical/valuation/fundamental/sentiment; rule-based fallback; TTL cache; shared daily cap) |
 
 ### Health / Meta
 | Method | Path | Response |
 |---|---|---|
 | GET | `/health` | `{ status: "ok" }` |
+
+**CORS:** browser origins come from `CORS_ORIGINS` (comma-separated; default `http://localhost:5173`; empty disables). The Vite dev server also proxies `/api` → the API, so CORS is only exercised on direct/production access.
 
 ### Key shapes
 ```
@@ -461,6 +465,19 @@ StockSummary: { symbol, name, sector, last_price, change_pct }
 
 > **STATUS: MET** (2026-08-21). All items verified.
 
+## 16c. Definition of Done — Phase 6 (production frontend)
+
+> **STATUS: MET** (2026-09-04). All items verified.
+
+1. `frontend/` builds with the locked stack (Vite/React/TS/Tailwind v4/Radix/TanStack/Framer/LW-Charts) — `tsc -b` zero errors, `vite build` succeeds.
+2. All five pages implemented and consuming ONLY existing/new backend endpoints: landing, markets, screener, stock research, methodology. No auth, no chatbot, no fake data.
+3. Stock research page shows: profile/quote header, Alpha + components + weights + grounded explanation, all four valuation multiples with peer medians + relative positioning + expandable inputs, fundamentals with per-ratio scores, Lightweight Charts price history (1M–2Y), Technical Positioning (aggregate verdict + SMA/EMA/RSI/MACD readings), news + net sentiment, methodology.
+4. Every non-obvious metric has an information affordance (METRIC_INFO/InfoDot); DataState handles loading/empty/insufficient/stale/error/unknown symbol.
+5. Semantic color only on analytical conclusions; valuation state independent of Alpha; raw metrics neutral.
+6. Backend suite green with the 4 additions (155/155, zero-network tests); frontend tests 38/38.
+7. Live integration verified (uvicorn + Vite: CORS, preflight, deep link, real endpoints).
+8. PROGRESS.md + PLANNING.md updated; git commit + push.
+
 Phase 5 is complete only when all of the following pass:
 
 1. `/alpha` returns a populated `explanation` — LLM-narrated when key+model+provider work, rule-based otherwise.
@@ -575,6 +592,58 @@ Chronological record of decisions. Append as time progresses.
   - **Tests:** `tests/test_llm.py` (15) — allow-list boundary, grounding, output contract, all fallback paths, budget cap, TTL cache, cost logging, and OpenRouter success/non-2xx/malformed/invalid-JSON via mocked httpx (zero network). **133/133 tests; coverage 78%** (from 76%; `llm_narrative.py` 95%). Live `/alpha` verified via the rule-based path (no key configured).
   - **Deferred (intentional):** LLM on `/scores` + `/valuation` (reuse the ABC later), NL screener (STRETCH), Redis/persistent telemetry, storing explanations in `alpha_scores` (no migration this phase).
 
+### 2026-09-04 — Session 15 (Phase 6: production frontend + backend gaps)
+
+- **D40.** **Four smallest-coherent backend additions** (frontend-driven, no refactors):
+  (1) CORS from `CORS_ORIGINS` config; (2) `GET /stocks/{symbol}` fills the §9 contract gap with a
+  quote block whose fields are **null when data is absent** (the list endpoint's `0.0` sentinel was
+  not copied — nulls drive honest UI states); (3) `GET /stocks/{symbol}/technicals` exposes raw
+  SMA20/EMA12/RSI14/MACD by **reusing** `services/indicators.py` (no duplicated math — `/alpha`
+  only exposed sub-scores); (4) `POST /stocks/{symbol}/explain` for 5 fixed question types.
+- **D41.** **`/explain` reuses the Phase 5 LLM architecture exactly**: per-type fact allow-lists
+  (`_ALLOWED_FACT_KEYS`) as a second boundary on top of explicit fact-gathering in the router;
+  alpha facts reuse `llm_narrative._alpha_facts()` verbatim; same output contract; rule-based
+  fallback on every path; own TTL cache keyed `(symbol, question_type, date)`; **one shared daily
+  cap** via new public `budget_ok()`/`register_llm_call()` in `llm_narrative.py`. No free-text
+  questions → not a chatbot. Metric definitions ("Explain this metric") are static frontend
+  registry content (METRIC_INFO), not LLM calls.
+- **D42.** **Frontend stack locked:** Vite + React 19 + TypeScript strict, Tailwind v4, shadcn-style
+  Radix primitives, TanStack Query (server state) + TanStack Table, React Router lazy routes,
+  Framer Motion, Lightweight Charts v5, lucide-react, @fontsource (Libre Caslon Text / Hanken
+  Grotesk / JetBrains Mono). Dev transport = Vite proxy `/api` → :8000; `VITE_API_BASE` override
+  uses the CORS middleware.
+- **D43.** **Design tokens, not templates:** light "Warm Paper + Cobalt" default; dark "Deep Ink +
+  Jade" as a genuine alternate token system (class toggle). Semantic band colors
+  (80/60/40/20 → strong/positive/moderate/weak/veryweak) are consumed ONLY by analytical
+  conclusions (Alpha, component scores, verdicts, valuation state, technical positioning); raw
+  metrics stay neutral; valuation carries its OWN state, never inheriting Alpha's color.
+- **D44.** **Information system:** METRIC_INFO registry (30+ entries: label, short tooltip,
+  popover methodology, optional expandable context) rendered through InfoDot/MetricRow — every
+  non-obvious metric on the research page has an affordance, and the registry doubles as a
+  completeness checklist (guarded by a test).
+- **D45.** **DataState discipline:** loading/empty/insufficient/stale(as-of)/error+retry/unknown-symbol
+  states everywhere; 404/NO_PEERS/INSUFFICIENT_DATA never retried; missing data renders honest
+  states — the frontend never fills gaps with fake or estimated values, and never recomputes
+  backend math (EV/EBITDA comes only from the valuation endpoint).
+- **D46.** **Stock detail composition:** one focused API call per section (detail, alpha,
+  valuation×4 metrics, scores, fundamentals, prices, technicals, news, sentiment) — cached by
+  TanStack Query; all four multiples (P/E, EV/EBITDA, P/B, P/S) show their own peer medians;
+  valuation verdict + relative-position marker per selected metric; expandable EV/EBITDA/market-cap
+  inputs kept secondary. Technical Positioning wording (Bearish etc.) is presentation logic
+  client-side over aggregate sub-scores — the stock itself is never labeled bearish/bullish.
+- **D47.** **Markets scales by API pagination** (server page/limit; one 25-row page in the DOM),
+  ready for Nifty 500; screener exposes exactly the backend's filters (status, min
+  profitability/solvency).
+- **D48.** **Landing is an editorial argument on real data**: hero sparkline + product preview +
+  universe strip read the live API (with honest error states), the Alpha-states demo (82/59/34) is
+  explicitly labeled as design-system examples, ETF/MF coverage is presented as roadmap — no fake
+  capabilities, testimonials, or pricing. Motion communicates (reveals, count-ups, convergence),
+  never decorates.
+- **Verified:** backend 155/155 (22 new zero-network tests); frontend tsc clean, vitest 38/38,
+  vite build OK; live uvicorn+Vite integration (CORS headers, preflight, real RELIANCE
+  detail/technicals/explain/valuation/alpha/screener, 422 bad question type, 404 unknown symbol,
+  deep-link SPA fallback). Design-reference folders git-ignored.
+
 ---
 
 *Append new decisions below with date + ID (D21, D22, ...).*
@@ -614,8 +683,9 @@ Chronological record of decisions. Append as time progresses.
   Backtesting: STRETCH (needs alpha/valuation history). Live prices: S2 (Finnhub WS).
 
 ### Product
-- Research pages (P6), Screener (backend done; UI P6), NL screener (STRETCH),
-  Watchlists + Auth (STRETCH, S2).
+- Research pages (P6 — SHIPPED), Screener (backend + UI P6 — SHIPPED), NL screener (STRETCH),
+  Watchlists + Auth (STRETCH, S2). Aggregate `/overview` endpoint (P6 tracked item) — not needed
+  for the landing preview; deferred to P7 consideration.
 
 ### Engineering
 - Observability (P7), Deployment (P8), Redis (STRETCH, only if measured load
