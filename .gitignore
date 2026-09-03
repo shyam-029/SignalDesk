@@ -21,3 +21,14 @@ Thumbs.db
 
 # --- Logs ---
 *.log
+
+# --- Design reference material (local only, never part of the app) ---
+/Refine design concept/
+/Refine design concept(1)/
+/Stock Detail Page Frames(1)/
+/stitch_signaldesk_landing_experience(1)/
+
+# --- Frontend ---
+node_modules/
+dist/
+*.local
