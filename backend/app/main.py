@@ -13,7 +13,9 @@ from contextlib import asynccontextmanager
 from typing import AsyncIterator
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
+from app.config import settings
 from app.errors import (
     NotFoundError,
     ValidationError,
@@ -25,7 +27,7 @@ from app.errors import (
 )
 from app.jobs import start_scheduler
 from app.logging_utils import request_id_middleware
-from app.routers import alpha, fundamentals, news, scores, screener, stocks, valuation
+from app.routers import alpha, explain, fundamentals, news, scores, screener, stocks, technicals, valuation
 from app.services.valuation import InsufficientDataError, NoPeersError
 
 
@@ -62,6 +64,17 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 app = FastAPI(title="SignalDesk API", version="0.1.0", lifespan=lifespan)
 app.middleware("http")(request_id_middleware)
 
+# Browser origins allowed to call the API (from CORS_ORIGINS in .env).
+# Empty config disables CORS entirely (e.g. same-origin deployments).
+_cors_origins = [o.strip() for o in settings.cors_origins.split(",") if o.strip()]
+if _cors_origins:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=_cors_origins,
+        allow_methods=["GET", "POST"],
+        allow_headers=["*"],
+    )
+
 # Register the error-handling convention.
 app.add_exception_handler(NotFoundError, not_found_handler)
 app.add_exception_handler(ValidationError, validation_handler)
@@ -77,6 +90,8 @@ app.include_router(valuation.router, prefix="/api/v1")
 app.include_router(screener.router, prefix="/api/v1")
 app.include_router(news.router, prefix="/api/v1")
 app.include_router(alpha.router, prefix="/api/v1")
+app.include_router(technicals.router, prefix="/api/v1")
+app.include_router(explain.router, prefix="/api/v1")
 
 
 @app.get("/health")

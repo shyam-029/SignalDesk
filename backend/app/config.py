@@ -52,6 +52,12 @@ class Settings(BaseSettings):
     # Finnhub key for live prices (deferred).
     finnhub_api_key: str = ""
 
+    # --- CORS (Phase 6: browser frontend) ---
+    # Comma-separated list of origins allowed to call the API from a browser.
+    # Empty string disables CORS handling entirely. Defaults to the Vite dev
+    # server; production origins are added via .env, never hard-coded.
+    cors_origins: str = "http://localhost:5173"
+
     model_config = SettingsConfigDict(
         # Read values from `.env` in the backend/ directory.
         env_file=BACKEND_DIR / ".env",

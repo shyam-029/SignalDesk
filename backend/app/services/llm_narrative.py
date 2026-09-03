@@ -124,6 +124,17 @@ def _budget_ok() -> bool:
     return _calls_today < settings.llm_daily_cap
 
 
+def budget_ok() -> bool:
+    """Public wrapper so other grounded endpoints share the SAME daily cap."""
+    return _budget_ok()
+
+
+def register_llm_call() -> None:
+    """Count one provider call against the shared in-process daily budget."""
+    global _calls_today
+    _calls_today += 1
+
+
 def _log_usage(llm_result: LLMResult) -> None:
     """Record token/model usage (None-safe) so cost is visible in logs."""
     tokens = llm_result.tokens_used if llm_result.tokens_used is not None else "n/a"
@@ -184,8 +195,7 @@ async def generate_alpha_explanation(
         _cache[cache_key] = (time.monotonic() + _TTL_SECONDS, narrative)
         return narrative
 
-    global _calls_today
-    _calls_today += 1
+    register_llm_call()
     _log_usage(llm_result)
     narrative = llm_result.text
     _cache[cache_key] = (time.monotonic() + _TTL_SECONDS, narrative)

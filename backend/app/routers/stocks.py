@@ -21,7 +21,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db import get_session
 from app.errors import NotFoundError, ValidationError
 from app.models import DailyPrice, Stock
+from app.repositories import financials as fin_repo
 from app.repositories import prices as price_repo
+from app.routers.common import resolve_stock
 
 router = APIRouter(prefix="/stocks", tags=["stocks"])
 
@@ -90,6 +92,35 @@ class PriceHistoryResponse(BaseModel):
     items: list[PriceBar]
 
 
+class QuoteBlock(BaseModel):
+    """Latest-quote block for the stock-detail header.
+
+    Fields are nullable when the stock has no price history (or no snapshot
+    data) — the API never fabricates values.
+    """
+
+    last_price: float | None
+    change_abs: float | None
+    change_pct: float | None
+    open: float | None
+    high: float | None
+    low: float | None
+    prev_close: float | None
+    volume: int | None
+    date: date | None  # date of the latest bar (data freshness anchor)
+
+
+class StockDetailResponse(BaseModel):
+    """Profile + quote for the deep-linked stock page (PLANNING §9)."""
+
+    symbol: str
+    name: str
+    sector: str | None
+    industry: str | None
+    market_cap: float | None
+    quote: QuoteBlock
+
+
 # --- Endpoints ---
 
 
@@ -153,6 +184,58 @@ async def list_stocks(
         )
 
     return StockListResponse(items=items, total=total, page=page, limit=limit)
+
+
+@router.get("/{symbol}", response_model=StockDetailResponse)
+async def get_stock_detail(symbol: str, session: SessionDep) -> StockDetailResponse:
+    """Return the profile + latest quote for one stock (deep-linkable).
+
+    Quote fields are None when the stock has no stored price bars yet; market
+    cap is None when no financial snapshot exists. Nothing is fabricated.
+    """
+    stock = await resolve_stock(session, symbol)
+
+    # Latest two bars → last price + daily change (same shape as the list view).
+    latest_two = (await price_repo.get_two_latest(session, [stock.id])).get(stock.id, [])
+
+    open_ = high = low = last = prev_close = change_abs = change_pct = None
+    volume = bar_date = None
+    if latest_two:
+        latest = latest_two[0]
+        prev = latest_two[1] if len(latest_two) > 1 else None
+        last = float(latest.close)
+        open_ = float(latest.open)
+        high = float(latest.high)
+        low = float(latest.low)
+        volume = latest.volume
+        bar_date = latest.date
+        if prev is not None and prev.close:
+            prev_close = float(prev.close)
+            change_abs = round(last - prev_close, 2)
+            change_pct = round((last - prev_close) / prev_close * 100, 2)
+
+    # Market cap comes from the financials snapshot (None when absent).
+    fin_row = await fin_repo.get_financials_row(session, stock)
+    market_cap = float(fin_row.market_cap) if fin_row and fin_row.market_cap else None
+
+    return StockDetailResponse(
+        symbol=stock.symbol,
+        name=stock.name,
+        sector=stock.sector,
+        industry=stock.industry,
+        market_cap=market_cap,
+        quote=QuoteBlock(
+            last_price=last,
+            change_abs=change_abs,
+            change_pct=change_pct,
+            open=open_,
+            high=high,
+            low=low,
+            prev_close=prev_close,
+            volume=volume,
+            date=bar_date,
+        ),
+    )
 
 
 @router.get("/{symbol}/prices", response_model=PriceHistoryResponse)
