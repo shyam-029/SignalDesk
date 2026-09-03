@@ -1,0 +1,113 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+/*
+ * SignalDesk design tokens.
+ *
+ * Light: "Warm Paper + Cobalt" — warm ivory surfaces, near-black ink, rich
+ * cobalt identity color. Editorial, print-like.
+ * Dark:  "Deep Ink + Jade" — deep blue-black surfaces, warm ivory text, jade
+ * for positive analytical states, restrained cobalt for interaction.
+ *
+ * The dark theme is a deliberate alternate system, NOT an inversion.
+ * Semantic band colors (strong → very weak) are consumed only by analytical
+ * conclusions (scores, verdicts, valuation state) — never raw metrics.
+ */
+
+@theme inline {
+  --color-background: var(--bg);
+  --color-foreground: var(--ink);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-muted: var(--muted);
+  --color-faint: var(--faint);
+  --color-line: var(--line);
+  --color-rule: var(--rule);
+  --color-cobalt: var(--cobalt);
+  --color-cobalt-strong: var(--cobalt-strong);
+
+  --color-band-strong: var(--band-strong);
+  --color-band-positive: var(--band-positive);
+  --color-band-moderate: var(--band-moderate);
+  --color-band-weak: var(--band-weak);
+  --color-band-veryweak: var(--band-veryweak);
+
+  --font-display: "Libre Caslon Text", Georgia, "Times New Roman", serif;
+  --font-sans: "Hanken Grotesk", system-ui, -apple-system, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", monospace;
+}
+
+:root {
+  --bg: #f6f4ec;
+  --surface: #fdfcf7;
+  --surface-2: #eeebe0;
+  --ink: #1a1d22;
+  --muted: #575c64;
+  --faint: #8b9098;
+  --line: #e0ddd1;
+  --rule: #c8c4b6;
+
+  --cobalt: #2750c4;
+  --cobalt-strong: #1e40a3;
+
+  --band-strong: #17724a;
+  --band-positive: #2d8a68;
+  --band-moderate: #a9761d;
+  --band-weak: #bd5327;
+  --band-veryweak: #a02b21;
+}
+
+.dark {
+  --bg: #0b1016;
+  --surface: #121922;
+  --surface-2: #18212c;
+  --ink: #ebe8de;
+  --muted: #9aa2ac;
+  --faint: #67707b;
+  --line: #222c37;
+  --rule: #2d3844;
+
+  --cobalt: #7ba3ea;
+  --cobalt-strong: #9abaf1;
+
+  --band-strong: #2fbe8f;
+  --band-positive: #37a583;
+  --band-moderate: #d2a04a;
+  --band-weak: #dd7a4f;
+  --band-veryweak: #d0574c;
+}
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+    font-feature-settings: "ss01" on;
+  }
+
+  ::selection {
+    background: color-mix(in srgb, var(--cobalt) 22%, transparent);
+  }
+
+  /* Financial numerals: tabular so columns of figures align. */
+  .num {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.01em;
+  }
+
+  /* Editorial caps label used for section eyebrows and data labels. */
+  .label-caps {
+    @apply text-[11px] font-semibold uppercase tracking-[0.14em];
+    color: var(--faint);
+  }
+
+  *:focus-visible {
+    outline: 2px solid color-mix(in srgb, var(--cobalt) 60%, transparent);
+    outline-offset: 2px;
+    border-radius: 2px;
+  }
+}
