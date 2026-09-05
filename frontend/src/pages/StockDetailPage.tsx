@@ -10,10 +10,10 @@ import { StockMethodology } from "@/components/stock/StockMethodology";
 import { normalizeSymbol } from "@/lib/utils";
 
 /**
- * StockDetail — the deep-linkable research report for one company:
- * snapshot → alpha → valuation → fundamentals → price/technicals →
- * news/sentiment → methodology. Reads like a document; unknown symbols land
- * on an honest "unknown symbol" state via DataState in each section.
+ * StockDetail: the deep-linkable research report for one company. Snapshot,
+ * alpha, valuation, fundamentals, price and technicals, news and sentiment,
+ * then methodology. Reads like a document; unknown symbols land on the
+ * "unknown symbol" state via DataState in each section.
  */
 export default function StockDetailPage() {
   const { symbol = "" } = useParams();

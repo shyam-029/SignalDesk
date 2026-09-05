@@ -9,7 +9,7 @@ import { scoreBand } from "@/lib/semantic";
 import { cn } from "@/lib/utils";
 
 /**
- * FundamentalsSection — profitability and solvency, anchored by their scores.
+ * FundamentalsSection: profitability and solvency, anchored by their scores.
  * Each component shows its raw value AND its threshold score, so "why is the
  * score high/low" is visible without extra clicks. Ratios stay neutral; only
  * the scores carry semantic color.
@@ -36,7 +36,7 @@ export function FundamentalsSection({ symbol }: { symbol: string }) {
           error={query.error}
           onRetry={query.refetch}
           insufficient={(scores?.profitability == null && scores?.solvency == null) || undefined}
-          insufficientMessage="No financial snapshot exists for this stock yet — scores cannot be computed. Nothing is estimated."
+          insufficientMessage="No financial snapshot exists for this stock yet, so scores cannot be computed. Nothing is estimated."
         >
           {scores && (
             <div className="grid gap-px border border-line bg-line md:grid-cols-2">
@@ -48,7 +48,7 @@ export function FundamentalsSection({ symbol }: { symbol: string }) {
                     <InfoDot metric="profitability" className="size-3.5" />
                   </p>
                   <p className={cn("num text-2xl font-medium", profitBand?.text)}>
-                    {scores.profitability ?? "—"}
+                    {scores.profitability ?? "-"}
                     <span className="ml-1 text-xs text-faint">/100</span>
                   </p>
                 </div>
@@ -81,7 +81,7 @@ export function FundamentalsSection({ symbol }: { symbol: string }) {
                     <InfoDot metric="solvency" className="size-3.5" />
                   </p>
                   <p className={cn("num text-2xl font-medium", solvencyBand?.text)}>
-                    {scores.solvency ?? "—"}
+                    {scores.solvency ?? "-"}
                     <span className="ml-1 text-xs text-faint">/100</span>
                   </p>
                 </div>
@@ -129,7 +129,7 @@ function ScoredRatioRow({
   const band = scoreBand(score);
   return (
     <div className="flex items-center justify-between gap-3 py-2">
-      <span className="text-xs text-muted">{name}</span>
+      <span className="text-xs font-medium text-muted">{name}</span>
       <span className="flex items-center gap-3">
         <span className="num text-xs font-medium">{formatComponentValue(name, value)}</span>
         <span className="flex items-center gap-1.5">
@@ -139,7 +139,7 @@ function ScoredRatioRow({
               style={{ width: `${score}%` }}
             />
           </span>
-          <span className="num w-7 text-right text-[11px] text-faint">
+          <span className="num w-7 text-right text-xs text-faint">
             {score.toFixed(0)}
           </span>
         </span>
@@ -152,6 +152,6 @@ function ScoredRatioRow({
 function formatComponentValue(name: string, value: number): string {
   if (name === "Debt/Equity") return `${value.toFixed(2)}%`;
   if (name === "Interest coverage" || name === "Current ratio")
-    return `${value.toFixed(2)}×`;
+    return `${value.toFixed(2)}x`;
   return `${value.toFixed(1)}%`;
 }

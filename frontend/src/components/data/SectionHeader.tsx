@@ -4,7 +4,7 @@ import { motion } from "framer-motion";
 import { cn } from "@/lib/utils";
 
 /**
- * SectionHeader — editorial section opener: optional index ("02"), a serif
+ * SectionHeader: editorial section opener: optional index ("02"), a serif
  * title, an optional kicker, and a hairline rule. Sections are separated by
  * rules and whitespace, not by wrapping everything in cards.
  */

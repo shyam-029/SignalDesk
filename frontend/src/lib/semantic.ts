@@ -1,12 +1,12 @@
-// Semantic scoring system — the single source of truth for analytical color.
+// Semantic scoring system: the single source of truth for analytical color.
 //
 // Bands (approved):
-//   80–100 strong positive · 60–79 positive · 40–59 moderate
-//   20–39 weak · 0–19 very weak
+//   80-100 strong positive · 60-79 positive · 40-59 moderate
+//   20-39 weak · 0-19 very weak
 //
 // RULE: semantic color is applied ONLY to analytical conclusions (Alpha,
 // component scores, verdicts, valuation state, technical positioning).
-// Raw financial metrics stay neutral — never color a P/E just because it exists.
+// Raw financial metrics stay neutral. Never color a P/E just because it exists.
 // Valuation carries its OWN state (cheaper/fair/expensive) and must not inherit
 // Alpha's band color.
 
@@ -118,7 +118,7 @@ export function valuationSemantics(
 }
 
 // --- Technical positioning verdict -------------------------------------------
-// Aggregate technical evidence only — never a statement about the whole stock.
+// Aggregate technical evidence only. Never a statement about the whole stock.
 
 export interface TechnicalVerdict {
   word: string;

@@ -13,7 +13,7 @@ import {
 import { ChevronDown, ExternalLink } from "lucide-react";
 
 /**
- * NewsSection — the aggregate sentiment that feeds Alpha's sentiment
+ * NewsSection: the aggregate sentiment that feeds Alpha's sentiment
  * component, plus the underlying articles. Part of the analytical pipeline,
  * not a news aggregator: articles expand in place for context.
  */
@@ -55,10 +55,10 @@ export function NewsSection({ symbol }: { symbol: string }) {
                       {sentiment.data.score.toFixed(2)}
                     </p>
                   </div>
-                  <p className="num mt-1 text-[11px] text-faint">
-                    {sentiment.data.count} FinBERT-scored articles · scale −1 to +1
+                  <p className="num mt-1 text-xs text-faint">
+                    {sentiment.data.count} FinBERT-scored articles · scale -1 to +1
                   </p>
-                  <p className="mt-3 border-t border-line pt-2 text-[10px] leading-relaxed text-faint">
+                  <p className="mt-3 border-t border-line pt-2 text-xs leading-relaxed text-faint">
                     Feeds the sentiment component (30%) of the Alpha Score.
                   </p>
                 </div>
@@ -88,7 +88,7 @@ export function NewsSection({ symbol }: { symbol: string }) {
                             <span className="text-sm leading-snug">{article.title}</span>
                             <ChevronDown className="mt-0.5 size-3.5 shrink-0 text-faint transition-transform group-data-[state=open]:rotate-180" />
                           </CollapsibleTrigger>
-                          <p className="num mt-1 text-[11px] text-faint">
+                          <p className="num mt-1 text-xs text-faint">
                             {article.source}
                             {article.published_at ? ` · ${fmtRelative(article.published_at)}` : ""}
                           </p>
@@ -96,7 +96,7 @@ export function NewsSection({ symbol }: { symbol: string }) {
                         {article.sentiment && (
                           <span
                             className={cn(
-                              "shrink-0 border px-1.5 py-0.5 text-[10px] font-medium",
+                              "shrink-0 border px-1.5 py-0.5 text-xs font-medium",
                               label.band.text,
                               label.band.border,
                             )}
@@ -111,11 +111,11 @@ export function NewsSection({ symbol }: { symbol: string }) {
                             href={article.url}
                             target="_blank"
                             rel="noreferrer"
-                            className="inline-flex items-center gap-1 text-[11px] text-cobalt hover:underline dark:text-cobalt-strong"
+                            className="inline-flex items-center gap-1 text-xs text-cobalt hover:underline dark:text-cobalt-strong"
                           >
                             Read the original article <ExternalLink className="size-3" />
                           </a>
-                          <p className="mt-1.5 text-[10px] leading-relaxed text-faint">
+                          <p className="mt-1.5 text-xs leading-relaxed text-faint">
                             Sentiment label produced by FinBERT on the article text; each
                             article contributes to the aggregate net sentiment above.
                           </p>

@@ -15,8 +15,8 @@ import { Button } from "@/components/ui/button";
 import { fmtMarketCap, fmtPrice, fmtSignedPct } from "@/lib/format";
 
 /**
- * ProductPreview — the real product, fed by the real API. If the backend is
- * down, the section shows the honest error state instead of a fake screenshot.
+ * ProductPreview: the real product, fed by the real API. If the backend is
+ * down, the section shows the real error state instead of a fake screenshot.
  */
 export function ProductPreview() {
   const symbol = "RELIANCE";
@@ -59,16 +59,16 @@ export function ProductPreview() {
             }}
             empty={!error && !loading && !detail.data}
             insufficient={Boolean(alpha.data?.insufficient_data)}
-            className="border border-line"
+            className="chart-frame"
           >
             {detail.data && alpha.data && technicals.data && prices.data && (
-              <div className="border border-line bg-surface">
+              <div className="bg-surface">
                 {/* Header strip */}
                 <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-5 py-4">
                   <div className="flex items-baseline gap-3">
                     <span className="num text-sm font-semibold">{detail.data.symbol}</span>
                     <span className="font-display text-lg">{detail.data.name}</span>
-                    <span className="text-xs text-faint">{detail.data.sector ?? "—"}</span>
+                    <span className="text-xs text-faint">{detail.data.sector ?? "-"}</span>
                   </div>
                   <div className="flex items-baseline gap-3">
                     <span className="num text-lg font-medium">
@@ -98,17 +98,17 @@ export function ProductPreview() {
                       metric="alpha"
                       size="md"
                     />
-                    <div className="num grid grid-cols-3 gap-px bg-line text-[11px]">
-                      <MiniCell k="Fund" v={String(alpha.data.fundamental ?? "—")} />
-                      <MiniCell k="Technical" v={String(alpha.data.technical ?? "—")} />
-                      <MiniCell k="Sentiment" v={String(alpha.data.sentiment ?? "—")} />
+                    <div className="num grid grid-cols-3 gap-px bg-line text-xs">
+                      <MiniCell k="Fund" v={String(alpha.data.fundamental ?? "-")} />
+                      <MiniCell k="Technical" v={String(alpha.data.technical ?? "-")} />
+                      <MiniCell k="Sentiment" v={String(alpha.data.sentiment ?? "-")} />
                     </div>
                     <div>
                       <p className="label-caps">Valuation (P/E)</p>
                       <p className="num mt-1 text-sm font-medium">
                         {alpha.data.value_signal
-                          ? `${alpha.data.value_signal.status?.replace("_", " ") ?? "—"} · ${fmtSignedPct(alpha.data.value_signal.margin_pct)}`
-                          : "—"}
+                          ? `${alpha.data.value_signal.status?.replace("_", " ") ?? "-"} · ${fmtSignedPct(alpha.data.value_signal.margin_pct)}`
+                          : "-"}
                       </p>
                     </div>
                   </div>
@@ -126,15 +126,15 @@ export function ProductPreview() {
                       {technicalVerdictWord(technicals.data.score)}
                     </p>
                     <p className="num text-xs text-muted">
-                      {technicals.data.score ?? "—"} / 100
+                      {technicals.data.score ?? "-"} / 100
                     </p>
-                    <div className="num mt-4 space-y-1 text-[11px]">
+                    <div className="num mt-4 space-y-1 text-xs">
                       <Row k="Trend" v={technicals.data.components.trend} />
                       <Row k="Momentum" v={technicals.data.components.momentum} />
                       <Row k="Reversion" v={technicals.data.components.reversion} />
                     </div>
-                    <p className="mt-4 text-[10px] leading-relaxed text-faint">
-                      Heuristic indicator read — not a predictive model.
+                    <p className="mt-4 text-xs leading-relaxed text-faint">
+                      Heuristic indicator read, not a predictive model.
                     </p>
                   </div>
                 </div>
@@ -148,7 +148,7 @@ export function ProductPreview() {
 }
 
 function technicalVerdictWord(score: number | null): string {
-  if (score == null) return "—";
+  if (score == null) return "-";
   if (score >= 80) return "Strongly bullish";
   if (score >= 60) return "Bullish";
   if (score >= 40) return "Neutral";
@@ -159,7 +159,7 @@ function technicalVerdictWord(score: number | null): string {
 function MiniCell({ k, v }: { k: string; v: string }) {
   return (
     <div className="bg-surface px-2 py-2 text-center">
-      <p className="text-[10px] uppercase tracking-wide text-faint">{k}</p>
+      <p className="text-xs font-medium uppercase tracking-wide text-faint">{k}</p>
       <p className="num mt-0.5 font-medium">{v}</p>
     </div>
   );
@@ -168,8 +168,8 @@ function MiniCell({ k, v }: { k: string; v: string }) {
 function Row({ k, v }: { k: string; v: number | null }) {
   return (
     <div className="flex justify-between">
-      <span className="text-faint">{k}</span>
-      <span className="font-medium">{v != null ? v.toFixed(1) : "—"}</span>
+      <span className="font-medium text-faint">{k}</span>
+      <span className="font-medium">{v != null ? v.toFixed(1) : "-"}</span>
     </div>
   );
 }

@@ -14,13 +14,14 @@ const ThemeContext = React.createContext<ThemeContextValue>({
   toggle: () => {},
 });
 
-/** Light (Warm Paper + Cobalt) is the default; dark (Deep Ink + Jade) is a
- *  deliberate alternate token system applied via the `.dark` class. */
+/** Dark (Warm Ink + Gold) is the primary reference theme; light (Cloud White +
+ *  Petrol) is the tuned alternate. First visit starts dark; a stored
+ *  preference always wins. */
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const [theme, setTheme] = React.useState<Theme>(() => {
-    if (typeof window === "undefined") return "light";
+    if (typeof window === "undefined") return "dark";
     const stored = window.localStorage.getItem(THEME_KEY);
-    return stored === "dark" ? "dark" : "light";
+    return stored === "light" ? "light" : "dark";
   });
 
   React.useEffect(() => {

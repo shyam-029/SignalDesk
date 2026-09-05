@@ -9,12 +9,12 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 
 /**
- * ExplainAction — a contextual "Why?" affordance wired to the grounded
- * /explain endpoint (Phase 5 LLM architecture with rule-based fallback).
+ * ExplainAction: a contextual "Why?" affordance wired to the /explain
+ * endpoint (Phase 5 LLM architecture with rule-based fallback).
  *
- * Deliberately NOT a chatbot: one fixed question per trigger, one grounded
- * answer, no chat window, no AI branding. The answer always cites that it is
- * grounded in SignalDesk data and is not investment advice.
+ * Not a chatbot: one fixed question per trigger, one written
+ * answer, no chat window, no AI branding. The answer always notes that it is
+ * generated from SignalDesk data and is not investment advice.
  */
 export function ExplainAction({
   symbol,
@@ -81,8 +81,8 @@ export function ExplainAction({
             </p>
           )}
         </div>
-        <p className="mt-3 border-t border-line pt-2 text-[10px] leading-relaxed text-faint">
-          Grounded in SignalDesk data · generated explanation · not investment advice
+        <p className="mt-3 border-t border-line pt-2 text-xs leading-relaxed text-faint">
+          Generated from SignalDesk data. Not investment advice.
         </p>
       </PopoverContent>
     </Popover>

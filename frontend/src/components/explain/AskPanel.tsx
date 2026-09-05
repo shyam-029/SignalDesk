@@ -9,9 +9,9 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 
 /**
- * AskPanel — "Ask about {SYMBOL}": a small popover listing the five grounded
+ * AskPanel: "Ask about {SYMBOL}", a small popover listing the five research
  * question types. Selecting one runs the /explain mutation inline. No chat
- * window, no free-text input — the questions are fixed and grounded.
+ * window, no free-text input; the questions are fixed.
  */
 export function AskPanel({ symbol, displayName }: { symbol: string; displayName: string }) {
   const [open, setOpen] = React.useState(false);
@@ -48,7 +48,7 @@ export function AskPanel({ symbol, displayName }: { symbol: string; displayName:
       <PopoverContent className="w-96 max-w-[24rem]">
         {!active && (
           <>
-            <p className="label-caps">Grounded research questions</p>
+            <p className="label-caps">Research questions</p>
             <div className="mt-2 grid gap-0.5">
               {questions.map((q) => (
                 <button
@@ -66,7 +66,7 @@ export function AskPanel({ symbol, displayName }: { symbol: string; displayName:
           <>
             <button
               onClick={() => setActive(null)}
-              className="text-[11px] text-cobalt hover:underline dark:text-cobalt-strong"
+              className="text-xs text-cobalt hover:underline dark:text-cobalt-strong"
             >
               ← All questions
             </button>
@@ -96,8 +96,8 @@ export function AskPanel({ symbol, displayName }: { symbol: string; displayName:
             </div>
           </>
         )}
-        <p className={cn("mt-3 border-t border-line pt-2 text-[10px] leading-relaxed text-faint")}>
-          Grounded in SignalDesk data · generated explanation · not investment advice
+        <p className={cn("mt-3 border-t border-line pt-2 text-xs leading-relaxed text-faint")}>
+          Generated from SignalDesk data. Not investment advice.
         </p>
       </PopoverContent>
     </Popover>

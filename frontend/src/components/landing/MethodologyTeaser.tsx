@@ -11,14 +11,14 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 /**
- * MethodologyTeaser — transparency as a feature: "Know how the number was
+ * MethodologyTeaser: transparency as a feature. "Know how the number was
  * built." Expandable rows for each analytical surface; the full page lives at
  * /methodology.
  */
 const ITEMS = [
   {
     key: "Alpha Score",
-    body: "40% fundamental + 30% technical + 30% sentiment, renormalized over available components, bounded 0–100. Valuation is deliberately excluded from the blend and reported separately.",
+    body: "40% fundamental + 30% technical + 30% sentiment, renormalized over available components, bounded 0 to 100. Valuation is left out of the blend and reported separately.",
   },
   {
     key: "Fundamentals",
@@ -26,7 +26,7 @@ const ITEMS = [
   },
   {
     key: "Technicals",
-    body: "Trend (price vs SMA20) 50%, momentum (MACD histogram) 30%, mean reversion (RSI-14) 20%. Explicitly heuristic and explainable — not validated predictive models.",
+    body: "Trend (price vs SMA20) 50%, momentum (MACD histogram) 30%, mean reversion (RSI 14) 20%. Explicitly heuristic and explainable, not validated predictive models.",
   },
   {
     key: "Sentiment",
@@ -34,13 +34,13 @@ const ITEMS = [
   },
   {
     key: "Valuation",
-    body: "Relative multiples: the stock's P/E, EV/EBITDA, P/B and P/S against the median of same-industry peers. Outside ±5% of the median the stock reads undervalued/overvalued. Kept separate from Alpha by design.",
+    body: "Relative multiples: the stock's P/E, EV/EBITDA, P/B and P/S against the median of same-industry peers. Outside plus or minus 5% of the median the stock reads undervalued/overvalued. Kept separate from Alpha by design.",
   },
 ];
 
 export function MethodologyTeaser() {
   return (
-    <section className="border-b border-line">
+    <section className="relative border-b border-line bg-surface-2/30">
       <div className="mx-auto max-w-6xl px-4 py-20 md:px-6 md:py-28">
         <div className="grid gap-12 lg:grid-cols-12">
           <Reveal className="lg:col-span-5">
@@ -49,7 +49,7 @@ export function MethodologyTeaser() {
               Know how the number was built.
             </h2>
             <p className="mt-4 text-muted">
-              No black boxes. Weights, thresholds and data sources are documented, and every
+              No black boxes. <span className="hi">Weights, thresholds and data sources are documented</span>, and every
               metric in the product carries its definition one click away.
             </p>
             <Button asChild variant="outline" className="mt-6">

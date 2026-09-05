@@ -19,7 +19,7 @@ import { cn } from "@/lib/utils";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 /**
- * PriceTechnicals — the price chart (real Lightweight Charts) beside the
+ * PriceTechnicals: the price chart (real Lightweight Charts) beside the
  * aggregate technical read. The verdict word describes TECHNICAL POSITIONING
  * only (never "the stock is bearish"), and always represents the aggregate
  * indicator evidence, not one day's move.
@@ -65,7 +65,7 @@ export function PriceTechnicals({ symbol }: { symbol: string }) {
                 {prices.data && prices.data.items.length > 0 && (
                   <>
                     <PriceChart bars={prices.data.items} height={340} />
-                    <p className="num mt-2 text-[10px] text-faint">
+                    <p className="num mt-2 text-xs text-faint">
                       {prices.data.items.length} daily bars · {range} window · resample 1d
                     </p>
                   </>
@@ -81,7 +81,7 @@ export function PriceTechnicals({ symbol }: { symbol: string }) {
               error={technicals.error}
               onRetry={technicals.refetch}
               insufficient={Boolean(t?.insufficient_data)}
-              insufficientMessage="Not enough price history to compute the indicators honestly. SignalDesk shows no technical read rather than a made-up one."
+              insufficientMessage="Not enough price history to compute the indicators. SignalDesk shows no technical read rather than a made-up one."
             >
               {t && (
                 <div
@@ -93,14 +93,14 @@ export function PriceTechnicals({ symbol }: { symbol: string }) {
                   <p className="label-caps">Technical positioning</p>
                   <div className="mt-1 flex items-baseline justify-between gap-2">
                     <p className={cn("font-display text-2xl font-semibold", verdict?.band.text)}>
-                      {verdict?.word ?? "—"}
+                      {verdict?.word ?? "-"}
                     </p>
                     <p className={cn("num text-sm font-medium", verdict?.band.text)}>
-                      {t.score ?? "—"} / 100
+                      {t.score ?? "-"} / 100
                     </p>
                   </div>
-                  <p className="mt-1 text-[10px] text-faint">
-                    Aggregate indicator evidence — describes the technical picture only.
+                  <p className="mt-1 text-xs text-faint">
+                    Aggregate indicator evidence. Describes the technical picture only.
                   </p>
 
                   {/* Sub-scores */}
@@ -140,7 +140,7 @@ export function PriceTechnicals({ symbol }: { symbol: string }) {
                     <IndicatorRow
                       metric="rsi14"
                       label="RSI 14"
-                      reading={t.rsi14 != null ? t.rsi14.toFixed(1) : "—"}
+                      reading={t.rsi14 != null ? t.rsi14.toFixed(1) : "-"}
                       interpretation={rsiWord(t.rsi14)}
                       positive={t.rsi14 == null ? null : t.rsi14 > 50 ? true : t.rsi14 < 30 ? null : false}
                     />
@@ -150,7 +150,7 @@ export function PriceTechnicals({ symbol }: { symbol: string }) {
                       reading={
                         t.macd.histogram != null
                           ? `${t.macd.histogram > 0 ? "+" : ""}${t.macd.histogram.toFixed(2)}`
-                          : "—"
+                          : "-"
                       }
                       interpretation={
                         t.macd.histogram == null
@@ -164,8 +164,8 @@ export function PriceTechnicals({ symbol }: { symbol: string }) {
                   </div>
 
                   <div className="mt-4 flex items-center justify-between gap-2 border-t border-line pt-3">
-                    <p className="text-[10px] leading-relaxed text-faint">
-                      Heuristic read of {t.closes_used} daily closes — not a predictive model.
+                    <p className="text-xs leading-relaxed text-faint">
+                      Heuristic read of {t.closes_used} daily closes, not a predictive model.
                     </p>
                     <ExplainAction
                       symbol={symbol}
@@ -197,12 +197,12 @@ function SubScore({
   return (
     <div>
       <div className="flex items-baseline justify-between">
-        <span className="flex items-center gap-1.5 text-xs text-muted">
+        <span className="flex items-center gap-1.5 text-xs font-medium text-muted">
           {label}
           <InfoDot metric={metric} className="size-3" />
         </span>
         <span className={cn("num text-xs font-medium", band?.text)}>
-          {value != null ? value.toFixed(0) : "—"}
+          {value != null ? value.toFixed(0) : "-"}
         </span>
       </div>
       <div className="mt-1 h-1 bg-line">
@@ -240,7 +240,7 @@ function IndicatorRow({
         <span className="num text-xs font-medium">{reading}</span>
         <span
           className={cn(
-            "text-[11px]",
+            "text-xs font-medium",
             positive == null ? "text-faint" : positive ? "text-band-positive" : "text-band-weak",
           )}
         >

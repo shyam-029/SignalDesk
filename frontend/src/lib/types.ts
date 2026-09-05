@@ -1,5 +1,5 @@
 // Typed mirrors of the backend's pydantic response models (backend/app/routers).
-// Field names are snake_case on purpose — they match the wire format exactly.
+// Field names are snake_case on purpose: they match the wire format exactly.
 
 export interface StockSummary {
   symbol: string;

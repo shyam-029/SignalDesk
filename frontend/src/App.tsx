@@ -9,7 +9,7 @@ import { SiteFooter } from "@/components/layout/SiteFooter";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { PageLoader } from "@/components/data/PageLoader";
 
-// Pages are lazy-loaded so each route ships as its own chunk — the landing
+// Pages are lazy-loaded so each route ships as its own chunk. The landing
 // page never pays for the stock research experience up front.
 const LandingPage = lazy(() => import("@/pages/LandingPage"));
 const MarketsPage = lazy(() => import("@/pages/MarketsPage"));

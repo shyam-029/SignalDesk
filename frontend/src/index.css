@@ -3,16 +3,17 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 /*
- * SignalDesk design tokens.
+ * SignalDesk design tokens ("Institutional Editorial").
  *
- * Light: "Warm Paper + Cobalt" — warm ivory surfaces, near-black ink, rich
- * cobalt identity color. Editorial, print-like.
- * Dark:  "Deep Ink + Jade" — deep blue-black surfaces, warm ivory text, jade
- * for positive analytical states, restrained cobalt for interaction.
+ * Light: "Cloud White + Petrol", graded from the approved reference concept:
+ * cool blue-tinted whites (#f8f9ff family), deep navy ink (#0b1c30),
+ * petroleum-teal identity (#006781), soft periwinkle containers, thin cool
+ * borders. White and blue, green/red for the market.
+ * Dark:  "Warm Ink + Gold", the approved warm near-black surfaces with a gold
+ * identity accent. Unchanged by the light regrade.
  *
- * The dark theme is a deliberate alternate system, NOT an inversion.
  * Semantic band colors (strong → very weak) are consumed only by analytical
- * conclusions (scores, verdicts, valuation state) — never raw metrics.
+ * conclusions (scores, verdicts, valuation state), never raw metrics.
  */
 
 @theme inline {
@@ -34,22 +35,35 @@
   --color-band-veryweak: var(--band-veryweak);
 
   --font-display: "Libre Caslon Text", Georgia, "Times New Roman", serif;
-  --font-sans: "Hanken Grotesk", system-ui, -apple-system, sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", monospace;
+  --font-sans: "Instrument Sans", system-ui, -apple-system, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+
+  /* Section-dimension accents: jade=fundamentals, amber=valuation,
+     coral=technicals, teal=sentiment. Cobalt stays the identity color.
+     Accents mark WHICH dimension is speaking; they never color raw metrics. */
+  --color-accent-jade: var(--accent-jade);
+  --color-accent-amber: var(--accent-amber);
+  --color-accent-coral: var(--accent-coral);
+  --color-accent-teal: var(--accent-teal);
 }
 
 :root {
-  --bg: #f6f4ec;
-  --surface: #fdfcf7;
-  --surface-2: #eeebe0;
-  --ink: #1a1d22;
-  --muted: #575c64;
-  --faint: #8b9098;
-  --line: #e0ddd1;
-  --rule: #c8c4b6;
+  --bg: #f8f9ff;
+  --surface: #ffffff;
+  --surface-2: #eff4ff;
+  --ink: #0b1c30;
+  --muted: #47536b;
+  --faint: #7d8698;
+  --line: #ccd5e6;
+  --rule: #b7c5de;
 
-  --cobalt: #2750c4;
-  --cobalt-strong: #1e40a3;
+  --cobalt: #006781;
+  --cobalt-strong: #004f63;
+
+  --accent-jade: #167a4e;
+  --accent-amber: #9a6a10;
+  --accent-coral: #b8491f;
+  --accent-teal: #0891b2;
 
   --band-strong: #17724a;
   --band-positive: #2d8a68;
@@ -59,17 +73,25 @@
 }
 
 .dark {
-  --bg: #0b1016;
-  --surface: #121922;
-  --surface-2: #18212c;
-  --ink: #ebe8de;
-  --muted: #9aa2ac;
-  --faint: #67707b;
-  --line: #222c37;
-  --rule: #2d3844;
+  /* "Warm Ink + Gold": unchanged from the approved dark theme. Warm near-black
+     surfaces, off-white ink, gold identity. The --cobalt token carries the
+     identity accent in both themes (petrol in light, gold in dark). */
+  --bg: #131110;
+  --surface: #1a1814;
+  --surface-2: #221e18;
+  --ink: #f2ede0;
+  --muted: #b6ad9d;
+  --faint: #8a8172;
+  --line: #2c2820;
+  --rule: #3b362b;
 
-  --cobalt: #7ba3ea;
-  --cobalt-strong: #9abaf1;
+  --cobalt: #e3b34c;
+  --cobalt-strong: #f0c768;
+
+  --accent-jade: #3ecf9e;
+  --accent-amber: #cf9a3a;
+  --accent-coral: #ec7f60;
+  --accent-teal: #43c3c0;
 
   --band-strong: #2fbe8f;
   --band-positive: #37a583;
@@ -78,30 +100,91 @@
   --band-veryweak: #d0574c;
 }
 
+/* Continuous market marquee: pauses on hover, disabled under reduced motion. */
+@keyframes pulse-marquee {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+@layer components {
+  /* Elevated panel: translucent surface, blur, soft depth. Use on small cards,
+     never on full-width strips (blur cost scales with area). */
+  .glass {
+    background: color-mix(in srgb, var(--surface) 74%, transparent);
+    backdrop-filter: blur(14px) saturate(1.15);
+    -webkit-backdrop-filter: blur(14px) saturate(1.15);
+    border: 1px solid color-mix(in srgb, var(--rule) 80%, transparent);
+    box-shadow: 0 24px 48px -28px color-mix(in srgb, black 65%, transparent);
+  }
+
+  .marquee-track {
+    animation: pulse-marquee 80s linear infinite;
+  }
+
+  .marquee:hover .marquee-track {
+    animation-play-state: paused;
+  }
+
+  /* Keyword highlight: pulls the eye without shouting. */
+  .hi {
+    color: var(--ink);
+    font-weight: 500;
+    text-decoration-line: underline;
+    text-decoration-color: color-mix(in srgb, var(--cobalt) 45%, transparent);
+    text-decoration-thickness: 2px;
+    text-underline-offset: 4px;
+  }
+
+  /* Framed chart plate: a distinctly bordered box so charts never merge
+     into the page background. */
+  .chart-frame {
+    border: 1px solid color-mix(in srgb, var(--cobalt) 18%, transparent);
+    background: var(--surface);
+    box-shadow: 0 16px 36px -28px color-mix(in srgb, var(--cobalt) 50%, transparent);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .marquee-track {
+      animation: none;
+    }
+  }
+}
+
 @layer base {
   html {
     scroll-behavior: smooth;
   }
 
+  @media (prefers-reduced-motion: reduce) {
+    html {
+      scroll-behavior: auto;
+    }
+  }
+
   body {
     @apply bg-background text-foreground font-sans antialiased;
-    font-feature-settings: "ss01" on;
   }
 
   ::selection {
     background: color-mix(in srgb, var(--cobalt) 22%, transparent);
   }
 
-  /* Financial numerals: tabular so columns of figures align. */
+  /* Financial numerals: tabular so columns of figures align, weight 500
+     floor so data never renders thin. */
   .num {
     font-family: var(--font-mono);
+    font-weight: 500;
     font-variant-numeric: tabular-nums;
     letter-spacing: -0.01em;
   }
 
   /* Editorial caps label used for section eyebrows and data labels. */
   .label-caps {
-    @apply text-[11px] font-semibold uppercase tracking-[0.14em];
+    @apply text-xs font-semibold uppercase tracking-[0.14em];
     color: var(--faint);
   }
 

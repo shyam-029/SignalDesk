@@ -1,11 +1,12 @@
 import { motion } from "framer-motion";
 
-import { Reveal } from "@/components/motion/Reveal";
+import { Reveal, useReducedMotionSafe } from "@/components/motion/Reveal";
+import { NumbersToSignal } from "@/components/landing/NumbersToSignal";
 
 /**
- * NumbersProblem — the editorial "the market is full of numbers" moment.
+ * NumbersProblem: the editorial "the market is full of numbers" moment.
  * Loose, disconnected metric fragments drift in first; then the copy turns and
- * the same fragments reorganize into a structured column — the transition from
+ * the same fragments reorganize into a structured column: the transition from
  * raw numbers to research structure, choreographed by scroll.
  */
 const RAW_METRICS: Array<{ k: string; v: string }> = [
@@ -13,28 +14,37 @@ const RAW_METRICS: Array<{ k: string; v: string }> = [
   { k: "ROE", v: "47.7%" },
   { k: "D/E", v: "0.31" },
   { k: "RSI 14", v: "38.6" },
-  { k: "MACD", v: "−4.1" },
+  { k: "MACD", v: "-4.1" },
   { k: "EV/EBITDA", v: "10.8" },
   { k: "Op margin", v: "24.1%" },
   { k: "P/B", v: "2.41" },
   { k: "Net mgn", v: "19.4%" },
   { k: "SMA 20", v: "102.8" },
   { k: "P/S", v: "1.92" },
-  { k: "Coverage", v: "11.2×" },
+  { k: "Coverage", v: "11.2x" },
 ];
 
 export function NumbersProblem() {
   return (
-    <section className="border-b border-line">
-      <div className="mx-auto max-w-6xl px-4 py-20 md:px-6 md:py-28">
-        {/* Phase 1 — the flood of disconnected numbers. */}
+    <section className="relative border-b border-line bg-surface-2/30">
+      {/* Depth wash: a faint jade pool behind the raw-number cloud. */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-0"
+        style={{
+          background:
+            "radial-gradient(600px 300px at 22% 18%, color-mix(in srgb, var(--accent-jade) 5%, transparent), transparent 72%)",
+        }}
+      />
+      <div className="relative mx-auto max-w-6xl px-4 py-20 md:px-6 md:py-28">
+        {/* Phase 1: the flood of disconnected numbers. */}
         <Reveal>
           <h2 className="max-w-2xl font-display text-3xl font-semibold leading-tight md:text-4xl">
             The market is full of numbers.
           </h2>
           <p className="mt-4 max-w-xl text-muted">
             Every platform shows you the same figures. Pasted across tickers, feeds and
-            screens — plentiful, precise, and disconnected.
+            screens: <span className="hi">plentiful, precise, and disconnected</span>.
           </p>
         </Reveal>
 
@@ -42,7 +52,7 @@ export function NumbersProblem() {
           <RawCloud />
         </div>
 
-        {/* Phase 2 — the turn. */}
+        {/* Phase 2: the turn. */}
         <Reveal className="mt-20 text-center md:mt-28">
           <p className="font-display text-xl text-muted md:text-2xl">
             Most platforms stop at showing them.
@@ -50,29 +60,34 @@ export function NumbersProblem() {
           <p className="mt-6 font-display text-2xl font-semibold md:text-4xl">
             SignalDesk asks what they <span className="text-cobalt dark:text-cobalt-strong">mean</span>.
           </p>
+          <NumbersToSignal className="mx-auto mt-12 w-full max-w-2xl" />
         </Reveal>
 
-        {/* Phase 3 — the same numbers, organized into a research structure. */}
+        {/* Phase 3: the same numbers, organized into a research structure. */}
         <div className="mt-14 grid gap-px border border-line bg-line md:grid-cols-2">
           <StructureRow
             title="Into fundamentals"
-            items={["ROE 47.7%", "Op margin 24.1%", "D/E 0.31", "Coverage 11.2×"]}
-            caption="→ Profitability 98 · Solvency 100"
+            accent="var(--accent-jade)"
+            items={["ROE 47.7%", "Op margin 24.1%", "D/E 0.31", "Coverage 11.2x"]}
+            caption="Scores: Profitability 98 · Solvency 100"
           />
           <StructureRow
             title="Into valuation"
+            accent="var(--accent-amber)"
             items={["P/E 16.4", "EV/EBITDA 10.8", "P/B 2.41", "P/S 1.92"]}
-            caption="→ vs same-industry peer medians"
+            caption="Compared with same-industry peer medians"
           />
           <StructureRow
             title="Into technicals"
-            items={["SMA 20 102.8", "RSI 14 38.6", "MACD −4.1"]}
-            caption="→ Trend 31 · Momentum 4 · Reversion 46"
+            accent="var(--accent-coral)"
+            items={["SMA 20 102.8", "RSI 14 38.6", "MACD -4.1"]}
+            caption="Scores: Trend 31 · Momentum 4 · Reversion 46"
           />
           <StructureRow
             title="Into sentiment"
+            accent="var(--accent-teal)"
             items={["219 positive", "159 negative", "623 neutral"]}
-            caption="→ FinBERT-scored news, net tone"
+            caption="FinBERT-scored news, net tone"
           />
         </div>
       </div>
@@ -84,37 +99,58 @@ function StructureRow({
   title,
   items,
   caption,
+  accent,
 }: {
   title: string;
   items: string[];
   caption: string;
+  accent: string;
 }) {
+  const reduced = useReducedMotionSafe();
   return (
     <motion.div
       initial={{ opacity: 0, y: 18 }}
       whileInView={{ opacity: 1, y: 0 }}
       viewport={{ once: true, margin: "-80px" }}
       transition={{ duration: 0.55, ease: [0.22, 1, 0.36, 1] }}
-      className="bg-surface p-5"
+      className="relative bg-surface p-5 pl-6"
     >
-      <p className="label-caps">{title}</p>
+      <span
+        aria-hidden
+        className="absolute left-0 top-0 h-full w-[3px]"
+        style={{ background: accent }}
+      />
+      <p className="label-caps" style={{ color: accent }}>
+        {title}
+      </p>
       <div className="num mt-3 flex flex-wrap gap-2">
         {items.map((item) => (
-          <span key={item} className="border border-line bg-background px-2 py-1 text-xs">
+          <motion.span
+            key={item}
+            whileHover={
+              reduced
+                ? undefined
+                : { y: -6, scale: 1.05, transition: { type: "spring", stiffness: 430, damping: 13 } }
+            }
+            className="border border-line bg-background px-2 py-1 text-xs text-muted"
+          >
             {item}
-          </span>
+          </motion.span>
         ))}
       </div>
-      <p className="num mt-3 text-xs text-cobalt dark:text-cobalt-strong">{caption}</p>
+      <p className="num mt-3 text-xs" style={{ color: accent }}>
+        {caption}
+      </p>
     </motion.div>
   );
 }
 
 /**
  * The disconnected-numbers cloud. Each chip drifts into its spot once, on
- * view — no infinite loops, no parallax; the disorder itself is the message.
+ * view. No infinite loops, no parallax; the disorder itself is the message.
  */
 function RawCloud() {
+  const reduced = useReducedMotionSafe();
   return (
     <>
       {RAW_METRICS.map((m, i) => {
@@ -125,11 +161,12 @@ function RawCloud() {
             initial={{ opacity: 0, x: drift.dx * 40, y: drift.dy * 40, rotate: drift.r }}
             whileInView={{ opacity: 1, x: 0, y: 0, rotate: 0 }}
             viewport={{ once: true, margin: "-100px" }}
+            whileHover={reduced ? undefined : { y: -7, scale: 1.06, transition: { type: "spring", stiffness: 430, damping: 13 } }}
             transition={{ duration: 0.9, delay: i * 0.05, ease: [0.22, 1, 0.36, 1] }}
             className="num inline-flex items-baseline gap-1.5 border border-line bg-surface px-3 py-2 text-xs text-muted"
             style={{ margin: "4px 6px" }}
           >
-            <span className="text-[10px] uppercase tracking-wide text-faint">{m.k}</span>
+            <span className="text-xs font-medium uppercase tracking-wide text-faint">{m.k}</span>
             <span className="font-medium">{m.v}</span>
           </motion.span>
         );
