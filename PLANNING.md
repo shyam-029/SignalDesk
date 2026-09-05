@@ -3,8 +3,8 @@
 > **Purpose:** Living document. Records every product, technical, and scope decision for the project.
 > **Owner:** Shyam (3rd-year CS student)
 > **Timeline:** 2 semesters (~8 months) before recruiter season.
-> **Status:** **Phase 6.5 parts E/F/G COMPLETE** (historical financials, dual data providers, news
-> relevance). Part D (stock research page expansion) next. Phase 7 (observability) after.
+> **Status:** **Phase 6.5 COMPLETE** (experience overhaul + parts E/F/G + Part D stock research
+> expansion). Phase 7 (observability) next.
 >
 > **Companion file:** `PROGRESS.md` - operational status, what's done/in-progress/next, command
 > cheatsheet, and gotchas. **Read PROGRESS.md first to pick up where we left off.**
@@ -320,10 +320,10 @@ Base path: `/api/v1`. All responses JSON. Swagger docs auto-generated at `/docs`
 ### Historical research (Phase 6.5 Part E)
 | Method | Path | Request | Response |
 |---|---|---|---|
-| GET | `/api/v1/stocks/{symbol}/performance` | - | `Performance` (as_of, bars_used, windows{1w,1m,3m,6mo,1y,2y}{change_pct,change_abs,start_close,end_close,start_date}, high_52w, low_52w, insufficient_data) |
+| GET | `/api/v1/stocks/{symbol}/performance` | - | `Performance` (as_of, bars_used, windows{1w,1m,3m,6mo,1y,2y}{change_pct,change_abs,start_close,end_close,start_date}, high_52w, low_52w, volatility_1y_pct, insufficient_data) |
 | GET | `/api/v1/stocks/{symbol}/alpha/history` | `?limit=180` | `{symbol, items:[{date,composite,fundamental,technical,sentiment,components}], insufficient_data}` |
 | GET | `/api/v1/stocks/{symbol}/technicals/series` | `?limit=250` | `{symbol, items:[{date,close,sma20,ema12,rsi14,macd,macd_signal,macd_histogram}], insufficient_data}` |
-| GET | `/api/v1/stocks/{symbol}/peers` | - | `{symbol, classifier, count, items:[{symbol,name,sector,industry,last_price,change_pct,trailing_pe}]}` |
+| GET | `/api/v1/stocks/{symbol}/peers` | - | `{symbol, classifier, count, items:[{symbol,name,sector,industry,last_price,change_pct,trailing_pe,return_on_equity,profit_margin,debt_to_equity}]}` |
 | GET | `/api/v1/stocks/{symbol}/financials/history` | `?period_type=annual\|quarterly` | `{symbol, items:[{period_end,period_type,revenue,net_income,operating_margin,net_margin,eps,source,ingested_at}], insufficient_data}` |
 
 ### Health / Meta
@@ -801,6 +801,41 @@ Chronological record of decisions. Append as time progresses.
   228 periods, 0 errors through the merged provider; real 8-stock provider
   quality check performed; backend starts, `/health` ok; `git ls-files
   backend/.env` empty.
+
+---
+
+### 2026-09-06 - Session 18 (Phase 6.5 Part D: stock research page expansion)
+
+- **D61.** **Collapsible research sections without a redesign**: the stock
+  page keeps the approved visual language; Valuation, Fundamentals,
+  Technicals, News and Methodology gain a `CollapsibleSection` shell whose
+  header row is the toggle, while Alpha (plus its new history chart) and the
+  primary price chart stay open. Collapsed content stays mounted (hidden via
+  CSS) so queries keep the same caching behavior and collapsed summaries are
+  always data-backed. Summaries are presentation strings from pure, tested
+  builders (`lib/summaries.ts`) fed by the same query data the sections
+  render: a section with insufficient data shows no summary and never
+  invents one.
+- **D62.** **Backend owns the new math**: `/performance` gained
+  `volatility_1y_pct` (sample stdev of daily simple returns x sqrt(252),
+  null under three closes) and `/peers` gained ROE/profit margin/D/E from
+  the already-batched financials snapshot - the two smallest-coherent
+  additions that let the frontend render performance strips and peer tables
+  without recomputing anything client-side. Frontend additions (performance
+  strip, alpha history chart, indicator series charts, peer table,
+  multi-year financial charts) are pure consumers of Part E endpoints via
+  the shared `TimeSeriesChart` (Lightweight Charts; null gaps render as
+  whitespace points, never interpolations).
+- **D63.** **Missing-data rendering contract on the research page**: a
+  missing performance window, peer cell or financial period renders "-" with
+  the DataState system carrying loading/empty/insufficient/stale/error and
+  unknown-symbol states; a rendered zero is always a real zero; insufficient
+  sections (e.g. TATAMOTORS with no bars) show explicit insufficient notes.
+- **Verified:** backend pytest **234/234**; frontend tsc clean, vitest
+  **59/59**, `vite build` OK; live smoke of all five Part E endpoints
+  (RELIANCE data-rich incl. an honestly missing 2Y window anchor,
+  TATAMOTORS insufficient on every endpoint, unknown symbol 404 envelope);
+  production preview deep link + API proxy verified; git diff reviewed.
 
 ---
 

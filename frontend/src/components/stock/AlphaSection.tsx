@@ -6,6 +6,7 @@ import { ScoreBlock } from "@/components/data/ScoreBlock";
 import { SectionHeader } from "@/components/data/SectionHeader";
 import { InfoDot } from "@/components/data/InfoDot";
 import { ExplainAction } from "@/components/explain/ExplainAction";
+import { AlphaHistoryChart } from "@/components/stock/AlphaHistoryChart";
 import { fmtSignedPct } from "@/lib/format";
 import { scoreBand, valuationSemantics } from "@/lib/semantic";
 import { cn } from "@/lib/utils";
@@ -174,6 +175,11 @@ export function AlphaSection({ symbol }: { symbol: string }) {
             </div>
           )}
         </DataState>
+
+        {/* Score over time: stored snapshots only, never back-filled. */}
+        <div className="mt-8">
+          <AlphaHistoryChart symbol={symbol} />
+        </div>
       </div>
     </section>
   );

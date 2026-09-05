@@ -1,29 +1,33 @@
-import { SectionHeader } from "@/components/data/SectionHeader";
+import { CollapsibleSection } from "@/components/stock/CollapsibleSection";
 
 /**
  * StockMethodology: compact transparency block: how each number on THIS page
- * was built, and the separation between Alpha and valuation.
+ * was built, and the separation between Alpha and valuation. Collapsible
+ * since Part D (static reference content; no data-backed summary).
  */
 export function StockMethodology({ symbol }: { symbol: string }) {
   return (
-    <section id="methodology" className="border-b border-line last:border-b-0">
-      <div className="mx-auto max-w-6xl px-4 py-12 md:px-6">
-        <SectionHeader index="07" kicker="Methodology" title="How this page is built" />
-        <div className="grid gap-px border border-line bg-line md:grid-cols-2">
-          {BLOCKS.map((b) => (
-            <div key={b.title} className="bg-surface p-5">
-              <p className="label-caps">{b.title}</p>
-              <p className="mt-2 text-sm leading-relaxed text-muted">{b.body}</p>
-            </div>
-          ))}
-        </div>
-        <p className="num mt-4 text-xs text-faint">
-          {symbol} · daily bars via Yahoo Finance · financials are point-in-time snapshots ·
-          sentiment via FinBERT · generated explanations are built from computed data and are
-          not investment advice.
-        </p>
+    <CollapsibleSection
+      id="methodology"
+      index="08"
+      kicker="Methodology"
+      title="How this page is built"
+      className="border-b-0"
+    >
+      <div className="grid gap-px border border-line bg-line md:grid-cols-2">
+        {BLOCKS.map((b) => (
+          <div key={b.title} className="bg-surface p-5">
+            <p className="label-caps">{b.title}</p>
+            <p className="mt-2 text-sm leading-relaxed text-muted">{b.body}</p>
+          </div>
+        ))}
       </div>
-    </section>
+      <p className="num mt-4 text-xs text-faint">
+        {symbol} · daily bars via Yahoo Finance · financials are point-in-time snapshots ·
+        sentiment via FinBERT · generated explanations are built from computed data and are
+        not investment advice.
+      </p>
+    </CollapsibleSection>
   );
 }
 
