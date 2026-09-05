@@ -111,6 +111,24 @@
 }
 
 @layer components {
+  /* Background grid lines: faint square ruling behind the landing page.
+     Drawn with the theme's --rule color so both themes get a line that is
+     visible but quiet; pure CSS (no images), static, no motion cost. */
+  .grid-lines {
+    background-image:
+      linear-gradient(
+        to right,
+        color-mix(in srgb, var(--rule) 42%, transparent) 1px,
+        transparent 1px
+      ),
+      linear-gradient(
+        to bottom,
+        color-mix(in srgb, var(--rule) 42%, transparent) 1px,
+        transparent 1px
+      );
+    background-size: 80px 80px;
+  }
+
   /* Elevated panel: translucent surface, blur, soft depth. Use on small cards,
      never on full-width strips (blur cost scales with area). */
   .glass {
