@@ -21,6 +21,24 @@ async def get_latest(
     )
 
 
+async def get_history(
+    session: AsyncSession, symbol: str, limit: int = 180
+) -> list[AlphaScore]:
+    """Return a symbol's alpha snapshots, oldest first (for charts).
+
+    Bounded to the most recent `limit` snapshots before reordering.
+    """
+    rows = (
+        await session.execute(
+            select(AlphaScore)
+            .where(AlphaScore.symbol == symbol)
+            .order_by(AlphaScore.date.desc())
+            .limit(limit)
+        )
+    ).scalars().all()
+    return sorted(rows, key=lambda r: r.date)
+
+
 async def upsert_snapshot(
     session: AsyncSession,
     symbol: str,

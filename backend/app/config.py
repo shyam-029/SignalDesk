@@ -52,6 +52,18 @@ class Settings(BaseSettings):
     # Finnhub key for live prices (deferred).
     finnhub_api_key: str = ""
 
+    # --- Upstox market data (Phase 6.5 Part F: dual providers) ---
+    # Manually generated Upstox access token ("Analytics Token") used as a
+    # Bearer credential for read-only market-data APIs. Empty string means
+    # Upstox is not configured and the app operates yfinance-only. The token
+    # is server-side only: never logged, never sent to the frontend.
+    upstox_analytics_token: str = ""
+
+    # --- OpenRouter (reserved for the later LLM part; not wired anywhere yet) ---
+    # Recognized so the environment variable is consumed cleanly instead of
+    # being ignored. The LLM call path still uses llm_api_key below.
+    openrouter_api_key: str = ""
+
     # --- CORS (Phase 6: browser frontend) ---
     # Comma-separated list of origins allowed to call the API from a browser.
     # Empty string disables CORS handling entirely. Defaults to the Vite dev

@@ -19,6 +19,7 @@ from datetime import date, datetime
 from sqlalchemy import (
     ForeignKey,
     Numeric,
+    String,
     Table,
     UniqueConstraint,
     Column,
@@ -133,6 +134,53 @@ class Financials(Base):
     current_ratio: Mapped[Numeric | None] = mapped_column(Numeric(12, 2))
 
     updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+    # Back-reference to the owning stock.
+    stock: Mapped["Stock"] = relationship()
+
+
+class FinancialPeriod(Base):
+    """One historical income-statement period for a stock.
+
+    Unlike `Financials` (a single point-in-time snapshot), this table keeps
+    per-period history (annual first; the schema also admits quarterly rows).
+    Every metric column is nullable: providers do not supply all fields for
+    all periods, and missing values are never fabricated. `source` records
+    which provider supplied the row ("yfinance", "upstox", or "merged").
+    """
+
+    __tablename__ = "financial_periods"
+    __table_args__ = (
+        # One row per stock per period end per period type; upserts target
+        # this constraint so re-ingestion stays idempotent.
+        UniqueConstraint(
+            "stock_id", "period_end", "period_type",
+            name="uq_financial_periods_stock_period",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    stock_id: Mapped[int] = mapped_column(ForeignKey("stocks.id"), index=True)
+    period_end: Mapped[date]
+    # "annual" | "quarterly".
+    period_type: Mapped[str] = mapped_column(String(16))
+
+    # Income-statement values in rupees (Upstox reports in crore; the adapter
+    # converts so units are consistent across providers).
+    revenue: Mapped[Numeric | None] = mapped_column(Numeric(20, 2))
+    net_income: Mapped[Numeric | None] = mapped_column(Numeric(20, 2))
+
+    # Ratios stored as decimals (0.18 = 18%), computed by the backend.
+    operating_margin: Mapped[Numeric | None] = mapped_column(Numeric(10, 6))
+    net_margin: Mapped[Numeric | None] = mapped_column(Numeric(10, 6))
+
+    # Earnings per share (rupees).
+    eps: Mapped[Numeric | None] = mapped_column(Numeric(12, 4))
+
+    source: Mapped[str] = mapped_column(String(32))
+    ingested_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
 

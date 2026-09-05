@@ -3,7 +3,8 @@
 > **Purpose:** Living document. Records every product, technical, and scope decision for the project.
 > **Owner:** Shyam (3rd-year CS student)
 > **Timeline:** 2 semesters (~8 months) before recruiter season.
-> **Status:** **Phase 6 COMPLETE** (production React frontend + backend API gaps filled). Phase 7 next: observability.
+> **Status:** **Phase 6.5 parts E/F/G COMPLETE** (historical financials, dual data providers, news
+> relevance). Part D (stock research page expansion) next. Phase 7 (observability) after.
 >
 > **Companion file:** `PROGRESS.md` - operational status, what's done/in-progress/next, command
 > cheatsheet, and gotchas. **Read PROGRESS.md first to pick up where we left off.**
@@ -190,6 +191,9 @@ news_articles     (id, symbol, source, title, url, published_at, content)
 news_sentiment    (article_id, score, label, model)
 alpha_scores      (symbol, date, fundamental, technical, sentiment, composite,
                    components_json JSONB, updated_at)           -- UNIQUE(symbol, date) snapshot
+financial_periods (id, stock_id, period_end, period_type, revenue, net_income,
+                   operating_margin, net_margin, eps, source, ingested_at)
+                                                  -- UNIQUE(stock_id, period_end, period_type); Part E
 mutual_funds      (id, name, amfi_code)               -- stretch
 mf_nav_history    (fund_id, date, nav)                -- stretch
 mf_holdings       (fund_id, stock_name, pct_aum, date) -- stretch
@@ -203,6 +207,7 @@ mf_holdings       (fund_id, stock_name, pct_aum, date) -- stretch
 |---|---|---|---|
 | Indian stock prices (OHLCV) | yfinance `.NS` suffix | Free | e.g. `RELIANCE.NS`; no key |
 | **Financial statements** (income, balance sheet, cash flow, key ratios) | **yfinance** | **Free** | Recommended free option; covers Indian stocks |
+| **Secondary market/fundamentals source** | **Upstox v2 API** | **Free** (Upstox account) | Part F: manual "Analytics Token" (Bearer) in backend/.env; read-only candles + fundamentals; merged as SECONDARY behind yfinance (D58/D59) |
 | Mutual fund NAV | AMFI CSV | Free | Official, structured |
 | Mutual fund holdings | Fund house sites (HTML/Excel/PDF) | Free | Excel/CSV first, PDF later |
 | News (Indian) | RSS (ET, Moneycontrol, Mint) + Google News RSS per symbol | Free | No key |
@@ -311,6 +316,15 @@ Base path: `/api/v1`. All responses JSON. Swagger docs auto-generated at `/docs`
 |---|---|---|---|
 | GET | `/api/v1/stocks/{symbol}/alpha` | - | `Alpha` (composite, fundamental, technical, sentiment, components, weights, value_signal, explanation, insufficient_data) |
 | POST | `/api/v1/stocks/{symbol}/explain` | `{question_type}` | `Explanation` (grounded contextual explanation; types: alpha/technical/valuation/fundamental/sentiment; rule-based fallback; TTL cache; shared daily cap) |
+
+### Historical research (Phase 6.5 Part E)
+| Method | Path | Request | Response |
+|---|---|---|---|
+| GET | `/api/v1/stocks/{symbol}/performance` | - | `Performance` (as_of, bars_used, windows{1w,1m,3m,6mo,1y,2y}{change_pct,change_abs,start_close,end_close,start_date}, high_52w, low_52w, insufficient_data) |
+| GET | `/api/v1/stocks/{symbol}/alpha/history` | `?limit=180` | `{symbol, items:[{date,composite,fundamental,technical,sentiment,components}], insufficient_data}` |
+| GET | `/api/v1/stocks/{symbol}/technicals/series` | `?limit=250` | `{symbol, items:[{date,close,sma20,ema12,rsi14,macd,macd_signal,macd_histogram}], insufficient_data}` |
+| GET | `/api/v1/stocks/{symbol}/peers` | - | `{symbol, classifier, count, items:[{symbol,name,sector,industry,last_price,change_pct,trailing_pe}]}` |
+| GET | `/api/v1/stocks/{symbol}/financials/history` | `?period_type=annual\|quarterly` | `{symbol, items:[{period_end,period_type,revenue,net_income,operating_margin,net_margin,eps,source,ingested_at}], insufficient_data}` |
 
 ### Health / Meta
 | Method | Path | Response |
@@ -478,6 +492,33 @@ StockSummary: { symbol, name, sector, last_price, change_pct }
 7. Live integration verified (uvicorn + Vite: CORS, preflight, deep link, real endpoints).
 8. PROGRESS.md + PLANNING.md updated; git commit + push.
 
+## 16d. Definition of Done - Phase 6.5 (experience overhaul)
+
+> **STATUS: MET** (2026-09-05). All items verified.
+
+1. Copy discipline holds site-wide: zero em dashes and zero AI-tell wording in
+   user-visible strings and comments; the missing-value placeholder is "-";
+   disclaimers normalize to "Generated from SignalDesk data. Not investment advice."
+2. Typography: Instrument Sans (body/UI), IBM Plex Mono (data, weight floor 500,
+   no 400 face loaded), Libre Caslon Text (display) retained; no data/UI text
+   below 12px anywhere, including chart canvas text.
+3. Palette: light mode graded to the approved reference concept (cool white
+   #f8f9ff family, navy ink #0b1c30, petrol identity #006781); dark mode keeps
+   the approved Warm Ink + Gold theme untouched; dark-first default with the
+   stored preference always winning.
+4. Dimension accents (jade=fundamentals, amber=valuation, coral=technicals,
+   teal=sentiment) mark only which dimension speaks; raw metrics stay neutral.
+5. Landing: market pulse marquee (all 50 constituents, real /stocks data,
+   honest DataStates), interactive candle field (illustrative OHLC readout),
+   numbers-to-signal diagram, clickable framework cards, fifty-bar universe
+   field, scroll rail, glass panels, section rhythm, keyword highlights.
+6. Motion is transform/opacity only, honors prefers-reduced-motion everywhere
+   (Reveal, marquee, rail), and no raster images or blend modes ship (zero
+   remote requests).
+7. Frontend tests 43/43 (5 new), tsc clean, production build OK; live
+   uvicorn+Vite integration re-verified.
+8. PROGRESS.md + PLANNING.md updated; git commit + push.
+
 Phase 5 is complete only when all of the following pass:
 
 1. `/alpha` returns a populated `explanation` - LLM-narrated when key+model+provider work, rule-based otherwise.
@@ -643,6 +684,123 @@ Chronological record of decisions. Append as time progresses.
   vite build OK; live uvicorn+Vite integration (CORS headers, preflight, real RELIANCE
   detail/technicals/explain/valuation/alpha/screener, 422 bad question type, 404 unknown symbol,
   deep-link SPA fallback). Design-reference folders git-ignored.
+
+---
+
+### 2026-09-05 - Session 16 (Phase 6.5: experience overhaul)
+
+- **D49.** **Copy discipline is a hard rule**: no em dashes and no AI-tell
+  wording ("grounded", "deliberately", "defensible", "honest", "quiet",
+  "unglamorous" and similar) anywhere user-visible or in comments; the
+  null placeholder is "-" (standard financial convention, and it keeps the
+  no-em-dash guarantee); explanation disclaimers normalize to "Generated from
+  SignalDesk data. Not investment advice."; the landing "Grounded" section was
+  renamed ExplainerSection (single definition + import) so the banned word is
+  gone from identifiers too.
+- **D50.** **Typography floor**: body/UI is Instrument Sans, data is IBM Plex
+  Mono with ONLY weights 500/600/700 loaded (no 400 face exists, so any
+  implicit 400 request, including the chart canvas, resolves to the 500 face
+  per CSS font matching); Libre Caslon Text stays for display; 12px minimum
+  for every data/UI text (54 sub-12px instances removed); `.num` carries a
+  500 weight floor; `.label-caps` is 12px/600. Weights were tuned per role,
+  not bumped globally (body prose stays 400).
+- **D51.** **Dimension accents**: jade=fundamentals, amber=valuation,
+  coral=technicals, teal=sentiment, exposed as Tailwind `accent-*` tokens.
+  Accents appear only where they communicate which dimension is speaking
+  (framework cards, hero chips, structure rows, universe bars, flow lines);
+  raw metrics and market colors stay neutral/green-red.
+- **D52.** **Two approved themes, one token shape**: light "Cloud White +
+  Petrol" graded from the approved reference concept (bg #f8f9ff, cards #fff,
+  ink #0b1c30, identity #006781, borders #ccd5e6/#b7c5de, navy primary
+  buttons); dark "Warm Ink + Gold" (bg #131110, ink #f2ede0, identity
+  #e3b34c) is unchanged by the light regrade. The `--cobalt` token carries
+  the identity in both themes so interactive color re-skins as one. Dark is
+  the first-visit default; a stored preference always wins.
+- **D53.** **No photographs**: stock imagery was tried and rejected in review
+  (artificial placement, blend-mode compositing cost). The landing uses
+  authored SVG plates instead (CandleField, UniverseGrid), explicitly labeled
+  "Illustrative"; the bundle ships zero raster images and zero blend modes.
+- **D54.** **Landing interactivity and motion budget**: MarketPulse is a
+  continuous marquee of ALL 50 real constituents (CSS transform, pauses on
+  hover, reduced-motion renders a static scrollable row); CandleField is
+  hover/tap interactive with an illustrative OHLC readout; framework cards
+  are selectable (accent border + dim logic); metric chips spring-hop on
+  hover; ScrollPulse is a uniform-sine right rail whose dot travels the exact
+  arc length of the path with scroll. Glass (blur) is limited to three small
+  panels; washes are static radial gradients; everything animates with
+  opacity/transform only and respects prefers-reduced-motion.
+- **D55.** **Charts stay interactive in both themes**: the Lightweight Charts
+  crosshair uses dashed faint lines with petrol axis labels (the previous
+  rule-colored hairlines were invisible in light mode, making hover feedback
+  look broken); canvas text is IBM Plex Mono at 12px.
+- **Verified:** tsc clean; vitest 43/43 (5 new pickTopMovers tests); vite
+  build OK; zero raster images in dist; pulse math verified against the live
+  /stocks response; pushed as 3efb78d on main.
+
+---
+
+### 2026-09-05 - Session 17 (Phase 6.5 parts E/F/G: historical financials, dual providers, news)
+
+- **D56.** **Historical financial data model**: `financial_periods` table
+  (migration `a844177fa25e`) keyed UNIQUE(stock_id, period_end, period_type);
+  every metric nullable; `source` records yfinance/upstox/merged. Missing
+  history is contractual: nulls and `insufficient_data` flags, never
+  interpolated or fabricated. Margins are computed backend-side from the
+  same period's figures. `get_financial_history()` is an optional provider
+  capability (ABC default raises NotImplementedError; callers treat that as
+  "no history available", not a failure).
+- **D57.** **Five research endpoints** (router `history.py`, read-only over
+  the DB): `GET /stocks/{symbol}/performance` (windowed returns + 52w range),
+  `/alpha/history` (stored snapshots, oldest first), `/technicals/series`
+  (SMA20/EMA12/RSI14/MACD per stored bar via new series variants in
+  `services/indicators.py`, pinned equal to the scalar functions by tests),
+  `/peers` (reuses the industry-keyed peer repository so it can never
+  disagree with valuation), `/financials/history`. The backend owns all
+  math; the frontend renders.
+- **D58.** **Upstox integration (verified against official docs before
+  implementation)**: the "Analytics Token" is a manually generated access
+  token used as `Authorization: Bearer` for read-only v2 APIs (historical
+  candles, fundamentals income-statement/key-ratios/profile); no interactive
+  OAuth. The token lives only in `backend/.env` via
+  `settings.upstox_analytics_token`, is never logged or sent to the
+  frontend, and `.env.example` carries an empty placeholder. Symbols map to
+  Upstox instrument keys through the official NSE instruments master
+  (`assets.upstox.com`, segment NSE_EQ, cached per process). Income
+  statements arrive in crore and are converted to rupees so units match
+  yfinance; unparseable period labels are skipped, unknown units refused.
+- **D59.** **MergingProvider and provider selection**: yfinance stays
+  PRIMARY (free, no key, proven); Upstox is the SECONDARY gap-filler.
+  Prices merge newest-window-first with primary winning same-date
+  collisions, secondary gap-filling missing dates, and per-bar source
+  attribution on `OHLCV.source`. Fundamentals coalesce field-by-field;
+  material disagreement (> 5% relative) keeps the primary and logs both
+  values (never credentials). Financial history coalesces per
+  (period_type, period_end) with per-row source. `build_default_market_provider()`
+  returns yfinance-only when no token is configured; any secondary failure
+  degrades to primary-only for that call. All merge logic is pure and
+  tested without providers.
+- **D60.** **News relevance and freshness**: the primary search query is the
+  company's full name from the catalog; the bare-symbol query is a fallback
+  only when the name search yields no usable results. BOTH result sets pass
+  the same filter: bare-symbol mention (>= 4 chars, word-bounded) OR all
+  distinctive name tokens (corporate suffixes stripped). This blocks
+  generic nouns and unrelated symbol matches at the cost of occasional
+  false negatives ("SBI" without the full name), an accepted precision-over-
+  recall trade. The ~30-day freshness window applies at ingestion and
+  display; undated articles cannot be proven stale and are kept; sentiment
+  processing is unchanged.
+- **Data-quality findings (real 8-stock check: RELIANCE, TCS, INFY,
+  APOLLOHOSP, HDFCBANK, ICICIBANK, SBIN, LT):** daily bars agree exactly
+  across providers; Upstox fills ROE/ROA gaps yfinance omits (RELIANCE,
+  APOLLOHOSP, LT); yfinance `.info` defects confirmed (INFY P/S 225.5x and
+  EBITDA off by ~10x); Upstox P/E differs up to ~15% (trailing basis
+  differences - primary wins and logs); Upstox provides no market cap, P/S,
+  EV, or EBITDA absolutes, so those fields cannot be filled from it.
+- **Verified:** backend pytest **232/232** (77 new, zero network); migration
+  applied (`alembic current` = a844177fa25e); real ingestion 50/50 symbols,
+  228 periods, 0 errors through the merged provider; real 8-stock provider
+  quality check performed; backend starts, `/health` ok; `git ls-files
+  backend/.env` empty.
 
 ---
 

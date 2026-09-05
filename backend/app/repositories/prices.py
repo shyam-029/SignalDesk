@@ -61,3 +61,24 @@ async def get_close_series(
     closes = [float(v) for v in result.scalars()]
     closes.reverse()  # chronological
     return closes
+
+
+async def get_bars(
+    session: AsyncSession, stock_id: int, limit: int | None = None
+) -> list[DailyPrice]:
+    """Return a stock's daily bars, oldest first (chronological).
+
+    `limit` optionally bounds the lookback to the most recent N bars.
+    Used by the performance and technicals-series endpoints (Part E).
+    """
+    q = (
+        select(DailyPrice)
+        .where(DailyPrice.stock_id == stock_id)
+        .order_by(DailyPrice.date.desc())
+    )
+    if limit is not None:
+        q = q.limit(limit)
+    rows = (await session.execute(q)).scalars().all()
+    rows = list(rows)
+    rows.reverse()  # chronological (oldest first)
+    return rows
