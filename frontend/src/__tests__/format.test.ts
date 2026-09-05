@@ -14,12 +14,12 @@ import {
 } from "@/lib/format";
 
 describe("formatters", () => {
-  it("render null-safe em dashes everywhere", () => {
-    expect(fmtPrice(null)).toBe("—");
-    expect(fmtMarketCap(undefined)).toBe("—");
-    expect(fmtRatio(null)).toBe("—");
-    expect(fmtSignedPct(null)).toBe("—");
-    expect(fmtScore(Number.NaN)).toBe("—");
+  it("render a dash for missing values everywhere", () => {
+    expect(fmtPrice(null)).toBe("-");
+    expect(fmtMarketCap(undefined)).toBe("-");
+    expect(fmtRatio(null)).toBe("-");
+    expect(fmtSignedPct(null)).toBe("-");
+    expect(fmtScore(Number.NaN)).toBe("-");
   });
 
   it("format prices with Indian grouping", () => {
@@ -48,12 +48,12 @@ describe("formatters", () => {
 
   it("daily change combines abs + pct", () => {
     expect(fmtChange(1.5, 0.96)).toBe("+1.50 (+0.96%)");
-    expect(fmtChange(null, null)).toBe("—");
+    expect(fmtChange(null, null)).toBe("-");
   });
 
   it("volumes use compact shares", () => {
     expect(fmtVolume(1_200_400)).toContain("L");
-    expect(fmtVolume(null)).toBe("—");
+    expect(fmtVolume(null)).toBe("-");
   });
 
   it("relative time reads naturally", () => {

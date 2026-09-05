@@ -6,10 +6,10 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 
 /**
- * DataState — the single component through which every data-driven region
+ * DataState: the single component through which every data-driven region
  * renders its non-ready states: loading, error, empty, insufficient, stale.
  * Missing backend data is NEVER filled with fake values; each state says what
- * actually happened and offers a retry where retrying is meaningful.
+ * happened and offers a retry where retrying is meaningful.
  */
 export interface DataStateProps {
   loading?: boolean;
@@ -40,7 +40,7 @@ export function DataState({
   emptyTitle = "No data yet",
   emptyMessage = "Nothing to show here yet.",
   insufficientTitle = "Insufficient data",
-  insufficientMessage = "SignalDesk does not have enough stored data to compute this yet. Nothing is estimated in the meantime.",
+  insufficientMessage = "There is not enough stored data to compute this. Values are not estimated or guessed.",
   compact,
   className,
   children,
@@ -138,7 +138,7 @@ export function ErrorState({
         <p className="mt-0.5 text-xs text-muted">{message}</p>
         {isApi && error.code === "NETWORK_ERROR" && (
           <p className="mt-0.5 text-xs text-faint">
-            Check that the FastAPI backend is running (default http://localhost:8000).
+            Make sure the FastAPI backend is running on port 8000.
           </p>
         )}
       </div>

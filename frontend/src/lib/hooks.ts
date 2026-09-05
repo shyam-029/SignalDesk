@@ -1,4 +1,4 @@
-// Server state via TanStack Query — one hook per backend endpoint.
+// Server state via TanStack Query. One hook per backend endpoint.
 // Keys are structured so caches dedupe across pages (e.g. the landing preview
 // and the stock page share the same RELIANCE.NS detail entry).
 
@@ -32,7 +32,7 @@ export function useStockDetail(symbol: string) {
     queryFn: () => api.stockDetail(symbol),
     staleTime: 60_000,
     retry: (failureCount, error) => {
-      // Unknown symbols resolve instantly — don't hammer the API with retries.
+      // Unknown symbols resolve instantly, so don't hammer the API with retries.
       const status = (error as { status?: number }).status;
       if (status === 404) return false;
       return failureCount < 2;

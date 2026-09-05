@@ -20,9 +20,9 @@ import { SectionHeader } from "@/components/data/SectionHeader";
 const PAGE_SIZE = 25;
 
 /**
- * Markets — the full research universe as a server-paginated table. The API
+ * Markets: the full research universe as a server-paginated table. The API
  * owns pagination (page/limit), so the DOM stays bounded regardless of how far
- * the catalog scales (Nifty 50 → 200 → 500). TanStack Table manages the
+ * the catalog scales (Nifty 50, 200, 500). TanStack Table manages the
  * columns; all data states render through DataState.
  */
 export default function MarketsPage() {
@@ -46,12 +46,12 @@ export default function MarketsPage() {
       }),
       h.accessor("name", {
         header: "Company",
-        cell: (info) => <span className="text-sm">{info.getValue()}</span>,
+        cell: (info) => <span className="text-sm font-medium">{info.getValue()}</span>,
       }),
       h.accessor("sector", {
         header: "Sector",
         cell: (info) => (
-          <span className="text-xs text-muted">{info.getValue() ?? "—"}</span>
+          <span className="text-xs font-medium text-muted">{info.getValue() ?? "-"}</span>
         ),
       }),
       h.accessor("last_price", {

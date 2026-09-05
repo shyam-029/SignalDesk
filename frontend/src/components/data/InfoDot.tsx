@@ -8,12 +8,12 @@ import {
 import { Tooltip } from "@/components/ui/tooltip";
 
 /**
- * InfoDot — the information affordance for a metric.
+ * InfoDot: the information affordance for a metric.
  *
  * Hover/focus shows the short definition (tooltip). Activating opens a popover
  * with the methodology; entries carrying `longer` expose an expandable section
  * inside the popover. Essential methodology is therefore never hidden behind
- * hover alone — it is always reachable via keyboard focus + Enter/Space.
+ * hover alone. It is always reachable via keyboard focus + Enter/Space.
  */
 export function InfoDot({
   metric,
@@ -35,7 +35,7 @@ export function InfoDot({
       tabIndex={hasPopover ? 0 : undefined}
       className={cn(
         "inline-flex size-4 cursor-help items-center justify-center rounded-full",
-        "border border-line text-[9px] font-semibold text-faint transition-colors",
+        "border border-line text-xs font-semibold text-faint transition-colors",
         "hover:border-cobalt hover:text-cobalt dark:hover:text-cobalt-strong",
         className,
       )}

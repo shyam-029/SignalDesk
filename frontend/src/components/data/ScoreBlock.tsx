@@ -7,7 +7,7 @@ import type { MetricKey } from "@/lib/metrics";
 import { InfoDot } from "@/components/data/InfoDot";
 
 /**
- * ScoreBlock — SignalDesk's signature analytical object.
+ * ScoreBlock: SignalDesk's signature analytical object.
  *
  * NOT a circular gauge: a large tabular number, its band word, and a segmented
  * analytical scale. The whole treatment responds to the score band:
@@ -61,7 +61,7 @@ export function ScoreBlock({
 
   const shown = displayed ?? 0;
   const sizes = {
-    sm: { num: "text-2xl", label: "text-[11px]" },
+    sm: { num: "text-2xl", label: "text-xs" },
     md: { num: "text-4xl", label: "text-xs" },
     lg: { num: "text-6xl", label: "text-sm" },
   } as const;
@@ -77,12 +77,12 @@ export function ScoreBlock({
       <div className="flex items-end justify-between gap-2">
         <p className={cn("num font-medium leading-none", sizes[size].num, band.text)}>
           {shown}
-          <span className="ml-1 text-[0.4em] font-normal text-faint">{suffix}</span>
+          <span className="ml-1 text-[max(0.4em,12px)] font-medium text-faint">{suffix}</span>
         </p>
         {showBand && (
           <span
             className={cn(
-              "mb-1 border px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em]",
+              "mb-1 border px-1.5 py-0.5 text-xs font-semibold uppercase tracking-[0.08em]",
               band.text,
               band.border,
             )}
@@ -104,7 +104,7 @@ export function ScoreBlock({
   );
 }
 
-/** Subtle band-tinted surface — the tint stays quiet; the score carries color. */
+/** Subtle band-tinted surface. The tint stays light; the score carries color. */
 export function SegmentedBar({
   score,
   band,
@@ -155,9 +155,9 @@ function ScoreUnavailable({
           {metric && <InfoDot metric={metric} className="size-3.5" />}
         </p>
       )}
-      <p className="num text-2xl text-faint">—</p>
-      <p className="text-[11px] leading-snug text-faint">
-        Score unavailable — insufficient data.
+      <p className="num text-2xl text-faint">-</p>
+      <p className="text-xs leading-snug text-faint">
+        Score unavailable. Not enough data to compute it.
       </p>
     </div>
   );

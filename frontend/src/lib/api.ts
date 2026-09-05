@@ -1,4 +1,4 @@
-// Centralized API client — every request goes through here.
+// Centralized API client: every request goes through here.
 //
 // The backend returns errors in a single envelope (PLANNING §11):
 //   { "error": { "code", "message", "detail", "request_id" } }
@@ -63,7 +63,7 @@ async function parseError(response: Response): Promise<ApiError> {
       detail = body.error.detail ?? {};
     }
   } catch {
-    // Non-JSON error body — keep the HTTP fallbacks above.
+    // Non-JSON error body: keep the HTTP fallbacks above.
   }
   return new ApiError(response.status, code, message, detail);
 }
@@ -74,7 +74,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     response = await fetch(`${API_BASE}${path}`, init);
   } catch {
     // fetch only rejects on network-level failures (backend down, offline).
-    throw new ApiError(0, "NETWORK_ERROR", "Cannot reach the SignalDesk API.");
+    throw new ApiError(0, "NETWORK_ERROR", "Could not reach the SignalDesk API.");
   }
   if (!response.ok) {
     throw await parseError(response);

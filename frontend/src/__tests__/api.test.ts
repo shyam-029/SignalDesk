@@ -77,11 +77,11 @@ describe("api client", () => {
       jsonResponse(200, {
         symbol: "RELIANCE.NS",
         question_type: "alpha",
-        explanation: "Grounded.",
+        explanation: "Generated.",
       }),
     );
     const data = await api.explain("RELIANCE", "alpha");
-    expect(data.explanation).toBe("Grounded.");
+    expect(data.explanation).toBe("Generated.");
     const [url, init] = fetchMock.mock.calls[0];
     expect(String(url)).toContain("/stocks/RELIANCE/explain");
     expect((init as RequestInit).method).toBe("POST");

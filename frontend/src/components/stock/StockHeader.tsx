@@ -15,7 +15,7 @@ import {
 import { cn } from "@/lib/utils";
 
 /**
- * StockHeader — the market snapshot: identity, price, daily movement, size,
+ * StockHeader: the market snapshot: identity, price, daily movement, size,
  * day range. One API call (GET /stocks/{symbol}); editorial composition, not a
  * row of dashboard cards.
  */
@@ -56,7 +56,7 @@ export function StockHeader({ symbol }: { symbol: string }) {
                   </span>
                 </div>
                 <p className="mt-1.5 text-sm text-muted">
-                  {detail.sector ?? "—"}
+                  {detail.sector ?? "-"}
                   {detail.industry ? <span className="text-faint"> · {detail.industry}</span> : null}
                 </p>
               </div>
@@ -79,7 +79,7 @@ export function StockHeader({ symbol }: { symbol: string }) {
                     </span>
                   )}
                 </div>
-                <p className="num text-[11px] text-faint">
+                <p className="num text-xs text-faint">
                   {detail.quote.date ? `Close ${fmtDate(detail.quote.date)}` : "No price data"}
                 </p>
               </div>
@@ -88,7 +88,7 @@ export function StockHeader({ symbol }: { symbol: string }) {
 
           {detail && (
             <div className="mt-6 flex flex-wrap items-center justify-between gap-4">
-              {/* Day statistics — raw metrics stay neutral. */}
+              {/* Day statistics: raw metrics stay neutral. */}
               <dl className="num flex flex-wrap gap-x-8 gap-y-2 text-xs">
                 <Stat label="Market cap" value={fmtMarketCap(detail.market_cap)} metric="market_cap" />
                 <Stat label="Open" value={fmtPrice(detail.quote.open)} />
@@ -116,7 +116,7 @@ function Stat({
 }) {
   return (
     <div>
-      <dt className="flex items-center gap-1 text-[10px] uppercase tracking-[0.12em] text-faint">
+      <dt className="flex items-center gap-1 text-xs font-medium uppercase tracking-[0.12em] text-faint">
         {label}
         {metric && <InfoDot metric={metric} className="size-3.5" />}
       </dt>

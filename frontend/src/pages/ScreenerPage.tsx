@@ -20,7 +20,7 @@ const STATUSES = [
 ] as const;
 
 /**
- * Screener — a research filter over the exact capabilities the backend
+ * Screener: a research filter over the exact capabilities the backend
  * implements (valuation status, min profitability, min solvency). No invented
  * filters; thresholds are clamped client-side and validated by the API.
  */
@@ -65,14 +65,14 @@ export default function ScreenerPage() {
     {
       key: "name",
       header: "Company",
-      render: (r) => <span className="text-sm">{r.name}</span>,
+      render: (r) => <span className="text-sm font-medium">{r.name}</span>,
     },
     {
       key: "industry",
       header: "Sector / Industry",
       render: (r) => (
-        <span className="text-xs text-muted">
-          {r.sector ?? "—"}
+        <span className="text-xs font-medium text-muted">
+          {r.sector ?? "-"}
           {r.industry ? <span className="text-faint"> · {r.industry}</span> : null}
         </span>
       ),
@@ -95,11 +95,11 @@ export default function ScreenerPage() {
         return (
           <span className="flex flex-col items-start gap-0.5">
             {sem && (
-              <span className={`border px-1.5 py-0.5 text-[11px] font-medium ${sem.band.text} ${sem.band.border} ${sem.band.bg.replace("/10", "/6")}`}>
+              <span className={`border px-1.5 py-0.5 text-xs font-medium ${sem.band.text} ${sem.band.border} ${sem.band.bg.replace("/10", "/6")}`}>
                 {sem.short}
               </span>
             )}
-            <span className="num text-[11px] text-faint">{fmtSignedPct(r.margin_pct)}</span>
+            <span className="num text-xs text-faint">{fmtSignedPct(r.margin_pct)}</span>
           </span>
         );
       },
@@ -114,12 +114,12 @@ export default function ScreenerPage() {
         title="Screen the universe"
         aside={
           <p className="num text-xs text-muted">
-            {query.data ? `${query.data.total} matches` : "—"}
+            {query.data ? `${query.data.total} matches` : "-"}
           </p>
         }
       />
 
-      {/* Filter bar — backed 1:1 by GET /screener query params. */}
+      {/* Filter bar, backed 1:1 by GET /screener query params. */}
       <form
         className="mb-6 flex flex-wrap items-center gap-3 border border-line bg-surface px-4 py-3"
         onSubmit={(e) => e.preventDefault()}
@@ -145,7 +145,7 @@ export default function ScreenerPage() {
             max={100}
             value={minProfitability}
             onChange={(e) => setMinProfitability(e.target.value)}
-            placeholder="0–100"
+            placeholder="0-100"
             aria-label="Minimum profitability score"
           />
         </label>
@@ -157,7 +157,7 @@ export default function ScreenerPage() {
             max={100}
             value={minSolvency}
             onChange={(e) => setMinSolvency(e.target.value)}
-            placeholder="0–100"
+            placeholder="0-100"
             aria-label="Minimum solvency score"
           />
         </label>
@@ -221,7 +221,7 @@ export default function ScreenerPage() {
         )}
       </DataState>
 
-      <p className="mt-4 text-[11px] leading-relaxed text-faint">
+      <p className="mt-4 text-xs leading-relaxed text-faint">
         Valuation status compares each stock's trailing P/E with the median of its
         same-industry peers. &ldquo;Cheaper than peers&rdquo; does not mean intrinsically cheap.
       </p>
@@ -234,7 +234,7 @@ function ScoreCell({ score }: { score: number | null }) {
   return (
     <span className="flex items-center gap-2">
       <span className={cn("num text-sm font-medium", band?.text)}>
-        {score ?? "—"}
+        {score ?? "-"}
       </span>
       <span className="hidden h-1 w-14 bg-line sm:block">
         <span

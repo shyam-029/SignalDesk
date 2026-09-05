@@ -1,11 +1,11 @@
-# SignalDesk — Project Planning & Architecture Log
+# SignalDesk - Project Planning & Architecture Log
 
 > **Purpose:** Living document. Records every product, technical, and scope decision for the project.
 > **Owner:** Shyam (3rd-year CS student)
 > **Timeline:** 2 semesters (~8 months) before recruiter season.
 > **Status:** **Phase 6 COMPLETE** (production React frontend + backend API gaps filled). Phase 7 next: observability.
 >
-> **Companion file:** `PROGRESS.md` — operational status, what's done/in-progress/next, command
+> **Companion file:** `PROGRESS.md` - operational status, what's done/in-progress/next, command
 > cheatsheet, and gotchas. **Read PROGRESS.md first to pick up where we left off.**
 
 ---
@@ -17,14 +17,14 @@
 
 ## Working Agreement (teaching mode)
 
-I'm learning as I build this — treat every implementation step as a teaching moment, not just execution.
+I'm learning as I build this - treat every implementation step as a teaching moment, not just execution.
 
 For every file you create or edit:
 
 1. Before writing code, briefly explain the concept/pattern being used and why it's the right choice here (2-4 sentences max, not a lecture).
 2. After writing code, add a short comment block at the top of non-trivial functions explaining what they do and why.
-3. If you use a library/pattern I likely haven't used before (SQLAlchemy relationships, Pydantic validators, async/await, etc.), flag it explicitly: "New concept: X — here's what it does".
-4. Never silently make an architectural decision — state the alternatives you considered and why you picked this one.
+3. If you use a library/pattern I likely haven't used before (SQLAlchemy relationships, Pydantic validators, async/await, etc.), flag it explicitly: "New concept: X - here's what it does".
+4. Never silently make an architectural decision - state the alternatives you considered and why you picked this one.
 5. If a file is long or complex, build it in smaller chunks and pause between chunks so I can ask questions.
 
 I'd rather move slower and understand everything than move fast and have a codebase I can't explain.
@@ -33,35 +33,35 @@ I'd rather move slower and understand everything than move fast and have a codeb
 
 ## Table of Contents
 
-- **Part A — Product**
+- **Part A - Product**
   - 1. Overview & Vision
   - 2. Current Scope (feature tiers)
   - 3. Universe & Scalability Strategy
-- **Part B — Architecture & Data**
+- **Part B - Architecture & Data**
   - 4. Tech Stack
   - 5. Architecture (modular monolith)
   - 6. Database Schema (planned)
   - 7. Data Sources
-  - 8. Valuation Feature — Relative (Multiples) Valuation
-- **Part C — Engineering Standards**
+  - 8. Valuation Feature - Relative (Multiples) Valuation
+- **Part C - Engineering Standards**
   - 9. API Contract (v1 endpoints)
   - 10. Environment & Secrets Handling
   - 11. Error Handling Convention
   - 12. Testing Strategy
   - 13. Failsafes Summary
-- **Part D — Delivery**
+- **Part D - Delivery**
   - 14. Roadmap (2 semesters)
   - 15. Scope Cuts & Flags
-  - 16. Definition of Done — Phase 1
+  - 16. Definition of Done - Phase 1
   - 17. Decision Log
 
 ---
 
-# Part A — Product
+# Part A - Product
 
 ## 1. Overview & Vision
 
-A **fundamental valuation & analysis platform for the Indian equity market** — an "Alpha Spread for India."
+A **fundamental valuation & analysis platform for the Indian equity market** - an "Alpha Spread for India."
 Focus is on **analyzing the value** of stocks (undervalued / overvalued signal), not on fancy price-history
 visuals. Primary users: retail investors comparing whether a stock is fairly valued.
 
@@ -70,8 +70,8 @@ Most Indian apps (Groww, Zerodha, etc.) show prices, charts, and holdings but do
 fundamentals + valuation + sentiment into a single defensible signal. We build the analyzer.
 
 For each stock, produce:
-- **Valuation signal** — "undervalued by X% / overvalued by X%" using **relative (multiples) valuation** (v1)
-- **Fundamental scores** — profitability score, solvency score (ROE, ROIC, margins, D/E, interest coverage, etc.)
+- **Valuation signal** - "undervalued by X% / overvalued by X%" using **relative (multiples) valuation** (v1)
+- **Fundamental scores** - profitability score, solvency score (ROE, ROIC, margins, D/E, interest coverage, etc.)
 - **Rule-based explanation** of *why* the score is what it is (no trained ML model in v1)
 - Company profile / overview generated from financial data
 
@@ -88,17 +88,17 @@ For each stock, produce:
 - REST API (FastAPI) + Swagger docs
 
 ### Secondary (P1)
-- Technical indicators (SMA / RSI / MACD) — feed the Alpha Score
+- Technical indicators (SMA / RSI / MACD) - feed the Alpha Score
 - Redis caching for hot endpoints (quotes, scores)
 - React + Vite + TypeScript frontend (shadcn/ui, TradingView Lightweight Charts)
 - News ingestion (RSS) + FinBERT sentiment scoring
 
 ### Stretch (P2) / Semester 2
-- LLM-generated explanation narrative (shipped — grounded `/alpha` narrative, Phase 5)
+- LLM-generated explanation narrative (shipped - grounded `/alpha` narrative, Phase 5)
 - NL screener (LLM function calling)
 - Three.js holdings graph
 - DCF valuation (Semester 2 upgrade)
-- MF tracker + holdings overlap (**CORE PRODUCT VISION** — deferred to Semester 2, not cut; see §18)
+- MF tracker + holdings overlap (**CORE PRODUCT VISION** - deferred to Semester 2, not cut; see §18)
 - Live prices (Finnhub WebSocket), watchlists/auth, backtest page
 
 ---
@@ -120,14 +120,14 @@ stock_universe  (universe_id, stock_id)  -- membership (many-to-many)
 ### Consequences
 - **Ingestion** reads the active universe from the DB, never a constant.
 - **Peer selection** for relative valuation is keyed off `industry` in the catalog, **independent of
-  universe** — so peer groups automatically enrich as the catalog grows, without touching valuation code.
+  universe** - so peer groups automatically enrich as the catalog grows, without touching valuation code.
 - **Ingestion must be batched + resumable** from day one: one failed symbol never aborts a run.
 - **Provider abstraction** (see §5) is the escape hatch if yfinance coverage degrades as the catalog widens.
 - Phase 1 seeds `stocks` + `stock_universe` with the Nifty 50.
 
 ---
 
-# Part B — Architecture & Data
+# Part B - Architecture & Data
 
 ## 4. Tech Stack
 
@@ -208,18 +208,18 @@ mf_holdings       (fund_id, stock_name, pct_aum, date) -- stretch
 | News (Indian) | RSS (ET, Moneycontrol, Mint) + Google News RSS per symbol | Free | No key |
 | Sentiment | FinBERT (HuggingFace) | Free | Runs locally |
 
-### Paid alternatives (for reference only — not chosen)
-- **Financial Modeling Prep** (~$20–30/mo) — strongest fundamentals API for Indian + global stocks.
-- **Alpha Vantage Premium** (~$50–100/mo) — broader data, higher request caps.
-- **EODHD** (~$20–30/mo) — fundamentals + historical data.
-- **Bloomberg / Refinitiv** — institutional-grade, thousands of $/yr. Out of reach, not needed.
+### Paid alternatives (for reference only - not chosen)
+- **Financial Modeling Prep** (~$20-30/mo) - strongest fundamentals API for Indian + global stocks.
+- **Alpha Vantage Premium** (~$50-100/mo) - broader data, higher request caps.
+- **EODHD** (~$20-30/mo) - fundamentals + historical data.
+- **Bloomberg / Refinitiv** - institutional-grade, thousands of $/yr. Out of reach, not needed.
 
 > **Decision:** Use **yfinance for fundamentals** (free, no key, covers Indian stocks). Re-evaluate only if
 > data gaps appear (e.g., some Indian financials missing in yfinance).
 
 ---
 
-## 8. Valuation Feature — Relative (Multiples) Valuation (v1)
+## 8. Valuation Feature - Relative (Multiples) Valuation (v1)
 
 **Method:** Compare a stock's current valuation multiple to peer/industry averages.
 
@@ -233,7 +233,7 @@ Inputs per stock (from yfinance financials + price):
 Process:
 1. Compute current multiple for target stock.
 2. Compute the same multiple for **peer set = same industry peers from the full stocks catalog**
-   (universe-independent — peer groups enrich automatically as the catalog grows).
+   (universe-independent - peer groups enrich automatically as the catalog grows).
 3. Compare target multiple vs peer average → margin.
    - target P/E < peer average P/E → **undervalued**
    - target P/E > peer average P/E → **overvalued**
@@ -253,19 +253,19 @@ Process:
 Fixed-threshold piecewise-linear mapping (no peer-relative normalization):
 
 ```
-score = 100 × clamp((value − F) / (C − F), 0, 1)      # higher = better
-score = 100 × clamp((F − value) / (F − C), 0, 1)      # lower = better (F=floor 0pts, C=ceiling 100pts)
+score = 100 × clamp((value - F) / (C - F), 0, 1)      # higher = better
+score = 100 × clamp((F - value) / (F - C), 0, 1)      # lower = better (F=floor 0pts, C=ceiling 100pts)
 ```
 
 | Metric | Direction | Floor (0) | Ceiling (100) | Rule |
 |---|---|---|---|---|
-| ROE | higher | 0% | 20% | ≤0→0; 0–20→`100·(v/20)`; ≥20→100 |
-| ROA | higher | 0% | 12% | ≤0→0; 0–12→`100·(v/12)`; ≥12→100 |
-| Operating margin | higher | 0% | 25% | ≤0→0; 0–25→`100·(v/25)`; ≥25→100 |
-| Net margin | higher | 0% | 20% | ≤0→0; 0–20→`100·(v/20)`; ≥20→100 |
-| D/E | lower | 200% | 50% | ≤50→100; 50–200→`100·(200−v)/150`; ≥200→0 |
-| Interest coverage | higher | 1× | 5× | ≤1→0; 1–5→`100·(v−1)/4`; ≥5→100 |
-| Current ratio | higher | 0.5× | 2× | ≤0.5→0; 0.5–2→`100·(v−0.5)/1.5`; ≥2→100 |
+| ROE | higher | 0% | 20% | ≤0→0; 0-20→`100·(v/20)`; ≥20→100 |
+| ROA | higher | 0% | 12% | ≤0→0; 0-12→`100·(v/12)`; ≥12→100 |
+| Operating margin | higher | 0% | 25% | ≤0→0; 0-25→`100·(v/25)`; ≥25→100 |
+| Net margin | higher | 0% | 20% | ≤0→0; 0-20→`100·(v/20)`; ≥20→100 |
+| D/E | lower | 200% | 50% | ≤50→100; 50-200→`100·(200-v)/150`; ≥200→0 |
+| Interest coverage | higher | 1× | 5× | ≤1→0; 1-5→`100·(v-1)/4`; ≥5→100 |
+| Current ratio | higher | 0.5× | 2× | ≤0.5→0; 0.5-2→`100·(v-0.5)/1.5`; ≥2→100 |
 
 **Weights:** profitability = ROE 40% / ROA 20% / op-margin 20% / net-margin 20%.
 Solvency = D/E 50% / interest-coverage 30% / current-ratio 20%.
@@ -276,7 +276,7 @@ in the service. Output: `ComponentScore{score, components:[{name,value,score}], 
 
 ---
 
-# Part C — Engineering Standards
+# Part C - Engineering Standards
 
 ## 9. API Contract (v1 endpoints)
 
@@ -286,30 +286,30 @@ Base path: `/api/v1`. All responses JSON. Swagger docs auto-generated at `/docs`
 | Method | Path | Request | Response |
 |---|---|---|---|
 | GET | `/api/v1/stocks` | `?sector=&page=1&limit=50` | `{ items: [StockSummary], total, page, limit }` |
-| GET | `/api/v1/stocks/{symbol}` | — | `StockDetail` (profile + quote block + market_cap; fields null when absent) |
-| GET | `/api/v1/stocks/{symbol}/quote` | — | *(subsumed by StockDetail.quote — not a separate endpoint)* |
+| GET | `/api/v1/stocks/{symbol}` | - | `StockDetail` (profile + quote block + market_cap; fields null when absent) |
+| GET | `/api/v1/stocks/{symbol}/quote` | - | *(subsumed by StockDetail.quote - not a separate endpoint)* |
 | GET | `/api/v1/stocks/{symbol}/prices` | `?range=1y&resample=1d` | `{ symbol, range, items: [OHLCV] }` |
-| GET | `/api/v1/stocks/{symbol}/technicals` | — | `Technicals` (SMA20, EMA12, RSI14, MACD{line,signal,histogram}, sub-scores, score, closes_used, insufficient_data) |
+| GET | `/api/v1/stocks/{symbol}/technicals` | - | `Technicals` (SMA20, EMA12, RSI14, MACD{line,signal,histogram}, sub-scores, score, closes_used, insufficient_data) |
 
 ### Fundamentals & Valuation (core)
 | Method | Path | Request | Response |
 |---|---|---|---|
 | GET | `/api/v1/stocks/{symbol}/fundamentals` | `?periods=4` | `{ symbol, key_ratios, income, balance_sheet, cash_flow }` |
-| GET | `/api/v1/stocks/{symbol}/scores` | — | `ScoreCard` (profitability, solvency + per-component breakdown) |
-| GET | `/api/v1/stocks/{symbol}/valuation` | — | `Valuation` (method, peers, current_multiple, peer_avg, margin, status) |
-| GET | `/api/v1/stocks/{symbol}/valuation/explanation` | — | `Explanation` (rule-based text) |
+| GET | `/api/v1/stocks/{symbol}/scores` | - | `ScoreCard` (profitability, solvency + per-component breakdown) |
+| GET | `/api/v1/stocks/{symbol}/valuation` | - | `Valuation` (method, peers, current_multiple, peer_avg, margin, status) |
+| GET | `/api/v1/stocks/{symbol}/valuation/explanation` | - | `Explanation` (rule-based text) |
 | GET | `/api/v1/screener` | `?undervalued=true&min_roic=&page=` | `{ items: [ScreenResult], total }` |
 
 ### News & Sentiment (secondary)
 | Method | Path | Request | Response |
 |---|---|---|---|
 | GET | `/api/v1/stocks/{symbol}/news` | `?limit=20` | `{ items: [NewsArticle] }` |
-| GET | `/api/v1/stocks/{symbol}/sentiment` | — | `Sentiment` (score, label, window) |
+| GET | `/api/v1/stocks/{symbol}/sentiment` | - | `Sentiment` (score, label, window) |
 
 ### Alpha Score (composite)
 | Method | Path | Request | Response |
 |---|---|---|---|
-| GET | `/api/v1/stocks/{symbol}/alpha` | — | `Alpha` (composite, fundamental, technical, sentiment, components, weights, value_signal, explanation, insufficient_data) |
+| GET | `/api/v1/stocks/{symbol}/alpha` | - | `Alpha` (composite, fundamental, technical, sentiment, components, weights, value_signal, explanation, insufficient_data) |
 | POST | `/api/v1/stocks/{symbol}/explain` | `{question_type}` | `Explanation` (grounded contextual explanation; types: alpha/technical/valuation/fundamental/sentiment; rule-based fallback; TTL cache; shared daily cap) |
 
 ### Health / Meta
@@ -343,9 +343,9 @@ StockSummary: { symbol, name, sector, last_price, change_pct }
 
 ## 10. Environment & Secrets Handling
 
-- **`.env`** at `backend/` root — **git-ignored**, never committed. Holds all secrets.
-- **`.env.example`** — committed, with placeholder values and comments, so new devs know what's needed.
-- **`.gitignore`** at `signaldesk/` repo root — at minimum: `.env`, `.venv/`, `__pycache__/`, `*.pyc`, `.pytest_cache/`, `.DS_Store`.
+- **`.env`** at `backend/` root - **git-ignored**, never committed. Holds all secrets.
+- **`.env.example`** - committed, with placeholder values and comments, so new devs know what's needed.
+- **`.gitignore`** at `signaldesk/` repo root - at minimum: `.env`, `.venv/`, `__pycache__/`, `*.pyc`, `.pytest_cache/`, `.DS_Store`.
 - **`config.py`** uses **pydantic-settings**: a `Settings` class reads `.env`, type-coerces, validates presence of required secrets at startup.
 - Required keys (only these are required now):
   ```
@@ -360,7 +360,7 @@ StockSummary: { symbol, name, sector, last_price, change_pct }
 
 ## 11. Error Handling Convention
 
-**Single consistent error envelope** — every error returns:
+**Single consistent error envelope** - every error returns:
 ```json
 { "error": { "code": "RESOURCE_NOT_FOUND", "message": "Stock RELIANCE.NS not found", "detail": {}, "request_id": "abc123" } }
 ```
@@ -372,11 +372,11 @@ StockSummary: { symbol, name, sector, last_price, change_pct }
 - `NoPeersError` → 409 (peer set empty for valuation)
 - `RateLimitError` → 429
 
-**Registered via FastAPI exception handlers** — routers never catch-and-format inline; they raise, handlers format.
+**Registered via FastAPI exception handlers** - routers never catch-and-format inline; they raise, handlers format.
 
 **Provider failure failsafes:**
-1. ✅ **Retry with exponential backoff** — implemented as `_with_retry` (2 retries, backoff) in `jobs.py`; covers price + financials fetches.
-2. **Fallback to cached/stale data** — if we have a prior snapshot in Postgres, serve it with a `stale: true` flag in the response rather than failing. *(Deferred — staleness visibility planned with observability, Phase 7.)*
+1. ✅ **Retry with exponential backoff** - implemented as `_with_retry` (2 retries, backoff) in `jobs.py`; covers price + financials fetches.
+2. **Fallback to cached/stale data** - if we have a prior snapshot in Postgres, serve it with a `stale: true` flag in the response rather than failing. *(Deferred - staleness visibility planned with observability, Phase 7.)*
 3. If no data at all → raise `ProviderError` → clean 502.
 4. **Empty peer set** (relative valuation) → `NoPeersError` (409) with message telling the client to use a broader peer group; never silently return a misleading "fairly valued."
 
@@ -387,16 +387,16 @@ StockSummary: { symbol, name, sector, last_price, change_pct }
 ## 12. Testing Strategy
 
 **Priority order (test deepest, most-pure logic first):**
-1. **Services** — valuation math, fundamental score computation, explanation assembly. Pure functions, no I/O. *Highest value, test first.*
-2. **Repositories** — SQL queries against a **test database** (dedicated `signaldesk_test` schema, created/dropped per run).
-3. **Routers/API** — via `httpx` ASGI client; **providers always mocked** (no real network calls).
-4. **Providers** — thin tests, mocked HTTP responses (e.g., recorded yfinance JSON fixtures).
+1. **Services** - valuation math, fundamental score computation, explanation assembly. Pure functions, no I/O. *Highest value, test first.*
+2. **Repositories** - SQL queries against a **test database** (dedicated `signaldesk_test` schema, created/dropped per run).
+3. **Routers/API** - via `httpx` ASGI client; **providers always mocked** (no real network calls).
+4. **Providers** - thin tests, mocked HTTP responses (e.g., recorded yfinance JSON fixtures).
 
 **Key conventions:**
 - Fixtures for sample financials, sample price series, sample peer sets.
 - Parametrize valuation edge cases (negative earnings → exclude P/E for that stock; empty peer set).
 - Test the **error envelope** (each custom exception → correct status + body).
-- Mock the LLM in tests — never call it.
+- Mock the LLM in tests - never call it.
 - Run: `pytest` from `backend/`. Fast, no network required.
 - CI (Semester 2): same suite on GitHub Actions.
 
@@ -409,7 +409,7 @@ StockSummary: { symbol, name, sector, last_price, change_pct }
 | yfinance down / returns nothing | Retry w/ backoff → stale-data fallback → clean 502 |
 | Empty peer set for valuation | `NoPeersError` (409), explicit message, never silent wrong answer |
 | Negative/zero earnings | Exclude that metric (P/E) from valuation for that stock; note it |
-| Partial ingestion failure | Per-symbol error isolation — one bad symbol doesn't fail the whole run |
+| Partial ingestion failure | Per-symbol error isolation - one bad symbol doesn't fail the whole run |
 | Secret leaked to repo | `.gitignore` + `.env` + `config.py` startup validation; no secrets in tests/logs |
 | LLM key cost runaway | Single-purpose calls, mock in tests, in-process TTL cache + `llm_daily_cap`, cost logging, rule-based fallback |
 | Rate limit from free APIs | Backoff + scheduler throttling; provider abstraction to swap source |
@@ -417,25 +417,25 @@ StockSummary: { symbol, name, sector, last_price, change_pct }
 
 ---
 
-# Part D — Delivery
+# Part D - Delivery
 
 ## 14. Roadmap (2 semesters)
 
-### Semester 1 (16 weeks) — ship the complete product
+### Semester 1 (16 weeks) - ship the complete product
 | Phase | Weeks | Deliverable |
 |---|---|---|
-| 1 | 1–3 | FastAPI + Postgres + schema + yfinance provider + Nifty 50 ingestion (universe seeded from DB, not hardcoded) |
-| 2 | 4–5 | **Relative valuation + fundamental scores (profitability/solvency) + rule-based explanation** |
-| 3 | 6–7 | News RSS ingestion + FinBERT sentiment |
-| 4 | 8–9 | Technical indicators + Alpha Score composite |
-| 5 | 10–11 | ✅ LLM explanation narrative + tests (DONE) |
-| 6 | 12–13 | React dashboard + charts |
-| 7 | 14–15 | Observability (structured logging, stale-data flags, /debug/jobs) — Redis and Three.js moved to conditional/stretch, see §18 |
+| 1 | 1-3 | FastAPI + Postgres + schema + yfinance provider + Nifty 50 ingestion (universe seeded from DB, not hardcoded) |
+| 2 | 4-5 | **Relative valuation + fundamental scores (profitability/solvency) + rule-based explanation** |
+| 3 | 6-7 | News RSS ingestion + FinBERT sentiment |
+| 4 | 8-9 | Technical indicators + Alpha Score composite |
+| 5 | 10-11 | ✅ LLM explanation narrative + tests (DONE) |
+| 6 | 12-13 | React dashboard + charts |
+| 7 | 14-15 | Observability (structured logging, stale-data flags, /debug/jobs) - Redis and Three.js moved to conditional/stretch, see §18 |
 | 8 | 16 | Deploy (Render/Railway) + polish + README |
 
-### Semester 2 — the distributed progression
+### Semester 2 - the distributed progression
 1. Split monolith → two services (API server + background worker)
-2. Add message queue (RabbitMQ — beginner-friendly Kafka)
+2. Add message queue (RabbitMQ - beginner-friendly Kafka)
 3. Docker + docker-compose (Postgres, Redis, RabbitMQ, both services)
 4. CI/CD (GitHub Actions: lint + test + auto-deploy)
 5. Monitoring (structured logging + dashboards)
@@ -457,21 +457,21 @@ StockSummary: { symbol, name, sector, last_price, change_pct }
 
 ---
 
-## 16. Definition of Done — Phase 1
+## 16. Definition of Done - Phase 1
 
 > **STATUS: MET** (2026-08-18). All 8 items below verified.
 
-## 16b. Definition of Done — Phase 5 (grounded LLM explanation)
+## 16b. Definition of Done - Phase 5 (grounded LLM explanation)
 
 > **STATUS: MET** (2026-08-21). All items verified.
 
-## 16c. Definition of Done — Phase 6 (production frontend)
+## 16c. Definition of Done - Phase 6 (production frontend)
 
 > **STATUS: MET** (2026-09-04). All items verified.
 
-1. `frontend/` builds with the locked stack (Vite/React/TS/Tailwind v4/Radix/TanStack/Framer/LW-Charts) — `tsc -b` zero errors, `vite build` succeeds.
+1. `frontend/` builds with the locked stack (Vite/React/TS/Tailwind v4/Radix/TanStack/Framer/LW-Charts) - `tsc -b` zero errors, `vite build` succeeds.
 2. All five pages implemented and consuming ONLY existing/new backend endpoints: landing, markets, screener, stock research, methodology. No auth, no chatbot, no fake data.
-3. Stock research page shows: profile/quote header, Alpha + components + weights + grounded explanation, all four valuation multiples with peer medians + relative positioning + expandable inputs, fundamentals with per-ratio scores, Lightweight Charts price history (1M–2Y), Technical Positioning (aggregate verdict + SMA/EMA/RSI/MACD readings), news + net sentiment, methodology.
+3. Stock research page shows: profile/quote header, Alpha + components + weights + grounded explanation, all four valuation multiples with peer medians + relative positioning + expandable inputs, fundamentals with per-ratio scores, Lightweight Charts price history (1M-2Y), Technical Positioning (aggregate verdict + SMA/EMA/RSI/MACD readings), news + net sentiment, methodology.
 4. Every non-obvious metric has an information affordance (METRIC_INFO/InfoDot); DataState handles loading/empty/insufficient/stale/error/unknown symbol.
 5. Semantic color only on analytical conclusions; valuation state independent of Alpha; raw metrics neutral.
 6. Backend suite green with the 4 additions (155/155, zero-network tests); frontend tests 38/38.
@@ -480,7 +480,7 @@ StockSummary: { symbol, name, sector, last_price, change_pct }
 
 Phase 5 is complete only when all of the following pass:
 
-1. `/alpha` returns a populated `explanation` — LLM-narrated when key+model+provider work, rule-based otherwise.
+1. `/alpha` returns a populated `explanation` - LLM-narrated when key+model+provider work, rule-based otherwise.
 2. Every number in the LLM prompt comes from the `_alpha_facts()` allow-list (explicit serialization, not `AlphaResult.__dict__`); prompt carries no free-text fields → no injection path.
 3. `LLMResult` carries `text`/`tokens_used`/`model`; cost logged from it, `None`-safe.
 4. `LLM_MODEL` configurable via env; empty default = disabled; no model hard-coded in code; `.env.example` documents the example model + changeability.
@@ -493,8 +493,8 @@ Phase 1 is **complete** only when all of the following pass:
 1. `GET /api/v1/stocks` returns the **full Nifty 50 universe** (50 stocks with name + sector).
 2. `GET /api/v1/stocks/{symbol}/prices` returns **real OHLCV history** for at least 5 real stocks
    (`RELIANCE.NS`, `TCS.NS`, `HDFCBANK.NS`, `INFY.NS`, `ICICIBANK.NS`).
-3. Data is persisted in PostgreSQL — rows exist in `stocks`, `universes`, `stock_universe`, `daily_prices`.
-4. **Idempotent re-run** — running the ingestion job twice produces no duplicate rows.
+3. Data is persisted in PostgreSQL - rows exist in `stocks`, `universes`, `stock_universe`, `daily_prices`.
+4. **Idempotent re-run** - running the ingestion job twice produces no duplicate rows.
 5. Swagger `/docs` renders every Phase 1 endpoint.
 6. `pytest` passes with providers mocked (no network dependency).
 7. `.env.example` + `.gitignore` are in place; no secrets in source.
@@ -506,12 +506,12 @@ Phase 1 is **complete** only when all of the following pass:
 
 Chronological record of decisions. Append as time progresses.
 
-### 2026-08-17 — Session 1 (planning kickoff)
+### 2026-08-17 - Session 1 (planning kickoff)
 - **D1.** Product focus: **fundamental valuation analyzer for Indian equities** (Alpha Spread-style), not a charting app.
 - **D2.** Market: **India only**. Stocks + ETFs; derivatives explicitly out.
 - **D3.** First valuation method: **Relative (multiples) valuation**. DCF deferred to Semester 2.
 - **D4.** Valuation + fundamentals are the **core** feature. MF tracker and news/Alpha Score demoted to secondary/stretch.
-- **D5.** Financial data source: **yfinance** (free). Paid fallbacks noted (FMP ~$20–30/mo) but not chosen.
+- **D5.** Financial data source: **yfinance** (free). Paid fallbacks noted (FMP ~$20-30/mo) but not chosen.
 - **D6.** Explanation feature: **rule-based** (concatenate real score components), not a trained model.
 - **D7.** Tech stack locked: FastAPI, PostgreSQL+SQLAlchemy+Alembic, Redis, APScheduler, FinBERT,
   React+Vite+TS+shadcn/ui, pytest, Render/Railway.
@@ -524,17 +524,17 @@ Chronological record of decisions. Append as time progresses.
 - **D14.** Testing order: services → repositories → routers (providers always mocked); no network in tests (§12).
 - **D15.** Phase 1 Definition of Done defined with concrete success checks (§16).
 
-### 2026-08-18 — Session 2 (scope + environment)
+### 2026-08-18 - Session 2 (scope + environment)
 - **D16.** **Universe is data, not code**: `universes` + `stock_universe` tables; ingestion reads universe from DB (§3, §6).
 - **D17.** End-goal universe: **Nifty 500 scale** (Nifty 50 → Nifty 200 → Nifty 500 ladder).
-- **D18.** Peer selection for relative valuation is **industry-keyed and universe-independent** — peer groups enrich as catalog grows.
+- **D18.** Peer selection for relative valuation is **industry-keyed and universe-independent** - peer groups enrich as catalog grows.
 - **D19.** Ingestion must be **batched + resumable** from day one; one failed symbol never aborts a run.
 - **D20.** PostgreSQL **17.11** installed locally (binaries zip; EDB installer/CDN was blocked for automated downloads). Server running via `pg_ctl`, data dir `C:\Users\shyam\PostgreSQL\data`. DB `signaldesk` created. Redis deferred (only needed at P1 caching phase).
 - **D21.** **Two-file documentation system:** `PLANNING.md` (plan/why) + `PROGRESS.md` (status/what's next/cheatsheet/gotchas). Both updated at end of every phase. `PROGRESS.md` is read first to resume work.
 
 ---
 
-### 2026-08-18 — Session 3 (App scaffold executed)
+### 2026-08-18 - Session 3 (App scaffold executed)
 - **D22.** **`.env`/`.env.example` live in `backend/`** (where `alembic`/`uvicorn` run), not repo root. `.gitignore` lives at `signaldesk/` root. (Clarifies §10.)
 - **D23.** **Only `DATABASE_URL` + `APP_ENV` are required at startup.** `REDIS_URL`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `FINNHUB_API_KEY` are optional/empty placeholders until their phases. `config.py` uses pydantic-settings with `env_ignore_empty=True`. (Clarifies §10.)
 - **D24.** **`daily_prices` uses a surrogate `id` PK + `UNIQUE(stock_id, date)`** (constraint named `uq_daily_prices_stock_date`), not a composite PK. Matches §6. Prices are `Numeric(16,4)`.
@@ -542,37 +542,37 @@ Chronological record of decisions. Append as time progresses.
 - **D26.** **`stocks`/`universes` use a many-to-many association table** `stock_universe` (composite PK) with `relationship()` back-references on both models.
 - **D27.** **Git repo initialized** at `signaldesk/` with `.gitignore` (ignores `.env`, `.venv`, caches). No commit made yet.
 
-### 2026-08-18 — Session 4 (provider + ingestion)
+### 2026-08-18 - Session 4 (provider + ingestion)
 - **D28.** **Provider abstraction implemented:** `MarketDataProvider` ABC + `OHLCV`/`StockProfile` dataclasses; `YFinanceProvider` uses `asyncio.to_thread` (yfinance is sync) and raises `MarketDataError`. Ingestion depends on the interface, never yfinance directly.
 - **D29.** **Seed + ingestion approach:** static `app/data/nifty50.py` seed (one-time; DB owns universe after). Ingestion reads symbols from the DB, batches via `asyncio.gather` (batch 5), upserts with Postgres `INSERT ... ON CONFLICT DO UPDATE` on `uq_daily_prices_stock_date`. APScheduler daily at 18:30. Verified idempotent (24,499 bars stable) + per-symbol failure isolation.
 
-### 2026-08-18 — Session 5 (API endpoints)
+### 2026-08-18 - Session 5 (API endpoints)
 - **D30.** **API sub-phase implemented:** `app/errors.py` (error envelope, `NotFoundError`/`ValidationError`), `app/routers/stocks.py` (list + price history), `app/main.py` (app assembly, `/health`, scheduler wired via **lifespan**). Symbol normalization (bare or `.NS`); `resample` 1d-only in v1; `range` filter full. All endpoints + error envelopes verified via httpx.
 
-### 2026-08-18 — Session 6 (pytest suite → Phase 1 complete)
-- **D31.** **Test strategy implemented per §12:** dedicated `signaldesk_test` DB; `tests/conftest.py` uses a **function-scoped** async engine (pytest-asyncio event-loop affinity — session-scoped async engine caused "another operation is in progress"), per-test schema rebuild via `Base.metadata.drop_all/create_all`, and `app.dependency_overrides[get_session]` to redirect requests to the test DB. Providers mocked (`FakeProvider`); `YFinanceProvider` never called. **Phase 1 Definition of Done is MET** — 15/15 tests pass with no network; prod DB untouched.
+### 2026-08-18 - Session 6 (pytest suite → Phase 1 complete)
+- **D31.** **Test strategy implemented per §12:** dedicated `signaldesk_test` DB; `tests/conftest.py` uses a **function-scoped** async engine (pytest-asyncio event-loop affinity - session-scoped async engine caused "another operation is in progress"), per-test schema rebuild via `Base.metadata.drop_all/create_all`, and `app.dependency_overrides[get_session]` to redirect requests to the test DB. Providers mocked (`FakeProvider`); `YFinanceProvider` never called. **Phase 1 Definition of Done is MET** - 15/15 tests pass with no network; prod DB untouched.
 
-### 2026-08-18 — Session 7 (Phase 2 SP1: financials)
-- **D32.** **`financials` implemented as a point-in-time snapshot** (one row per stock, `UNIQUE(stock_id)` `uq_financials_stock_id`), not per-period (§6's "per reporting period" deferred). Migration `5f7fd30113b1`. Provider gains `Fundamentals` dataclass + abstract `get_fundamentals()`; yfinance maps `info` fields with `_as_float()` NaN/string guard. `ingest_financials()` mirrors price ingestion (batch, isolation, upsert). Real run: 50/50 rows, idempotent. **Scoring must renormalize for missing fields** — yfinance `info` frequently omits ROE/interest-coverage per symbol.
+### 2026-08-18 - Session 7 (Phase 2 SP1: financials)
+- **D32.** **`financials` implemented as a point-in-time snapshot** (one row per stock, `UNIQUE(stock_id)` `uq_financials_stock_id`), not per-period (§6's "per reporting period" deferred). Migration `5f7fd30113b1`. Provider gains `Fundamentals` dataclass + abstract `get_fundamentals()`; yfinance maps `info` fields with `_as_float()` NaN/string guard. `ingest_financials()` mirrors price ingestion (batch, isolation, upsert). Real run: 50/50 rows, idempotent. **Scoring must renormalize for missing fields** - yfinance `info` frequently omits ROE/interest-coverage per symbol.
 
-### 2026-08-18 — Session 8 (Phase 2 SP2: services)
+### 2026-08-18 - Session 8 (Phase 2 SP2: services)
 - **D33.** **Scoring/valuation/explanation services implemented (pure, no I/O).** `services/scores.py` implements §8b via a single `_linear()` helper + weight renormalization; `services/valuation.py` has `compute_multiple()` + `relative_valuation()` (median, margin, ±5% bands) with domain exceptions `NoPeersError`/`InsufficientDataError` **defined in the service layer** (decoupled from FastAPI; routers map them to the envelope). `services/explanation.py` builds rule-based text from actual components. 44 new unit tests (60 total) pass.
 
-### 2026-08-18 — Session 9 (Phase 2 SP3: repositories + routers → Phase 2 complete)
-- **D34.** **Repositories + routers implemented; Phase 2 complete.** Peer selection by `industry` (sector fallback when NULL); `industry` backfilled 49/50 via `seed.backfill_industry()` (TATAMOTORS.NS 404 → sector). New handlers `NoPeersError`→409 `NO_PEERS`, `InsufficientDataError`→422 `INSUFFICIENT_DATA` (reuse §11 envelope). Endpoints live: `/fundamentals` (key_ratios only — statements not stored), `/scores`, `/valuation` (+ `/valuation/explanation`, `?metric=` PE default), `/screener` (`status` + `min_profitability`/`min_solvency` — no ROIC in data). 76/76 tests; verified live vs real DB.
+### 2026-08-18 - Session 9 (Phase 2 SP3: repositories + routers → Phase 2 complete)
+- **D34.** **Repositories + routers implemented; Phase 2 complete.** Peer selection by `industry` (sector fallback when NULL); `industry` backfilled 49/50 via `seed.backfill_industry()` (TATAMOTORS.NS 404 → sector). New handlers `NoPeersError`→409 `NO_PEERS`, `InsufficientDataError`→422 `INSUFFICIENT_DATA` (reuse §11 envelope). Endpoints live: `/fundamentals` (key_ratios only - statements not stored), `/scores`, `/valuation` (+ `/valuation/explanation`, `?metric=` PE default), `/screener` (`status` + `min_profitability`/`min_solvency` - no ROIC in data). 76/76 tests; verified live vs real DB.
 
-### 2026-08-18 — Session 10 (P2.5 Hardening)
-- **D35.** **Hardening phase complete (audit-driven).** (1) `services/analysis.py` centralizes valuation/scores/screener orchestration — routers thin, pure math unchanged. (2) N+1 eliminated: `repositories/prices.py:get_two_latest` (window query; `list_stocks` = 3 queries, guarded ≤5 by test) + `repositories/financials.py:get_financials_batch` (`IN` query for peers). (3) `financials.updated_at` refreshed on upsert. (4) `_with_retry` retry-with-backoff on provider fetches (MarketDataError only, 2 retries, isolation preserved). (5) Request-id structured logging (`app/logging_utils.py` contextvar + ASGI middleware; `X-Request-ID` header; `request_id` in error envelope). (6) 8 new hardening tests (EV_EBITDA/PB/PS, sector fallback, no-financials, query-count, updated_at, retry). Coverage baseline **74%** (84 tests). No Redis/Docker/CI/queues/Prometheus added.
+### 2026-08-18 - Session 10 (P2.5 Hardening)
+- **D35.** **Hardening phase complete (audit-driven).** (1) `services/analysis.py` centralizes valuation/scores/screener orchestration - routers thin, pure math unchanged. (2) N+1 eliminated: `repositories/prices.py:get_two_latest` (window query; `list_stocks` = 3 queries, guarded ≤5 by test) + `repositories/financials.py:get_financials_batch` (`IN` query for peers). (3) `financials.updated_at` refreshed on upsert. (4) `_with_retry` retry-with-backoff on provider fetches (MarketDataError only, 2 retries, isolation preserved). (5) Request-id structured logging (`app/logging_utils.py` contextvar + ASGI middleware; `X-Request-ID` header; `request_id` in error envelope). (6) 8 new hardening tests (EV_EBITDA/PB/PS, sector fallback, no-financials, query-count, updated_at, retry). Coverage baseline **74%** (84 tests). No Redis/Docker/CI/queues/Prometheus added.
 
-### 2026-08-19 — Session 11 (Phase 3: news + FinBERT sentiment)
-- **D36.** **News + sentiment implemented.** `NewsArticle` (unique URL) + `NewsSentiment` (1:1) tables (migration `ed7bb907ca7c`). `NewsProvider` ABC + `GoogleNewsRSSProvider` (feedparser, bare-symbol query). `FinBERTScorer` (lazy, thread-locked pipeline — concurrent `transformers.pipeline` first-imports fail without the lock). `ingest_news()`: race-safe `ON CONFLICT DO NOTHING` upsert by URL + score-unscored; reuses `_with_retry`/D19 isolation. Endpoints `/news` + `/sentiment`. **Live: 1,001 articles ingested+scored (219 pos/159 neg/623 neutral), fully idempotent.** 91/91 tests (7 new, network-free). `published_at` must be `DateTime(timezone=True)`.
+### 2026-08-19 - Session 11 (Phase 3: news + FinBERT sentiment)
+- **D36.** **News + sentiment implemented.** `NewsArticle` (unique URL) + `NewsSentiment` (1:1) tables (migration `ed7bb907ca7c`). `NewsProvider` ABC + `GoogleNewsRSSProvider` (feedparser, bare-symbol query). `FinBERTScorer` (lazy, thread-locked pipeline - concurrent `transformers.pipeline` first-imports fail without the lock). `ingest_news()`: race-safe `ON CONFLICT DO NOTHING` upsert by URL + score-unscored; reuses `_with_retry`/D19 isolation. Endpoints `/news` + `/sentiment`. **Live: 1,001 articles ingested+scored (219 pos/159 neg/623 neutral), fully idempotent.** 91/91 tests (7 new, network-free). `published_at` must be `DateTime(timezone=True)`.
 
-### 2026-08-19 — Session 12 (Phase 4: indicators + Alpha Score)
-- **D37.** **Technical indicators + Alpha Score implemented.** `services/indicators.py` (pure: SMA20, EMA12, RSI14-Wilder, MACD 12/26/9; `score_technicals` = trend 50/momentum 30/reversion 20, renormalized, 0-100 — heuristics, not predictive models). `services/alpha.py`: **composite = 40% fundamental + 30% technical + 30% sentiment, weights renormalized over available components; valuation kept separate as `value_signal`** (avoids double-counting fundamentals; approved decision). Fundamental reused from `analysis.compute_stock_scores`; sentiment from news summary (-1..+1 → 0..100); insufficient → `composite:null, insufficient_data:true`. `alpha_scores` table (`UNIQUE(symbol,date)`, `components_json` JSONB, migration `b0f48fb7c939`); snapshot upserted at compute time (history for later backtesting). `GET /stocks/{symbol}/alpha`. **118/118 tests (27 new); coverage 76%.** Live TCS: composite 59 (0.4·98+0.3·27+0.3·39) with value_signal fairly_valued.
+### 2026-08-19 - Session 12 (Phase 4: indicators + Alpha Score)
+- **D37.** **Technical indicators + Alpha Score implemented.** `services/indicators.py` (pure: SMA20, EMA12, RSI14-Wilder, MACD 12/26/9; `score_technicals` = trend 50/momentum 30/reversion 20, renormalized, 0-100 - heuristics, not predictive models). `services/alpha.py`: **composite = 40% fundamental + 30% technical + 30% sentiment, weights renormalized over available components; valuation kept separate as `value_signal`** (avoids double-counting fundamentals; approved decision). Fundamental reused from `analysis.compute_stock_scores`; sentiment from news summary (-1..+1 → 0..100); insufficient → `composite:null, insufficient_data:true`. `alpha_scores` table (`UNIQUE(symbol,date)`, `components_json` JSONB, migration `b0f48fb7c939`); snapshot upserted at compute time (history for later backtesting). `GET /stocks/{symbol}/alpha`. **118/118 tests (27 new); coverage 76%.** Live TCS: composite 59 (0.4·98+0.3·27+0.3·39) with value_signal fairly_valued.
 
-### 2026-08-19 — Session 13 (roadmap audit)
+### 2026-08-19 - Session 13 (roadmap audit)
 - **D38.** **Product roadmap audited + classified into 4 tiers.** ETFs and Mutual
-  Funds (incl. holdings/overlap) are **CORE PRODUCT VISION** — deferred from the
+  Funds (incl. holdings/overlap) are **CORE PRODUCT VISION** - deferred from the
   MVP, never dropped. New §18 "Long-Term Product Vision + Future Roadmap"
   anchors every feature with tier/phase/priority/dependencies. §14 Phase 7
   corrected to Observability (Redis→S2 conditional; Three.js→gated on MF).
@@ -580,25 +580,25 @@ Chronological record of decisions. Append as time progresses.
   per-period financials, stale-data flags (P7), 429 handling, screener
   precompute. MVP roadmap unchanged; Phase 5 (grounded LLM) is next.
 
-### 2026-08-21 — Session 14 (Phase 5: grounded LLM explanation)
+### 2026-08-21 - Session 14 (Phase 5: grounded LLM explanation)
 - **D39.** **Grounded LLM explanation implemented on `/alpha` only**, per the approved REV 2 plan.
   - **Provider:** OpenRouter via **raw async httpx** (OpenAI-compatible `chat/completions`) behind an `LLMProvider` ABC. **No OpenAI/Anthropic SDKs.** `LLMResult` carries `text`, `tokens_used` (None-safe), `model` so cost logging needs no separate usage reconstruction.
   - **`LLM_MODEL` is configurable; empty string is the code default = LLM disabled.** No model ID is hard-coded in source; `.env.example` documents a sample (free) model and warns that free OpenRouter models rotate. Model unavailability degrades to the rule-based fallback (non-fatal by design).
-  - **Security boundary:** `_alpha_facts()` is an explicit **allow-list** (explicit field serialization, never `AlphaResult.__dict__`/`asdict`), so a future free-text field cannot become an injection path. `value_signal` is limited to structured `metric`/`status`/`margin_pct` — its free-text `explanation` never reaches the prompt.
-  - **Output contract enforced in the system prompt** (short ≤3 sentences, no invented numbers, no investment advice, no guaranteed future-return claims, "not investment advice" tag). **No second model polices output** — the prompt boundary + tests are the guardrail.
+  - **Security boundary:** `_alpha_facts()` is an explicit **allow-list** (explicit field serialization, never `AlphaResult.__dict__`/`asdict`), so a future free-text field cannot become an injection path. `value_signal` is limited to structured `metric`/`status`/`margin_pct` - its free-text `explanation` never reaches the prompt.
+  - **Output contract enforced in the system prompt** (short ≤3 sentences, no invented numbers, no investment advice, no guaranteed future-return claims, "not investment advice" tag). **No second model polices output** - the prompt boundary + tests are the guardrail.
   - **Fallback chain (all → rule-based `_alpha_narrative()`):** no key → no model → provider `LLMError` (network/non-2xx/malformed) → budget exhausted. `/alpha` never fails and always returns a populated `explanation`.
   - **In-process TTL cache** (24h, keyed `(symbol, date)`) + **in-process daily cap** (`llm_daily_cap`, default 100) + structured `llm_usage tokens= model=` cost logging. **Redis stays deferred.**
   - **Placement:** narrative lives in `services/llm_narrative.py`, not `explanation.py`, to avoid the import cycle `alpha → analysis → explanation → alpha`.
-  - **Tests:** `tests/test_llm.py` (15) — allow-list boundary, grounding, output contract, all fallback paths, budget cap, TTL cache, cost logging, and OpenRouter success/non-2xx/malformed/invalid-JSON via mocked httpx (zero network). **133/133 tests; coverage 78%** (from 76%; `llm_narrative.py` 95%). Live `/alpha` verified via the rule-based path (no key configured).
+  - **Tests:** `tests/test_llm.py` (15) - allow-list boundary, grounding, output contract, all fallback paths, budget cap, TTL cache, cost logging, and OpenRouter success/non-2xx/malformed/invalid-JSON via mocked httpx (zero network). **133/133 tests; coverage 78%** (from 76%; `llm_narrative.py` 95%). Live `/alpha` verified via the rule-based path (no key configured).
   - **Deferred (intentional):** LLM on `/scores` + `/valuation` (reuse the ABC later), NL screener (STRETCH), Redis/persistent telemetry, storing explanations in `alpha_scores` (no migration this phase).
 
-### 2026-09-04 — Session 15 (Phase 6: production frontend + backend gaps)
+### 2026-09-04 - Session 15 (Phase 6: production frontend + backend gaps)
 
 - **D40.** **Four smallest-coherent backend additions** (frontend-driven, no refactors):
   (1) CORS from `CORS_ORIGINS` config; (2) `GET /stocks/{symbol}` fills the §9 contract gap with a
   quote block whose fields are **null when data is absent** (the list endpoint's `0.0` sentinel was
-  not copied — nulls drive honest UI states); (3) `GET /stocks/{symbol}/technicals` exposes raw
-  SMA20/EMA12/RSI14/MACD by **reusing** `services/indicators.py` (no duplicated math — `/alpha`
+  not copied - nulls drive honest UI states); (3) `GET /stocks/{symbol}/technicals` exposes raw
+  SMA20/EMA12/RSI14/MACD by **reusing** `services/indicators.py` (no duplicated math - `/alpha`
   only exposed sub-scores); (4) `POST /stocks/{symbol}/explain` for 5 fixed question types.
 - **D41.** **`/explain` reuses the Phase 5 LLM architecture exactly**: per-type fact allow-lists
   (`_ALLOWED_FACT_KEYS`) as a second boundary on top of explicit fact-gathering in the router;
@@ -618,25 +618,25 @@ Chronological record of decisions. Append as time progresses.
   conclusions (Alpha, component scores, verdicts, valuation state, technical positioning); raw
   metrics stay neutral; valuation carries its OWN state, never inheriting Alpha's color.
 - **D44.** **Information system:** METRIC_INFO registry (30+ entries: label, short tooltip,
-  popover methodology, optional expandable context) rendered through InfoDot/MetricRow — every
+  popover methodology, optional expandable context) rendered through InfoDot/MetricRow - every
   non-obvious metric on the research page has an affordance, and the registry doubles as a
   completeness checklist (guarded by a test).
 - **D45.** **DataState discipline:** loading/empty/insufficient/stale(as-of)/error+retry/unknown-symbol
   states everywhere; 404/NO_PEERS/INSUFFICIENT_DATA never retried; missing data renders honest
-  states — the frontend never fills gaps with fake or estimated values, and never recomputes
+  states - the frontend never fills gaps with fake or estimated values, and never recomputes
   backend math (EV/EBITDA comes only from the valuation endpoint).
 - **D46.** **Stock detail composition:** one focused API call per section (detail, alpha,
-  valuation×4 metrics, scores, fundamentals, prices, technicals, news, sentiment) — cached by
+  valuation×4 metrics, scores, fundamentals, prices, technicals, news, sentiment) - cached by
   TanStack Query; all four multiples (P/E, EV/EBITDA, P/B, P/S) show their own peer medians;
   valuation verdict + relative-position marker per selected metric; expandable EV/EBITDA/market-cap
   inputs kept secondary. Technical Positioning wording (Bearish etc.) is presentation logic
-  client-side over aggregate sub-scores — the stock itself is never labeled bearish/bullish.
+  client-side over aggregate sub-scores - the stock itself is never labeled bearish/bullish.
 - **D47.** **Markets scales by API pagination** (server page/limit; one 25-row page in the DOM),
   ready for Nifty 500; screener exposes exactly the backend's filters (status, min
   profitability/solvency).
 - **D48.** **Landing is an editorial argument on real data**: hero sparkline + product preview +
   universe strip read the live API (with honest error states), the Alpha-states demo (82/59/34) is
-  explicitly labeled as design-system examples, ETF/MF coverage is presented as roadmap — no fake
+  explicitly labeled as design-system examples, ETF/MF coverage is presented as roadmap - no fake
   capabilities, testimonials, or pricing. Motion communicates (reveals, count-ups, convergence),
   never decorates.
 - **Verified:** backend 155/155 (22 new zero-network tests); frontend tsc clean, vitest 38/38,
@@ -656,13 +656,13 @@ Chronological record of decisions. Append as time progresses.
 > anchors every feature so nothing is dropped casually.
 
 ### Tiers
-1. **CORE PRODUCT VISION** — the product's long-term identity (2–4+ semesters).
-2. **CORE MVP / Semester 1** — built now; drives the differentiator.
-3. **SEMESTER 2** — distributed + expansion with real justification.
-4. **STRETCH / OPTIONAL** — useful but time-gated; safe to defer.
+1. **CORE PRODUCT VISION** - the product's long-term identity (2-4+ semesters).
+2. **CORE MVP / Semester 1** - built now; drives the differentiator.
+3. **SEMESTER 2** - distributed + expansion with real justification.
+4. **STRETCH / OPTIONAL** - useful but time-gated; safe to defer.
 
 ### Core investment coverage (product vision)
-- **Indian stocks** (Nifty 50 → 200 → 500): CORE MVP, shipped Phases 1–4.
+- **Indian stocks** (Nifty 50 → 200 → 500): CORE MVP, shipped Phases 1-4.
 - **ETFs**: CORE VISION (S2). Same OHLCV model + `.NS` symbols; ETF fields (AUM/TER).
 - **Mutual funds (NAV)**: CORE VISION (S2). AMFI CSV → `mutual_funds`/`mf_nav_history`.
 - **MF holdings / overlap analysis**: CORE VISION (S2→S3). Fund-house Excel/CSV/PDF →
@@ -670,21 +670,21 @@ Chronological record of decisions. Append as time progresses.
 - **Derivatives (F&O)**: DROP (D2).
 
 ### Research layer
-- Historical financial trends (STRETCH; requires per-period `financials` — not yet stored)
+- Historical financial trends (STRETCH; requires per-period `financials` - not yet stored)
 - Structured risk engine (STRETCH)
 - Bull vs Bear thesis (STRETCH; grounded LLM, post-P5)
 - "What should I pay attention to?" summary (STRETCH; grounded LLM)
 - Earnings/event timeline (STRETCH; needs a new event provider)
 - Scenario/stress testing (STRETCH)
-- **Grounded LLM narrative**: CORE MVP — Phase 5.
+- **Grounded LLM narrative**: CORE MVP - Phase 5.
 
 ### Valuation / analysis
 - Relative valuation: CORE MVP (done). DCF: S2. Alpha Score: CORE MVP (done).
   Backtesting: STRETCH (needs alpha/valuation history). Live prices: S2 (Finnhub WS).
 
 ### Product
-- Research pages (P6 — SHIPPED), Screener (backend + UI P6 — SHIPPED), NL screener (STRETCH),
-  Watchlists + Auth (STRETCH, S2). Aggregate `/overview` endpoint (P6 tracked item) — not needed
+- Research pages (P6 - SHIPPED), Screener (backend + UI P6 - SHIPPED), NL screener (STRETCH),
+  Watchlists + Auth (STRETCH, S2). Aggregate `/overview` endpoint (P6 tracked item) - not needed
   for the landing preview; deferred to P7 consideration.
 
 ### Engineering

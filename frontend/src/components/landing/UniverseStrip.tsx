@@ -20,7 +20,7 @@ const FEATURED = new Set([
 ]);
 
 /**
- * UniverseStrip — the research universe, from the live catalog. These are
+ * UniverseStrip: the research universe, from the live catalog. These are
  * research subjects, not customers: no "trusted by" language, no logos.
  */
 export function UniverseStrip() {
@@ -31,7 +31,7 @@ export function UniverseStrip() {
     : [];
 
   return (
-    <section className="border-b border-line">
+    <section className="relative border-b border-line bg-surface-2/30">
       <div className="mx-auto max-w-6xl px-4 py-20 md:px-6 md:py-28">
         <Reveal className="flex flex-wrap items-end justify-between gap-4">
           <div>
@@ -66,25 +66,34 @@ export function UniverseStrip() {
               </div>
             }
           >
-            <div className="grid gap-px border border-line bg-line sm:grid-cols-2 md:grid-cols-4">
+            <div className="grid gap-px border border-cobalt/15 bg-line sm:grid-cols-2 md:grid-cols-4">
               {featured.map((s) => (
                 <Link
                   key={s.symbol}
                   to={`/stocks/${s.symbol.replace(".NS", "")}`}
                   className="group bg-surface px-5 py-4 transition-colors hover:bg-surface-2"
                 >
-                  <div className="flex items-baseline justify-between gap-2">
-                    <span className="num text-xs font-semibold">{s.symbol.replace(".NS", "")}</span>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="flex min-w-0 items-center gap-2.5">
+                      {/* Logo slot: a deliberate placeholder for the company mark. */}
+                      <span
+                        aria-hidden
+                        className="flex size-9 shrink-0 items-center justify-center rounded-full border border-cobalt/30 bg-cobalt/5 text-sm font-semibold text-cobalt dark:text-cobalt-strong"
+                      >
+                        {s.symbol.replace(".NS", "").slice(0, 1)}
+                      </span>
+                      <span className="num text-xs font-semibold">{s.symbol.replace(".NS", "")}</span>
+                    </span>
                     <span
                       className={cn(
-                        "num text-[11px]",
+                        "num text-xs",
                         s.change_pct >= 0 ? "text-band-positive" : "text-band-weak",
                       )}
                     >
                       {fmtSignedPct(s.change_pct)}
                     </span>
                   </div>
-                  <p className="mt-1 truncate text-sm font-medium">{s.name}</p>
+                  <p className="mt-1.5 truncate text-sm font-medium">{s.name}</p>
                   <p className="num mt-1 text-xs text-muted">{fmtPrice(s.last_price)}</p>
                 </Link>
               ))}

@@ -55,7 +55,7 @@ describe("DataState", () => {
     expect(onRetry).toHaveBeenCalledOnce();
   });
 
-  it("renders insufficient-data state honestly", () => {
+  it("renders insufficient-data state without estimating values", () => {
     renderWithProviders(
       <DataState insufficient>
         <p>hidden</p>
@@ -105,7 +105,7 @@ describe("ScoreBlock", () => {
     expect(container.textContent).toContain("/100");
   });
 
-  it("renders the unavailable state honestly for null scores", () => {
+  it("renders the unavailable state for null scores", () => {
     renderWithProviders(<ScoreBlock score={null} label="Technical Score" />);
     expect(screen.getByText(/Score unavailable/)).toBeInTheDocument();
   });

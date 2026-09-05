@@ -8,8 +8,8 @@ export function SiteFooter() {
           <div>
             <p className="font-display text-base font-bold">SignalDesk</p>
             <p className="mt-1 max-w-md text-xs leading-relaxed text-muted">
-              Fundamentals, relative valuation, technicals and sentiment — synthesized into one
-              defensible research signal for Indian equities. Analysis is informational only and
+              Fundamentals, relative valuation, technicals and sentiment, combined into one
+              research signal for Indian equities. Analysis is informational only and
               not investment advice.
             </p>
           </div>

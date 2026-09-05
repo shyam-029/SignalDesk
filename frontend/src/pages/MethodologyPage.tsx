@@ -3,7 +3,7 @@ import { SectionHeader } from "@/components/data/SectionHeader";
 import { InfoDot } from "@/components/data/InfoDot";
 
 /**
- * Methodology — the full transparency page. Documented weights, thresholds and
+ * Methodology: the full transparency page. Documented weights, thresholds and
  * data sources; explicitly marks what is heuristic and what is relative.
  */
 export default function MethodologyPage() {
@@ -29,8 +29,8 @@ function Intro() {
     <section>
       <p className="text-sm leading-relaxed text-muted">
         Every analytical output in SignalDesk is built from documented, deterministic rules
-        over stored market data — or, for explanations, narrated by a language model that is
-        only ever shown the computed facts. This page records how each number is produced.
+        over stored market data. Explanations are narrated by a language model that is only
+        ever shown the computed facts. This page records how each number is produced.
       </p>
     </section>
   );
@@ -43,14 +43,14 @@ function Alpha() {
         Alpha Score <InfoDot metric="alpha" />
       </h2>
       <p className="mt-3 text-sm leading-relaxed text-muted">
-        The composite blends three independent 0–100 analyses: fundamental strength (40%),
-        technical positioning (30%), and news sentiment (30%). Weights renormalize over the
-        components that have data — a stock without news is scored on the other two dimensions
-        rather than penalized. The score is bounded 0–100 and is a research summary, not a
-        prediction or a recommendation.
+        The composite blends three independent analyses, each scored 0 to 100: fundamental
+        strength (40%), technical positioning (30%), and news sentiment (30%). Weights
+        renormalize over the components that have data, so a stock without news is scored on
+        the other two dimensions rather than penalized. The score is bounded 0 to 100 and is a
+        research summary, not a prediction or a recommendation.
       </p>
       <p className="mt-3 text-sm leading-relaxed text-muted">
-        Valuation is deliberately excluded from the blend: multiples derive from the same
+        Valuation is left out of the blend: multiples derive from the same
         fundamentals, so blending them would double-count. It is reported separately as the
         value signal.
       </p>
@@ -65,7 +65,7 @@ function Fundamental() {
       <p className="mt-3 text-sm leading-relaxed text-muted">
         Fixed-threshold piecewise-linear mapping (no peer-relative normalization):
         <span className="num mt-2 block border border-line bg-surface px-3 py-2 text-xs">
-          score = 100 × clamp((value − floor) / (ceiling − floor), 0, 1)
+          score = 100 x clamp((value - floor) / (ceiling - floor), 0, 1)
         </span>
       </p>
       <table className="num mt-4 w-full border border-line text-xs">
@@ -106,13 +106,13 @@ function Technical() {
       <p className="mt-3 text-sm leading-relaxed text-muted">
         Standard parameters: SMA 20, EMA 12, RSI 14 (Wilder), MACD 12/26/9. The score weights
         trend 50% (close vs SMA20), momentum 30% (MACD histogram), and mean reversion 20%
-        (RSI-14), renormalized when an indicator lacks data.
+        (RSI 14), renormalized when an indicator lacks data.
       </p>
       <p className="mt-3 text-sm leading-relaxed text-muted">
-        These are product-defined heuristics, deliberately simple and explainable — not
-        validated predictive models. The verdict wording (&ldquo;Bullish&rdquo;,
-        &ldquo;Bearish&rdquo;, …) describes the aggregate technical evidence only; SignalDesk
-        never labels an entire stock as bullish or bearish.
+        These are product-defined heuristics, kept simple and explainable on purpose. They are
+        not validated predictive models. The verdict wording (&ldquo;Bullish&rdquo;,
+        &ldquo;Bearish&rdquo; and similar) describes the aggregate technical evidence only;
+        SignalDesk never labels an entire stock as bullish or bearish.
       </p>
     </section>
   );
@@ -125,8 +125,8 @@ function Sentiment() {
       <p className="mt-3 text-sm leading-relaxed text-muted">
         Recent headlines per stock are scored by FinBERT (ProsusAI/finbert) into
         positive/negative/neutral with a confidence. The aggregate net score weights positives
-        +1 and negatives −1, averaged over scored articles to a −1..+1 scale, then mapped to
-        0–100 for the Alpha blend.
+        +1 and negatives -1, averaged over scored articles to a -1 to +1 scale, then mapped to
+        0 to 100 for the Alpha blend.
       </p>
     </section>
   );
@@ -137,14 +137,14 @@ function Valuation() {
     <section>
       <h2 className="font-display text-2xl font-semibold">Relative valuation</h2>
       <p className="mt-3 text-sm leading-relaxed text-muted">
-        A stock's trailing multiples — P/E, EV/EBITDA, P/B, P/S — are compared with the median
+        A stock's trailing multiples (P/E, EV/EBITDA, P/B, P/S) are compared with the median
         of same-industry peers drawn from the catalog (industry, with sector fallback). Margin
-        = (stock ÷ peer median − 1). Outside ±5% the stock reads undervalued or overvalued
-        relative to peers; within the band, fairly valued. An empty peer set produces no
-        valuation at all rather than a misleading &ldquo;fairly valued&rdquo;.
+        = (stock / peer median - 1). Outside plus or minus 5% the stock reads undervalued or
+        overvalued relative to peers; within the band, fairly valued. An empty peer set
+        produces no valuation at all rather than a misleading &ldquo;fairly valued&rdquo;.
       </p>
       <p className="mt-3 text-sm leading-relaxed text-muted">
-        Relative cheapness is not intrinsic cheapness — the entire peer group can be
+        Relative cheapness is not intrinsic cheapness; the entire peer group can be
         expensive. Valuation is reported separately from the Alpha Score by design.
       </p>
     </section>
@@ -159,8 +159,8 @@ function Data() {
         Prices: daily OHLCV via Yahoo Finance for the Nifty 50 catalog (built to scale toward
         Nifty 500 as catalog rows, not code). Financials: point-in-time snapshots from the
         same provider, with an explicit updated date shown in the product. Sentiment: local
-        FinBERT inference. Explanations: grounded narration over explicitly allow-listed
-        computed facts, with a rule-based fallback — never free-form invention.
+        FinBERT inference. Explanations: narration over explicitly allow-listed
+        computed facts, with a rule-based fallback. Nothing is invented.
       </p>
       <p className="mt-3 text-sm leading-relaxed text-muted">
         Where data is missing or insufficient, the product shows exactly that. Nothing is

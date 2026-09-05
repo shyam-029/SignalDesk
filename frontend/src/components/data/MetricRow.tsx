@@ -6,7 +6,7 @@ import { InfoDot } from "@/components/data/InfoDot";
 import type { MetricInfo, MetricKey } from "@/lib/metrics";
 
 /**
- * MetricRow — one labeled financial figure with its InfoDot.
+ * MetricRow: one labeled financial figure with its InfoDot.
  * Values are rendered in the mono/tabular treatment and stay NEUTRAL by
  * default; semantic color is applied only where the caller passes an explicit
  * analytical conclusion (band classes).
@@ -46,7 +46,7 @@ export function MetricRow({
               {value}
             </span>
             {sub && (
-              <span className={cn("mt-0.5 block text-[11px] text-faint", subClass)}>{sub}</span>
+              <span className={cn("mt-0.5 block text-xs font-medium text-faint", subClass)}>{sub}</span>
             )}
           </>
         )}

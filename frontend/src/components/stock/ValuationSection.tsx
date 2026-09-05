@@ -30,10 +30,10 @@ const METRIC_INFO_KEYS: Record<string, "pe" | "ev_ebitda" | "pb" | "ps"> = {
 };
 
 /**
- * ValuationSection — relative multiples vs same-industry peers.
+ * ValuationSection: relative multiples vs same-industry peers.
  * All four supported multiples (P/E, EV/EBITDA, P/B, P/S) are shown, each with
  * its own peer median from the backend (one lightweight query per multiple,
- * cached by TanStack Query). Valuation carries its OWN semantic state — it
+ * cached by TanStack Query). Valuation carries its OWN semantic state and
  * never inherits Alpha's color. EV/EBITDA/market-cap inputs live in a
  * secondary expandable area, not the primary view.
  */
@@ -109,7 +109,7 @@ export function ValuationSection({ symbol }: { symbol: string }) {
                       current={valuation.current}
                       median={valuation.peer_median}
                     />
-                    <p className="mt-3 flex justify-between text-[10px] text-faint">
+                    <p className="mt-3 flex justify-between text-xs font-medium text-faint">
                       <span>Cheapest peer</span>
                       <span>Priciest peer</span>
                     </p>
@@ -118,11 +118,11 @@ export function ValuationSection({ symbol }: { symbol: string }) {
                     Margin vs peer median:{" "}
                     <span className={cn("num font-medium", sem?.band.text)}>
                       {fmtSignedShort(valuation.margin_pct)}
-                    </span>{" "}
-                    — trading {valuation.margin_pct < 0 ? "below" : "above"} the peer median.
+                    </span>
+                    , trading {valuation.margin_pct < 0 ? "below" : "above"} the peer median.
                   </p>
                 </div>
-                <p className="mt-3 text-[11px] leading-relaxed text-faint">
+                <p className="mt-3 text-xs leading-relaxed text-faint">
                   &ldquo;Relatively cheaper&rdquo; does not mean intrinsically cheap. Peer set:{" "}
                   {valuation.peers.length} same-industry companies from the SignalDesk catalog.
                 </p>
@@ -146,7 +146,7 @@ export function ValuationSection({ symbol }: { symbol: string }) {
                     ))}
                   </div>
 
-                  {/* Secondary inputs — expandable, not the primary focus. */}
+                  {/* Secondary inputs, expandable, not the primary focus. */}
                   <details className="border-t border-line px-5 py-3">
                     <summary className="flex cursor-pointer items-center justify-between text-xs font-medium text-muted">
                       Valuation inputs
@@ -160,7 +160,7 @@ export function ValuationSection({ symbol }: { symbol: string }) {
                         <p className="mt-0.5 font-medium">
                           {ratios.enterprise_value != null
                             ? `₹${fmtCompact(ratios.enterprise_value)}`
-                            : "—"}
+                            : "-"}
                         </p>
                       </div>
                       <div>
@@ -168,7 +168,7 @@ export function ValuationSection({ symbol }: { symbol: string }) {
                           EBITDA <InfoDot metric="ebitda" className="size-3" />
                         </p>
                         <p className="mt-0.5 font-medium">
-                          {ratios.ebitda != null ? `₹${fmtCompact(ratios.ebitda)}` : "—"}
+                          {ratios.ebitda != null ? `₹${fmtCompact(ratios.ebitda)}` : "-"}
                         </p>
                       </div>
                       <div>
@@ -178,15 +178,15 @@ export function ValuationSection({ symbol }: { symbol: string }) {
                         <p className="mt-0.5 font-medium">
                           {ratios.market_cap != null
                             ? `₹${fmtCompact(ratios.market_cap)}`
-                            : "—"}
+                            : "-"}
                         </p>
                       </div>
                     </div>
-                    <p className="mt-3 text-[10px] text-faint">
+                    <p className="mt-3 text-xs text-faint">
                       Underlying inputs for the multiples above · snapshot updated{" "}
                       {fundamentals.data?.updated_at
                         ? new Date(fundamentals.data.updated_at).toLocaleDateString("en-IN")
-                        : "—"}
+                        : "-"}
                     </p>
                   </details>
                 </div>
@@ -232,7 +232,7 @@ function RelativePosition({ current, median }: { current: number; median: number
         <span className="block h-4 w-px bg-cobalt dark:bg-cobalt-strong" />
       </span>
       <span
-        className="num absolute top-5 -translate-x-1/2 text-[10px] text-faint"
+        className="num absolute top-5 -translate-x-1/2 text-xs text-faint"
         style={{ left: `${clamp(pct(median), 6, 94)}%` }}
       >
         median {median.toFixed(1)}
@@ -246,7 +246,7 @@ function clamp(v: number, lo = 2, hi = 98): number {
 }
 
 /**
- * One multiple row — owns its valuation query so all four multiples display
+ * One multiple row: owns its valuation query so all four multiples display
  * their own peer medians simultaneously (the endpoint is per-metric).
  */
 function MultipleRow({
@@ -279,11 +279,11 @@ function MultipleRow({
         {active && err == null && <span className="label-caps ml-1">chart shown</span>}
       </p>
       {err ? (
-        <p className="num mt-1 text-xl font-medium text-faint">—</p>
+        <p className="num mt-1 text-xl font-medium text-faint">-</p>
       ) : v ? (
         <>
           <p className="num mt-1 text-xl font-medium">{fmtRatio(v.current, 2)}</p>
-          <p className="num mt-0.5 text-[11px] text-faint">
+          <p className="num mt-0.5 text-xs text-faint">
             peer median {fmtRatio(v.peer_median)}
           </p>
         </>

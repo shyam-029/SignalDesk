@@ -3,6 +3,7 @@ import {
   CandlestickSeries,
   ColorType,
   CrosshairMode,
+  LineStyle,
   createChart,
   type CandlestickData,
   type IChartApi,
@@ -16,7 +17,7 @@ import { useTheme } from "@/components/layout/ThemeProvider";
 import type { PriceBar } from "@/lib/types";
 
 /**
- * PriceChart — the real financial chart, TradingView Lightweight Charts.
+ * PriceChart: the real financial chart, TradingView Lightweight Charts.
  * Candlesticks colored with the semantic positive/negative tokens (never a
  * decorative rainbow), crosshair + OHLC legend, theme-aware, resizes with its
  * container. Range selection is handled by the parent via the prices hook.
@@ -48,8 +49,10 @@ export function PriceChart({
       layout: {
         background: { type: ColorType.Solid, color: "transparent" },
         textColor: css("--muted"),
-        fontFamily: "'JetBrains Mono', monospace",
-        fontSize: 11,
+        // Only weights 500+ of IBM Plex Mono are loaded, so the canvas's
+        // implicit 400 request resolves to the 500 face per CSS font matching.
+        fontFamily: "'IBM Plex Mono', monospace",
+        fontSize: 12,
       },
       grid: {
         vertLines: { color: css("--line") },
@@ -57,8 +60,18 @@ export function PriceChart({
       },
       crosshair: {
         mode: CrosshairMode.Normal,
-        vertLine: { color: css("--rule"), labelBackgroundColor: css("--cobalt") },
-        horzLine: { color: css("--rule"), labelBackgroundColor: css("--cobalt") },
+        vertLine: {
+          color: css("--faint"),
+          width: 1,
+          style: LineStyle.Dashed,
+          labelBackgroundColor: css("--cobalt"),
+        },
+        horzLine: {
+          color: css("--faint"),
+          width: 1,
+          style: LineStyle.Dashed,
+          labelBackgroundColor: css("--cobalt"),
+        },
       },
       rightPriceScale: { borderColor: css("--line") },
       timeScale: { borderColor: css("--line"), rightOffset: 3 },
@@ -125,9 +138,9 @@ export function PriceChart({
 
   return (
     <div>
-      {/* OHLC readout — updates with the crosshair, falls back to the latest bar. */}
+      {/* OHLC readout: updates with the crosshair, falls back to the latest bar. */}
       {shown && (
-        <div className="num mb-2 flex flex-wrap gap-x-5 gap-y-1 text-[11px] text-muted">
+        <div className="num mb-2 flex flex-wrap gap-x-5 gap-y-1 text-xs text-muted">
           <span className="text-foreground">{shown.date}</span>
           <span>O {fmtPrice(shown.open)}</span>
           <span>H {fmtPrice(shown.high)}</span>

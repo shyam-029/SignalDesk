@@ -11,10 +11,10 @@ import { scoreBand, valuationSemantics } from "@/lib/semantic";
 import { cn } from "@/lib/utils";
 
 /**
- * AlphaSection — the page's major analytical moment.
+ * AlphaSection: the page's major analytical moment.
  * The composite anchors the section; its three weighted components sit beside
- * it and the grounded explanation reads as a research conclusion. Valuation is
- * shown only as the separate value signal — never visually blended into Alpha.
+ * it and the written explanation reads as a research conclusion. Valuation is
+ * shown only as the separate value signal, never visually blended into Alpha.
  */
 export function AlphaSection({ symbol }: { symbol: string }) {
   const query = useAlpha(symbol);
@@ -41,7 +41,7 @@ export function AlphaSection({ symbol }: { symbol: string }) {
           error={query.error}
           onRetry={query.refetch}
           insufficient={Boolean(alpha?.insufficient_data)}
-          insufficientMessage="No Alpha composite can be computed — none of the three research dimensions have data for this stock yet."
+          insufficientMessage="No Alpha composite can be computed. None of the three research dimensions have data for this stock yet."
         >
           {alpha && (
             <div className="grid gap-8 lg:grid-cols-12">
@@ -100,9 +100,9 @@ export function AlphaSection({ symbol }: { symbol: string }) {
                         return (
                           <div key={key}>
                             <div className="flex items-baseline justify-between">
-                              <span className="text-[11px] text-muted">{label}</span>
+                              <span className="text-xs font-medium text-muted">{label}</span>
                               <span className={cn("num text-xs font-medium", b?.text)}>
-                                {v != null ? v.toFixed(0) : "—"}
+                                {v != null ? v.toFixed(0) : "-"}
                               </span>
                             </div>
                             <div className="mt-1.5 h-1 bg-line">
@@ -121,7 +121,7 @@ export function AlphaSection({ symbol }: { symbol: string }) {
                 )}
               </div>
 
-              {/* Value signal + grounded explanation */}
+              {/* Value signal + written explanation */}
               <div className="space-y-6 lg:col-span-5">
                 {alpha.value_signal && (
                   <div>
@@ -139,7 +139,7 @@ export function AlphaSection({ symbol }: { symbol: string }) {
                             valuationSemantics(alpha.value_signal.status)?.band.text,
                           )}
                         >
-                          {valuationSemantics(alpha.value_signal.status)?.headline ?? "—"}
+                          {valuationSemantics(alpha.value_signal.status)?.headline ?? "-"}
                         </p>
                         <p className="num text-sm font-medium">
                           {fmtSignedPct(alpha.value_signal.margin_pct)}
@@ -148,7 +148,7 @@ export function AlphaSection({ symbol }: { symbol: string }) {
                       <p className="num mt-1 text-xs text-muted">
                         {alpha.value_signal.metric} margin vs peer median
                       </p>
-                      <p className="mt-2 text-[11px] leading-relaxed text-faint">
+                      <p className="mt-2 text-xs leading-relaxed text-faint">
                         {alpha.value_signal.explanation}
                       </p>
                     </div>
@@ -157,17 +157,17 @@ export function AlphaSection({ symbol }: { symbol: string }) {
 
                 <div className="border border-line bg-surface p-5">
                   <div className="flex items-center justify-between gap-3">
-                    <p className="label-caps">Grounded explanation</p>
+                    <p className="label-caps">Written explanation</p>
                     <ExplainAction
                       symbol={symbol}
                       questionType="alpha"
-                      question={`Why is Alpha ${alpha.composite ?? "—"}?`}
-                      triggerLabel={`Why is Alpha ${alpha.composite ?? "—"}?`}
+                      question={`Why is Alpha ${alpha.composite ?? "-"}?`}
+                      triggerLabel={`Why is Alpha ${alpha.composite ?? "-"}?`}
                     />
                   </div>
                   <p className="mt-3 text-sm leading-relaxed">{alpha.explanation}</p>
-                  <p className="mt-3 border-t border-line pt-2 text-[10px] text-faint">
-                    Generated explanation · grounded in SignalDesk data · not investment advice
+                  <p className="mt-3 border-t border-line pt-2 text-xs text-faint">
+                    Generated from SignalDesk data. Not investment advice.
                   </p>
                 </div>
               </div>
@@ -197,11 +197,11 @@ function ComponentBar({
         <span className="flex items-center gap-1.5 text-xs text-muted">
           {label}
           <InfoDot metric={metric} className="size-3.5" />
-          <span className="num text-[10px] text-faint">
+          <span className="num text-xs text-faint">
             {weight != null ? `${Math.round(weight * 100)}%` : ""}
           </span>
         </span>
-        <span className={cn("num text-sm font-medium", band?.text)}>{value ?? "—"}</span>
+        <span className={cn("num text-sm font-medium", band?.text)}>{value ?? "-"}</span>
       </div>
       <div className="mt-1 flex gap-[3px]" aria-hidden>
         {Array.from({ length: 20 }, (_, i) => (
