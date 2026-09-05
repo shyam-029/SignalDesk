@@ -64,7 +64,9 @@ class _ScriptedProvider(MarketDataProvider):
             raise NotImplementedError
         return self.fundamentals
 
-    async def get_financial_history(self, symbol: str) -> list[FinancialPeriodDraft]:
+    async def get_financial_history(
+        self, symbol: str, period_type: str = "annual"
+    ) -> list[FinancialPeriodDraft]:
         if isinstance(self.history, Exception):
             raise self.history
         if self.history is None:

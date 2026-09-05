@@ -1,10 +1,10 @@
-import { describe, expect, it } from "vitest";
+﻿import { describe, expect, it } from "vitest";
 
 import { pickTopMovers } from "@/components/landing/MarketPulse";
 import type { StockSummary } from "@/lib/types";
 
 function stock(symbol: string, changePct: number, lastPrice = 100): StockSummary {
-  return { symbol, name: symbol, sector: null, last_price: lastPrice, change_pct: changePct };
+  return { symbol, name: symbol, sector: null, industry: null, market_cap: null, last_price: lastPrice, change_pct: changePct };
 }
 
 describe("pickTopMovers", () => {
@@ -39,7 +39,7 @@ describe("pickTopMovers", () => {
     const broken = {
       symbol: "X.NS",
       name: "X",
-      sector: null,
+      sector: null, industry: null, market_cap: null,
       last_price: 10,
       change_pct: Number.NaN,
     };
@@ -52,3 +52,4 @@ describe("pickTopMovers", () => {
     expect(pickTopMovers([])).toEqual([]);
   });
 });
+

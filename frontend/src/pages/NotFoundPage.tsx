@@ -1,4 +1,4 @@
-import { Link } from "react-router-dom";
+﻿import { Link } from "react-router-dom";
 
 import { Button } from "@/components/ui/button";
 
@@ -10,7 +10,7 @@ export default function NotFoundPage() {
         This page doesn't exist in the catalog.
       </h1>
       <p className="mx-auto mt-3 max-w-md text-sm text-muted">
-        The research universe covers the Nifty 50. Try the markets list to find a company.
+        The research universe covers the Nifty 250. Try the markets list to find a company.
       </p>
       <Button asChild className="mt-7">
         <Link to="/markets">Browse markets</Link>
@@ -18,3 +18,4 @@ export default function NotFoundPage() {
     </div>
   );
 }
+

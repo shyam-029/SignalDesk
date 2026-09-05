@@ -5,8 +5,10 @@ export interface StockSummary {
   symbol: string;
   name: string;
   sector: string | null;
+  industry: string | null;
   last_price: number;
   change_pct: number;
+  market_cap: number | null;
 }
 
 export interface StockListResponse {
@@ -14,6 +16,7 @@ export interface StockListResponse {
   total: number;
   page: number;
   limit: number;
+  sectors: string[];
 }
 
 export interface QuoteBlock {

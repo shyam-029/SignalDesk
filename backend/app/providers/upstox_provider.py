@@ -293,14 +293,109 @@ class UpstoxProvider(MarketDataProvider):
             industry=None,
         )
 
-    async def get_fundamentals(self, symbol: str) -> Fundamentals:
+    async def get_key_ratios(self, symbol: str) -> dict[str, float | None]:
+        """Raw named ratios (P/E, P/B, ROA, ROE, ROCE, EV/EBITDA) for a symbol.
+
+        Used by get_fundamentals and by the valuation fallback (a pre-computed
+        EV/EBITDA ratio cannot be split into EV and EBITDA, so the fallback
+        consumes the ratio directly).
+        """
         _, isin = await self._get_instrument(symbol)
         data = await self._get_data(f"/fundamentals/{isin}/key-ratios")
-
         ratios: dict[str, float | None] = {}
         for entry in data if isinstance(data, list) else []:
             if isinstance(entry, dict) and entry.get("name"):
                 ratios[str(entry["name"])] = parse_ratio_value(entry.get("company_value"))
+        return ratios
+
+    async def get_fundamentals(self, symbol: str) -> Fundamentals:
+        _, isin = await self._get_instrument(symbol)
+        ratios = await self.get_key_ratios(symbol)
+
+        # Income statement (categories only): fills margins the snapshot lacks.
+        op_margin = net_margin = None
+        try:
+            income = await self._get_data(
+                f"/fundamentals/{isin}/income-statement",
+                params={"type": "consolidated", "time_period": "yearly"},
+            )
+            cats: dict[str, dict[str, float]] = {}
+            for block in income.get("income_statement") or []:
+                if not isinstance(block, dict):
+                    continue
+                category = str(block.get("category") or "")
+                for hist in block.get("history") or []:
+                    label = str(hist.get("period") or "")
+                    raw = hist.get("value")
+                    if not label or raw is None:
+                        continue
+                    try:
+                        cats.setdefault(category, {})[label] = float(raw)
+                    except (TypeError, ValueError):
+                        continue
+            rev = cats.get("revenue", {})
+            if rev:
+                op = cats.get("operating_profit", {})
+                ni = cats.get("net_profit", {})
+                # Latest period that has both a numerator and revenue.
+                for label in sorted(
+                    set(op) | set(ni),
+                    key=lambda l: parse_period_label(l) or date.min,
+                    reverse=True,
+                ):
+                    base = rev.get(label)
+                    if base:
+                        if label in op and op_margin is None:
+                            op_margin = op[label] / base
+                        if label in ni and net_margin is None:
+                            net_margin = ni[label] / base
+                    if op_margin is not None and net_margin is not None:
+                        break
+        except MarketDataError:
+            pass  # income enrichment is best-effort; ratios above already stand
+
+        # Balance sheet: current ratio + debt/equity (yfinance omits both often).
+        current_ratio = debt_to_equity = None
+        try:
+            balance = await self._get_data(
+                f"/fundamentals/{isin}/balance-sheet",
+                params={"type": "consolidated", "fs": "true"},
+            )
+            lines: dict[str, dict[str, float]] = {}
+            for line in balance.get("full_statement") or []:
+                if not isinstance(line, dict):
+                    continue
+                particular = str(line.get("particular") or "")
+                for hist in line.get("history") or []:
+                    label = str(hist.get("period") or "")
+                    raw = hist.get("value")
+                    if not label or raw is None:
+                        continue
+                    try:
+                        lines.setdefault(particular, {})[label] = float(raw)
+                    except (TypeError, ValueError):
+                        continue
+
+            def _latest(particular: str) -> tuple[str, float] | None:
+                entries = lines.get(particular, {})
+                for label in sorted(
+                    entries, key=lambda l: parse_period_label(l) or date.min, reverse=True
+                ):
+                    if entries[label]:
+                        return label, entries[label]
+                return None
+
+            ca = _latest("Current Assets")
+            cl = _latest("Current Liabilities")
+            if ca and cl and ca[0] == cl[0] and cl[1] != 0:
+                current_ratio = ca[1] / cl[1]
+            tl = _latest("Total Liabilities")
+            eq = _latest("Equity Capital")
+            if tl and eq and eq[1] != 0:
+                # Percent units, matching the yfinance debtToEquity convention.
+                debt_to_equity = tl[1] / eq[1] * 100.0
+        except MarketDataError:
+            pass  # balance enrichment is best-effort
 
         # Only fields Upstox actually supplies are mapped; the rest stay None.
         # EV/EBITDA arrives as a pre-computed ratio, not as EV and EBITDA
@@ -311,13 +406,25 @@ class UpstoxProvider(MarketDataProvider):
             price_to_book=ratios.get("P/B"),
             return_on_equity=ratios.get("ROE"),
             return_on_assets=ratios.get("ROA"),
+            operating_margin=op_margin,
+            profit_margin=net_margin,
+            current_ratio=current_ratio,
+            debt_to_equity=debt_to_equity,
         )
 
-    async def get_financial_history(self, symbol: str) -> list[FinancialPeriodDraft]:
+    async def get_financial_history(
+        self, symbol: str, period_type: str = "annual"
+    ) -> list[FinancialPeriodDraft]:
+        if period_type not in ("annual", "quarterly"):
+            raise MarketDataError(f"Unsupported period_type '{period_type}' for Upstox")
         _, isin = await self._get_instrument(symbol)
         data = await self._get_data(
             f"/fundamentals/{isin}/income-statement",
-            params={"type": "consolidated", "time_period": "yearly", "fs": "true"},
+            params={
+                "type": "consolidated",
+                "time_period": "yearly" if period_type == "annual" else "quarterly",
+                "fs": "true" if period_type == "annual" else "false",
+            },
         )
 
         units = str(data.get("units_in") or "crore").lower()
@@ -390,7 +497,7 @@ class UpstoxProvider(MarketDataProvider):
             periods.append(
                 FinancialPeriodDraft(
                     period_end=period_end,
-                    period_type="annual",
+                    period_type=period_type,
                     revenue=rev,
                     net_income=ni,
                     operating_margin=op_margins.get(label),

@@ -25,32 +25,36 @@ import type { TechnicalsSeriesItem } from "@/lib/types";
  */
 export function TechnicalsSection({ symbol }: { symbol: string }) {
   const technicals = useTechnicals(symbol);
-  const series = useTechnicalsSeries(symbol);
+  // Three years of series when the stored history supports it (the backend
+  // caps at what is ingested; shorter histories simply return fewer bars).
+  const series = useTechnicalsSeries(symbol, 750);
   const t = technicals.data;
   const verdict = technicalVerdict(t?.score);
   const summary = technicalsSummary(t);
 
   const items = series.data?.items ?? [];
 
+  // Consistent, widely contrasting roles across every technical chart:
+  // cobalt = close/MACD line, coral = SMA20/signal, jade = EMA12, amber = RSI.
   const priceLines = React.useMemo(
     () =>
       buildSeriesLines(items, (i) => [
-        { key: "close", label: "Close", color: "--ink", value: i.close },
+        { key: "close", label: "Close", color: "--cobalt", value: i.close },
         { key: "sma20", label: "SMA 20", color: "--accent-coral", value: i.sma20 },
-        { key: "ema12", label: "EMA 12", color: "--accent-teal", value: i.ema12 },
+        { key: "ema12", label: "EMA 12", color: "--accent-jade", value: i.ema12 },
       ]),
     [items],
   );
   const rsiLines = React.useMemo(
-    () => buildSeriesLines(items, (i) => [{ key: "rsi14", label: "RSI 14", color: "--accent-coral", value: i.rsi14 }]),
+    () => buildSeriesLines(items, (i) => [{ key: "rsi14", label: "RSI 14", color: "--accent-amber", value: i.rsi14 }]),
     [items],
   );
   const macdLines = React.useMemo(
     () =>
       buildSeriesLines(items, (i) => [
-        { key: "macd", label: "MACD", color: "--ink", value: i.macd, width: 1 },
+        { key: "macd", label: "MACD", color: "--cobalt", value: i.macd, width: 1 },
         { key: "signal", label: "Signal", color: "--accent-coral", value: i.macd_signal, width: 1 },
-        { key: "hist", label: "Histogram", color: "--cobalt", value: i.macd_histogram, histogram: true },
+        { key: "hist", label: "Histogram", color: "--accent-teal", value: i.macd_histogram, histogram: true },
       ]),
     [items],
   );
@@ -64,7 +68,7 @@ export function TechnicalsSection({ symbol }: { symbol: string }) {
       summary={summary}
     >
       <div className="grid gap-8 lg:grid-cols-12">
-        {/* Indicator series charts */}
+        {/* Indicator series: three stacked, equal-size charts. */}
         <div className="space-y-6 lg:col-span-8">
           <div className="border border-line bg-surface p-5">
             <p className="label-caps mb-3">Price with SMA 20 / EMA 12</p>
@@ -78,7 +82,7 @@ export function TechnicalsSection({ symbol }: { symbol: string }) {
             >
               {items.length > 0 && (
                 <>
-                  <TimeSeriesChart lines={priceLines} height={260} valueFormatter={(v) => fmtPrice(v)} />
+                  <TimeSeriesChart lines={priceLines} height={280} valueFormatter={(v) => fmtPrice(v)} />
                   <p className="num mt-2 text-xs text-faint">
                     {items.length} daily bars · indicator values computed by the backend
                   </p>
@@ -87,37 +91,36 @@ export function TechnicalsSection({ symbol }: { symbol: string }) {
             </DataState>
           </div>
 
-          <div className="grid gap-6 md:grid-cols-2">
-            <div className="border border-line bg-surface p-5">
-              <p className="label-caps mb-3">RSI 14</p>
-              <DataState
-                loading={series.isLoading}
-                error={series.error}
-                onRetry={series.refetch}
-                insufficient={items.length === 0}
-                insufficientMessage="Not enough stored history for RSI 14."
-                compact
-              >
-                {items.length > 0 && (
-                  <TimeSeriesChart lines={rsiLines} height={150} valueFormatter={(v) => v.toFixed(1)} />
-                )}
-              </DataState>
-            </div>
-            <div className="border border-line bg-surface p-5">
-              <p className="label-caps mb-3">MACD 12/26/9</p>
-              <DataState
-                loading={series.isLoading}
-                error={series.error}
-                onRetry={series.refetch}
-                insufficient={items.length === 0}
-                insufficientMessage="Not enough stored history for MACD."
-                compact
-              >
-                {items.length > 0 && (
-                  <TimeSeriesChart lines={macdLines} height={150} valueFormatter={(v) => v.toFixed(2)} />
-                )}
-              </DataState>
-            </div>
+          <div className="border border-line bg-surface p-5">
+            <p className="label-caps mb-3">RSI 14</p>
+            <DataState
+              loading={series.isLoading}
+              error={series.error}
+              onRetry={series.refetch}
+              insufficient={items.length === 0}
+              insufficientMessage="Not enough stored history for RSI 14."
+              compact
+            >
+              {items.length > 0 && (
+                <TimeSeriesChart lines={rsiLines} height={280} valueFormatter={(v) => v.toFixed(1)} />
+              )}
+            </DataState>
+          </div>
+
+          <div className="border border-line bg-surface p-5">
+            <p className="label-caps mb-3">MACD 12/26/9</p>
+            <DataState
+              loading={series.isLoading}
+              error={series.error}
+              onRetry={series.refetch}
+              insufficient={items.length === 0}
+              insufficientMessage="Not enough stored history for MACD."
+              compact
+            >
+              {items.length > 0 && (
+                <TimeSeriesChart lines={macdLines} height={280} valueFormatter={(v) => v.toFixed(2)} />
+              )}
+            </DataState>
           </div>
         </div>
 

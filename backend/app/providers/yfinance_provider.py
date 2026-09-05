@@ -128,13 +128,21 @@ class YFinanceProvider(MarketDataProvider):
 
         return await asyncio.to_thread(_fetch)
 
-    # Annual income-statement history (Phase 6.5 Part E). yfinance exposes a
-    # few years of annual columns (typically 4-5) on the `income_stmt`
-    # DataFrame: columns = period-end timestamps, index = line items.
-    async def get_financial_history(self, symbol: str) -> list[FinancialPeriodDraft]:
+    # Annual/quarterly income-statement history (Phase 6.5 Part E). yfinance
+    # exposes a few periods of columns on the `income_stmt` /
+    # `quarterly_income_stmt` DataFrames: columns = period-end timestamps,
+    # index = line items.
+    async def get_financial_history(
+        self, symbol: str, period_type: str = "annual"
+    ) -> list[FinancialPeriodDraft]:
         def _fetch() -> list[FinancialPeriodDraft]:
             try:
-                df = yf.Ticker(symbol).income_stmt
+                ticker = yf.Ticker(symbol)
+                df = (
+                    ticker.income_stmt
+                    if period_type == "annual"
+                    else ticker.quarterly_income_stmt
+                )
             except Exception as exc:
                 raise MarketDataError(
                     f"yfinance income_stmt failed for {symbol}: {exc}"
@@ -168,7 +176,7 @@ class YFinanceProvider(MarketDataProvider):
                 periods.append(
                     FinancialPeriodDraft(
                         period_end=end,
-                        period_type="annual",
+                        period_type=period_type,
                         revenue=rev,
                         net_income=ni,
                         # Backend-owned math: margins derive from the same

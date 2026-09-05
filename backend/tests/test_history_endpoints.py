@@ -1,4 +1,4 @@
-# Phase 6.5 Part E tests — historical endpoints + ingestion job (zero network).
+﻿# Phase 6.5 Part E tests â€” historical endpoints + ingestion job (zero network).
 
 from datetime import date, timedelta
 
@@ -35,8 +35,10 @@ class FakeHistoryProvider(MarketDataProvider):
     name = "fake"
 
     def __init__(self, periods: dict[str, list[FinancialPeriodDraft]] | None = None,
-                 fail_symbol: str | None = None):
+                 fail_symbol: str | None = None,
+                 quarterly_periods: dict[str, list[FinancialPeriodDraft]] | None = None):
         self.periods = periods or {}
+        self.quarterly_periods = quarterly_periods or {}
         self.fail_symbol = fail_symbol
 
     async def get_price_history(self, symbol: str, period: str) -> list[OHLCV]:
@@ -48,9 +50,13 @@ class FakeHistoryProvider(MarketDataProvider):
     async def get_fundamentals(self, symbol: str) -> Fundamentals:
         return Fundamentals(symbol=symbol)
 
-    async def get_financial_history(self, symbol: str) -> list[FinancialPeriodDraft]:
+    async def get_financial_history(
+        self, symbol: str, period_type: str = "annual"
+    ) -> list[FinancialPeriodDraft]:
         if symbol == self.fail_symbol:
             raise MarketDataError(f"boom for {symbol}")
+        if period_type == "quarterly":
+            return self.quarterly_periods.get(symbol, [])
         return self.periods.get(symbol, [])
 
 
@@ -62,9 +68,9 @@ def _draft(day: str, **fields) -> FinancialPeriodDraft:
 
 async def _seed_universe(session_factory, symbols: list[str]) -> None:
     async with session_factory() as session:
-        universe = await session.scalar(select(Universe).where(Universe.name == "nifty50"))
+        universe = await session.scalar(select(Universe).where(Universe.name == "nifty250"))
         if universe is None:
-            universe = Universe(name="nifty50")
+            universe = Universe(name="nifty250")
             session.add(universe)
             await session.flush()
         for symbol in symbols:
@@ -143,7 +149,9 @@ async def test_ingest_financial_periods_provider_without_capability(
     monkeypatch.setattr(jobs_module, "SessionLocal", session_factory)
 
     class NoHistoryProvider(FakeHistoryProvider):
-        async def get_financial_history(self, symbol: str):
+        async def get_financial_history(
+            self, symbol: str, period_type: str = "annual"
+        ):
             # Delegate to the ABC default, which raises NotImplementedError.
             return await MarketDataProvider.get_financial_history(self, symbol)
 
@@ -459,3 +467,4 @@ async def test_peers_no_peers_returns_empty(client, session_factory):
     body = r.json()
     assert body["count"] == 0
     assert body["items"] == []
+

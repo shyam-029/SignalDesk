@@ -1,4 +1,4 @@
-# Provider tests — no real network. Uses a fake MarketDataProvider to verify
+﻿# Provider tests â€” no real network. Uses a fake MarketDataProvider to verify
 # the interface contract, OHLCV mapping, and per-symbol error isolation (D19).
 
 from datetime import date
@@ -74,7 +74,7 @@ async def test_ingest_universe_isolates_failures(session_factory, monkeypatch):
         stock = Stock(symbol="RELIANCE.NS", name="Reliance", sector="Energy")
         session.add(stock)
         await session.flush()
-        universe = Universe(name="nifty50")
+        universe = Universe(name="nifty250")
         session.add(universe)
         await session.flush()
         await session.execute(

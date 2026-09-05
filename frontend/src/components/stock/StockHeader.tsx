@@ -1,10 +1,11 @@
 import { Link } from "react-router-dom";
-import { ChevronLeft } from "lucide-react";
+import { ArrowDown, ArrowUp, ChevronLeft } from "lucide-react";
 
 import { useStockDetail } from "@/lib/hooks";
 import { AskPanel } from "@/components/explain/AskPanel";
 import { DataState } from "@/components/data/DataState";
 import { InfoDot } from "@/components/data/InfoDot";
+import { StockLogo } from "@/components/stock/StockLogo";
 import {
   fmtDate,
   fmtMarketCap,
@@ -15,17 +16,29 @@ import {
 import { cn } from "@/lib/utils";
 
 /**
- * StockHeader: the market snapshot: identity, price, daily movement, size,
- * day range. One API call (GET /stocks/{symbol}); editorial composition, not a
- * row of dashboard cards.
+ * StockHeader: the market snapshot: identity (with the company's monogram
+ * mark), price, daily movement (with a directional arrow), size, day range.
+ * One API call (GET /stocks/{symbol}); editorial composition, not a row of
+ * dashboard cards. The sector is a link to the sector-filtered markets list.
  */
 export function StockHeader({ symbol }: { symbol: string }) {
   const query = useStockDetail(symbol);
   const detail = query.data;
 
   return (
-    <header className="border-b border-line">
-      <div className="mx-auto max-w-6xl px-4 pb-8 pt-6 md:px-6">
+    <header className="relative border-b border-line">
+      {/* Identity wash: a faint petrol pool behind the header (mirrors the
+          landing hero) so the research page carries the site's color in both
+          themes without redesigning the layout. */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-0"
+        style={{
+          background:
+            "radial-gradient(560px 260px at 20% 20%, color-mix(in srgb, var(--cobalt) 6%, transparent), transparent 72%)",
+        }}
+      />
+      <div className="relative mx-auto max-w-6xl px-4 pb-8 pt-6 md:px-6">
         <Link
           to="/markets"
           className="mb-5 inline-flex items-center gap-1 text-xs text-muted hover:text-foreground"
@@ -46,8 +59,9 @@ export function StockHeader({ symbol }: { symbol: string }) {
         >
           {detail && (
             <div className="flex flex-wrap items-end justify-between gap-6">
-              <div>
-                <div className="flex flex-wrap items-baseline gap-3">
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-3">
+                  <StockLogo symbol={detail.symbol} name={detail.name} size="lg" />
                   <h1 className="font-display text-3xl font-semibold tracking-[-0.01em] md:text-4xl">
                     {detail.name}
                   </h1>
@@ -56,7 +70,16 @@ export function StockHeader({ symbol }: { symbol: string }) {
                   </span>
                 </div>
                 <p className="mt-1.5 text-sm text-muted">
-                  {detail.sector ?? "-"}
+                  {detail.sector ? (
+                    <Link
+                      to={`/markets?sector=${encodeURIComponent(detail.sector)}`}
+                      className="underline decoration-line underline-offset-4 transition-colors hover:text-cobalt hover:decoration-cobalt dark:hover:text-cobalt-strong"
+                    >
+                      {detail.sector}
+                    </Link>
+                  ) : (
+                    "-"
+                  )}
                   {detail.industry ? <span className="text-faint"> · {detail.industry}</span> : null}
                 </p>
               </div>
@@ -69,12 +92,17 @@ export function StockHeader({ symbol }: { symbol: string }) {
                   {detail.quote.change_pct != null && (
                     <span
                       className={cn(
-                        "num text-sm font-medium",
+                        "num flex items-center gap-1 text-sm font-medium",
                         detail.quote.change_pct >= 0
                           ? "text-band-positive"
                           : "text-band-weak",
                       )}
                     >
+                      {detail.quote.change_pct >= 0 ? (
+                        <ArrowUp className="size-3.5" aria-label="up" />
+                      ) : (
+                        <ArrowDown className="size-3.5" aria-label="down" />
+                      )}
                       {fmtSigned(detail.quote.change_abs)} ({fmtSignedPct(detail.quote.change_pct)})
                     </span>
                   )}
@@ -104,7 +132,6 @@ export function StockHeader({ symbol }: { symbol: string }) {
     </header>
   );
 }
-
 function Stat({
   label,
   value,

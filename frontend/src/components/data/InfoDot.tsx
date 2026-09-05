@@ -35,7 +35,7 @@ export function InfoDot({
       tabIndex={hasPopover ? 0 : undefined}
       className={cn(
         "inline-flex size-4 cursor-help items-center justify-center rounded-full",
-        "border border-line text-xs font-semibold text-faint transition-colors",
+        "border border-line font-sans text-xs font-medium normal-case text-faint transition-colors",
         "hover:border-cobalt hover:text-cobalt dark:hover:text-cobalt-strong",
         className,
       )}

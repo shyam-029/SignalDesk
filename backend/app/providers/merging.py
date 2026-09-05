@@ -291,16 +291,18 @@ class MergingProvider(MarketDataProvider):
             return primary
         return merge_fundamentals(primary, secondary, symbol)
 
-    async def get_financial_history(self, symbol: str) -> list[FinancialPeriodDraft]:
+    async def get_financial_history(
+        self, symbol: str, period_type: str = "annual"
+    ) -> list[FinancialPeriodDraft]:
         primary = await self._safe(
             "primary", f"financial history {symbol}",
-            lambda: self.primary.get_financial_history(symbol),
+            lambda: self.primary.get_financial_history(symbol, period_type),
         )
         if primary is None:
             primary = []
         secondary = await self._safe(
             "secondary", f"financial history {symbol}",
-            lambda: self.secondary.get_financial_history(symbol),
+            lambda: self.secondary.get_financial_history(symbol, period_type),
         )
         if secondary is None:
             secondary = []

@@ -73,7 +73,7 @@ export function FundamentalsSection({ symbol }: { symbol: string }) {
                   ))}
                   {scores.profitability_components.length === 0 && (
                     <p className="py-3 text-xs text-faint">
-                      Profitability components unavailable in the stored snapshot.
+                      Metrics are being refreshed by ingestion; this panel fills in on the next run.
                     </p>
                   )}
                 </div>
@@ -106,7 +106,7 @@ export function FundamentalsSection({ symbol }: { symbol: string }) {
                   ))}
                   {scores.solvency_components.length === 0 && (
                     <p className="py-3 text-xs text-faint">
-                      Solvency components unavailable in the stored snapshot.
+                      Metrics are being refreshed by ingestion; this panel fills in on the next run.
                     </p>
                   )}
                 </div>

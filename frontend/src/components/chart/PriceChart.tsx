@@ -75,6 +75,11 @@ export function PriceChart({
       },
       rightPriceScale: { borderColor: css("--line") },
       timeScale: { borderColor: css("--line"), rightOffset: 3 },
+      // The chart shows exactly the data the backend provides: no drag
+      // panning, no pinch/wheel scaling, no axis dragging. A stray mouse
+      // drag can no longer shrink or blank the view.
+      handleScale: false,
+      handleScroll: false,
     });
 
     const series = chart.addSeries(CandlestickSeries, {
@@ -135,18 +140,38 @@ export function PriceChart({
   }, [bars, height, theme]);
 
   const shown = hover ?? bars.at(-1) ?? null;
+  const upCandle =
+    shown != null && shown.close >= shown.open;
 
   return (
     <div>
-      {/* OHLC readout: updates with the crosshair, falls back to the latest bar. */}
+      {/* OHLC readout: prominent, updates with the crosshair, falls back to
+          the latest bar. The close is market-colored (up green / down red). */}
       {shown && (
-        <div className="num mb-2 flex flex-wrap gap-x-5 gap-y-1 text-xs text-muted">
-          <span className="text-foreground">{shown.date}</span>
-          <span>O {fmtPrice(shown.open)}</span>
-          <span>H {fmtPrice(shown.high)}</span>
-          <span>L {fmtPrice(shown.low)}</span>
-          <span>C {fmtPrice(shown.close)}</span>
-          {shown.volume ? <span>V {fmtVolume(shown.volume)}</span> : null}
+        <div className="mb-3 flex flex-wrap items-baseline gap-x-5 gap-y-1 border border-line bg-surface-2/60 px-3 py-2 text-sm">
+          <span className="num font-semibold text-foreground">{shown.date}</span>
+          <span className="num text-muted">
+            O <span className="font-medium text-foreground">{fmtPrice(shown.open)}</span>
+          </span>
+          <span className="num text-muted">
+            H <span className="font-medium text-foreground">{fmtPrice(shown.high)}</span>
+          </span>
+          <span className="num text-muted">
+            L <span className="font-medium text-foreground">{fmtPrice(shown.low)}</span>
+          </span>
+          <span
+            className={cn(
+              "num",
+              upCandle ? "text-band-positive" : "text-band-weak",
+            )}
+          >
+            C <span className="font-semibold">{fmtPrice(shown.close)}</span>
+          </span>
+          {shown.volume ? (
+            <span className="num text-muted">
+              V <span className="font-medium text-foreground">{fmtVolume(shown.volume)}</span>
+            </span>
+          ) : null}
         </div>
       )}
       <div ref={containerRef} className={cn("w-full", className)} />

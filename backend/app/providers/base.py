@@ -126,7 +126,7 @@ class MarketDataProvider(ABC):
         ...
 
     async def get_financial_history(
-        self, symbol: str
+        self, symbol: str, period_type: str = "annual"
     ) -> list["FinancialPeriodDraft"]:
         """Return historical income-statement periods for a symbol.
 
@@ -134,6 +134,7 @@ class MarketDataProvider(ABC):
         default, which callers treat as "no history available" (never an
         error). Implementations return one draft per reporting period,
         newest or oldest first (the repository normalizes ordering), with
-        None for every field the source does not supply.
+        None for every field the source does not supply. period_type is
+        "annual" (default) or "quarterly".
         """
         raise NotImplementedError(f"{type(self).__name__} has no financial history")

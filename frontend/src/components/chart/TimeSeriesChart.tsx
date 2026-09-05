@@ -4,7 +4,6 @@ import {
   CrosshairMode,
   HistogramSeries,
   LineSeries,
-  LineStyle,
   createChart,
   type IChartApi,
   type ISeriesApi,
@@ -28,9 +27,11 @@ export interface TimeSeriesLine {
   /** CSS custom property name (e.g. "--cobalt"), resolved against the theme. */
   color: string;
   data: TimeSeriesPoint[];
-  /** Render as a histogram (MACD pane), defaults to a line. */
+  /** Render as a histogram (MACD pane / bar chart), defaults to a line. */
   histogram?: boolean;
   width?: 1 | 2;
+  /** Show a marker at every point (useful for sparse series). */
+  points?: boolean;
 }
 
 /**
@@ -81,22 +82,17 @@ export function TimeSeriesChart({
         horzLines: { color: css("--line") },
       },
       crosshair: {
-        mode: CrosshairMode.Normal,
-        vertLine: {
-          color: css("--faint"),
-          width: 1,
-          style: LineStyle.Dashed,
-          labelBackgroundColor: css("--cobalt"),
-        },
-        horzLine: {
-          color: css("--faint"),
-          width: 1,
-          style: LineStyle.Dashed,
-          labelBackgroundColor: css("--cobalt"),
-        },
+        // Hidden: the research readouts above the chart carry the values; a
+        // trailing price bubble on the axis was noise, not information.
+        mode: CrosshairMode.Hidden,
       },
       rightPriceScale: { borderColor: css("--line") },
       timeScale: { borderColor: css("--line"), rightOffset: 3 },
+      // Fixed viewport: exactly the data the backend provides, no drag
+      // panning or pinch/wheel scaling (a stray drag could shrink or blank
+      // the chart).
+      handleScale: false,
+      handleScroll: false,
     });
 
     const refs = new Map<string, ISeriesApi<"Line" | "Histogram">>();
@@ -104,12 +100,13 @@ export function TimeSeriesChart({
       const color = css(line.color) || css("--faint");
       const series =
         line.histogram
-          ? chart.addSeries(HistogramSeries, { color, priceLineVisible: false })
+          ? chart.addSeries(HistogramSeries, { color, priceLineVisible: false, base: 0 })
           : chart.addSeries(LineSeries, {
               color,
               lineWidth: line.width ?? 2,
               priceLineVisible: false,
               lastValueVisible: false,
+              pointMarkersVisible: line.points ?? false,
             });
       series.setData(toLineData(line.data));
       refs.set(line.key, series);

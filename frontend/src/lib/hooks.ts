@@ -18,10 +18,16 @@ export const PRICE_RANGE_LABELS: Record<PriceRange, string> = {
   "2y": "2Y",
 };
 
-export function useStockList(page = 1, limit = 50, sector?: string) {
+export function useStockList(
+  page = 1,
+  limit = 50,
+  sector?: string,
+  sort?: string,
+  direction?: string,
+) {
   return useQuery({
-    queryKey: ["stocks", page, limit, sector ?? null],
-    queryFn: () => api.stocks(page, limit, sector),
+    queryKey: ["stocks", page, limit, sector ?? null, sort ?? null, direction ?? null],
+    queryFn: () => api.stocks(page, limit, sector, sort, direction),
     staleTime: 60_000,
   });
 }

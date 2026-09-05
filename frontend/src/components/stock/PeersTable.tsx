@@ -1,21 +1,24 @@
+import { Link } from "react-router-dom";
+import { ArrowDown, ArrowUp } from "lucide-react";
+
 import { usePeers } from "@/lib/hooks";
 import { DataState } from "@/components/data/DataState";
+import { StockLogo } from "@/components/stock/StockLogo";
 import { fmtPrice, fmtRatio, fmtSignedPct } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 /**
- * PeersTable: the same-industry peer set the relative valuation uses
- * (Part D), served by the backend's /peers endpoint. Rows show the latest
- * price plus valuation/profitability/solvency context from each peer's
- * financials snapshot. "-" always means "the snapshot does not carry this
- * metric"; a rendered zero is a real zero. No peer cell is ever estimated.
+ * PeersTable: the same-industry peer set the relative valuation uses,
+ * served by the backend's /peers endpoint. Each row links to that peer's
+ * research page. "-" always means "the snapshot does not carry this metric";
+ * a rendered zero is a real zero. No peer cell is ever estimated.
  */
 export function PeersTable({ symbol }: { symbol: string }) {
   const query = usePeers(symbol);
   const peers = query.data;
 
   return (
-    <div className="border border-line bg-surface">
+    <div className="glass rounded-sm">
       <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-line px-5 py-3">
         <p className="label-caps">
           Peer comparison
@@ -37,29 +40,36 @@ export function PeersTable({ symbol }: { symbol: string }) {
       >
         {peers && peers.count > 0 && (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[640px] border-collapse text-left">
+            <table className="w-full min-w-[720px] border-collapse text-left">
               <thead>
                 <tr className="border-b border-line">
-                  <th scope="col" className="label-caps px-5 py-2.5">Company</th>
-                  <th scope="col" className="label-caps px-3 py-2.5 text-right">Price</th>
-                  <th scope="col" className="label-caps px-3 py-2.5 text-right">1D</th>
-                  <th scope="col" className="label-caps px-3 py-2.5 text-right">P/E</th>
-                  <th scope="col" className="label-caps px-3 py-2.5 text-right">ROE</th>
-                  <th scope="col" className="label-caps px-3 py-2.5 text-right">Net margin</th>
-                  <th scope="col" className="label-caps px-3 py-2.5 text-right">D/E</th>
+                  <th scope="col" className="label-caps px-5 py-3">Company</th>
+                  <th scope="col" className="label-caps px-3 py-3 text-right">Price</th>
+                  <th scope="col" className="label-caps px-3 py-3 text-right">1D</th>
+                  <th scope="col" className="px-3 py-3 text-right text-xs font-semibold uppercase tracking-[0.12em] text-cobalt dark:text-cobalt-strong">P/E</th>
+                  <th scope="col" className="px-3 py-3 text-right text-xs font-semibold uppercase tracking-[0.12em] text-accent-jade">ROE</th>
+                  <th scope="col" className="px-3 py-3 text-right text-xs font-semibold uppercase tracking-[0.12em] text-accent-teal">Net margin</th>
+                  <th scope="col" className="px-3 py-3 text-right text-xs font-semibold uppercase tracking-[0.12em] text-accent-coral">D/E</th>
                 </tr>
               </thead>
               <tbody>
                 {peers.items.map((peer) => (
-                  <tr
-                    key={peer.symbol}
-                    className="border-b border-line last:border-b-0 hover:bg-surface-2/50"
-                  >
+                  <tr key={peer.symbol} className="border-b border-line last:border-b-0">
                     <td className="px-5 py-3">
-                      <p className="num text-xs font-semibold">{peer.symbol}</p>
-                      <p className="mt-0.5 max-w-48 truncate text-xs text-muted" title={peer.name}>
-                        {peer.name}
-                      </p>
+                      <Link
+                        to={`/stocks/${encodeURIComponent(peer.symbol)}`}
+                        className="group flex items-center gap-3"
+                      >
+                        <StockLogo symbol={peer.symbol} name={peer.name} size="sm" />
+                        <span className="min-w-0">
+                          <span className="num block text-xs font-semibold text-foreground group-hover:text-cobalt group-hover:underline dark:group-hover:text-cobalt-strong">
+                            {peer.symbol}
+                          </span>
+                          <span className="block max-w-48 truncate text-xs text-muted" title={peer.name}>
+                            {peer.name}
+                          </span>
+                        </span>
+                      </Link>
                     </td>
                     <NumCell value={peer.last_price != null ? fmtPrice(peer.last_price) : "-"} />
                     <NumCell
@@ -73,22 +83,31 @@ export function PeersTable({ symbol }: { symbol: string }) {
                               ? "weak"
                               : "neutral"
                       }
+                      arrow={
+                        peer.change_pct == null || peer.change_pct === 0
+                          ? null
+                          : peer.change_pct > 0
+                      }
                     />
                     <NumCell
                       value={peer.trailing_pe != null ? fmtRatio(peer.trailing_pe) : "-"}
                       title={peer.trailing_pe == null ? "Not in this peer's snapshot" : undefined}
+                      tone="cobalt"
                     />
                     <NumCell
                       value={peer.return_on_equity != null ? pctFromDecimal(peer.return_on_equity) : "-"}
                       title={peer.return_on_equity == null ? "Not in this peer's snapshot" : undefined}
+                      tone="jade"
                     />
                     <NumCell
                       value={peer.profit_margin != null ? pctFromDecimal(peer.profit_margin) : "-"}
                       title={peer.profit_margin == null ? "Not in this peer's snapshot" : undefined}
+                      tone="teal"
                     />
                     <NumCell
                       value={peer.debt_to_equity != null ? pctDirect(peer.debt_to_equity) : "-"}
                       title={peer.debt_to_equity == null ? "Not in this peer's snapshot" : undefined}
+                      tone="coral"
                     />
                   </tr>
                 ))}
@@ -107,15 +126,37 @@ export function PeersTable({ symbol }: { symbol: string }) {
   );
 }
 
-function NumCell({ value, tone = "neutral", title }: { value: string; tone?: "neutral" | "positive" | "weak"; title?: string }) {
+const TONE_CLASS: Record<string, string> = {
+  neutral: "text-foreground",
+  positive: "text-band-positive",
+  weak: "text-band-weak",
+  cobalt: "text-cobalt dark:text-cobalt-strong",
+  jade: "text-accent-jade",
+  teal: "text-accent-teal",
+  coral: "text-accent-coral",
+};
+
+function NumCell({
+  value,
+  tone = "neutral",
+  title,
+  arrow,
+}: {
+  value: string;
+  tone?: "neutral" | "positive" | "weak" | "cobalt" | "jade" | "teal" | "coral";
+  title?: string;
+  arrow?: boolean | null;
+}) {
   return (
     <td className="px-3 py-3 text-right" title={title}>
       <span
         className={cn(
-          "num text-xs font-medium",
-          tone === "positive" ? "text-band-positive" : tone === "weak" ? "text-band-weak" : "text-foreground",
+          "num inline-flex items-center gap-1 text-sm font-semibold",
+          TONE_CLASS[tone],
         )}
       >
+        {arrow === true && <ArrowUp className="size-3.5" aria-label="up" />}
+        {arrow === false && <ArrowDown className="size-3.5" aria-label="down" />}
         {value}
       </span>
     </td>

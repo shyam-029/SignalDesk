@@ -35,12 +35,14 @@ export function FinancialsHistoryChart({ symbol }: { symbol: string }) {
         label: "Revenue",
         color: "--cobalt",
         data: periods.map((p) => ({ time: p.period_end, value: p.revenue == null ? null : p.revenue / 1e7 })),
+        histogram: true,
       },
       {
         key: "net_income",
         label: "Net income",
         color: "--accent-jade",
         data: periods.map((p) => ({ time: p.period_end, value: p.net_income == null ? null : p.net_income / 1e7 })),
+        histogram: true,
       },
     ],
     [periods],
@@ -56,15 +58,17 @@ export function FinancialsHistoryChart({ symbol }: { symbol: string }) {
           time: p.period_end,
           value: p.operating_margin == null ? null : p.operating_margin * 100,
         })),
+        points: true,
       },
       {
         key: "net_margin",
         label: "Net margin",
-        color: "--accent-jade",
+        color: "--accent-teal",
         data: periods.map((p) => ({
           time: p.period_end,
           value: p.net_margin == null ? null : p.net_margin * 100,
         })),
+        points: true,
       },
     ],
     [periods],
@@ -101,9 +105,12 @@ export function FinancialsHistoryChart({ symbol }: { symbol: string }) {
               <p className="label-caps mb-3">Revenue and net income (₹ Cr)</p>
               <TimeSeriesChart
                 lines={moneyLines}
-                height={200}
+                height={220}
                 valueFormatter={(v) => `${v.toLocaleString("en-IN", { maximumFractionDigits: 0 })} Cr`}
               />
+              <p className="num mt-2 text-xs text-faint">
+                One bar per reported period · {periods.length} period{periods.length === 1 ? "" : "s"} stored
+              </p>
             </div>
           )}
           {hasMargins && (
@@ -114,9 +121,12 @@ export function FinancialsHistoryChart({ symbol }: { symbol: string }) {
               </p>
               <TimeSeriesChart
                 lines={marginLines}
-                height={200}
+                height={220}
                 valueFormatter={(v) => `${v.toFixed(1)}%`}
               />
+              <p className="num mt-2 text-xs text-faint">
+                Computed by the backend from the same period's figures
+              </p>
             </div>
           )}
         </div>

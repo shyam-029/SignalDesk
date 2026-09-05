@@ -1,34 +1,25 @@
-# News relevance + freshness rules (Phase 6.5 Part G) — pure functions, no I/O.
+# News relevance + freshness rules (Phase 6.5 Part G, widened 2026-09-06) —
+# pure functions, no I/O.
 #
 # Why this exists: the ingestion used to search Google News by the bare
 # trading symbol ("RELIANCE NSE"), which drags in articles about other
 # companies and generic matches. Ingestion now searches by the company's
-# full name first and post-filters every result (name search AND symbol
-# fallback) through these rules, biasing hard toward precision: an article
-# that might be about a different company is dropped rather than shown.
-#
-# Rules (an article is relevant when ANY holds):
-#   1. It contains the bare trading symbol as a standalone token, and the
-#      symbol is long enough to be discriminative (>= 4 chars). Short tickers
-#      ("LT", "ITC") match too many unrelated tokens, so they only pass via
-#      rule 2/3.
-#   2. It contains the full normalized company-name phrase.
-#   3. It contains ALL distinctive company-name tokens (word-bounded).
-#      Requiring all tokens is what blocks generic nouns ("bank", "oil")
-#      and names of other companies ("HDFC" vs "HDFC Bank", "LT Foods" vs
-#      "Larsen & Toubro"). The cost is occasional false negatives ("SBI"
-#      without the full "State Bank of India"), which we accept: the
-#      full-name search query already biases titles toward the full name.
-#
-# Freshness: the product plan fixes an approximately 30-day news window.
-# Dated articles older than the window are dropped at ingestion and at the
-# endpoint. Undated articles cannot be proven stale and are kept.
+# full name first, falls back to (and then merges with) the symbol query
+# until enough usable articles exist, and post-filters every result through
+# these rules. The bias is still toward precision over a bare symbol search,
+# but the rules are deliberately looser than the original all-tokens rule so
+# the research page reliably shows at least a handful of articles.
 
 import re
 from datetime import datetime, timedelta, timezone
 
-# The approximately 30-day freshness window (product plan, Phase 6.5).
-NEWS_FRESHNESS_DAYS = 30
+# The freshness window (product decision 2026-09-06, widened from ~30 days so
+# the research page reliably shows a usable set of articles).
+NEWS_FRESHNESS_DAYS = 60
+
+# Minimum usable articles per fetch before the provider merges in the
+# symbol-query results as well (product decision 2026-09-06).
+MIN_ARTICLES = 8
 
 # Corporate/legal suffixes and filler words that never identify a company.
 _CORPORATE_STOPWORDS = {
@@ -57,7 +48,18 @@ def _contains_token(haystack: str, token: str) -> bool:
 
 
 def is_relevant_article(title: str, symbol: str, company_name: str | None) -> bool:
-    """Decide whether a headline is about the given company (see module doc)."""
+    """Decide whether a headline is about the given company.
+
+    Rules (an article is relevant when ANY holds):
+      1. It contains the bare trading symbol as a standalone token, and the
+         symbol is long enough to be discriminative (>= 4 chars).
+      2. It contains ANY distinctive company-name token, word-bounded. The
+         filter was loosened from "all tokens" to "any token" (product
+         decision 2026-09-06) after the strict rule starved the research
+         page down to 1-2 articles; the multi-token names still disambiguate
+         far better than a bare generic noun, and the source queries already
+         bias results toward the company.
+    """
     title_l = (title or "").lower()
     if not title_l:
         return False
@@ -73,10 +75,7 @@ def is_relevant_article(title: str, symbol: str, company_name: str | None) -> bo
     if not tokens:
         return False
 
-    # All distinctive tokens present anywhere in the title, each as a whole
-    # token (this also covers the full normalized phrase, with or without
-    # the original separators).
-    return all(_contains_token(title_l, token) for token in tokens)
+    return any(_contains_token(title_l, token) for token in tokens)
 
 
 def is_fresh(
