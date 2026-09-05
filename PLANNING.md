@@ -3,8 +3,9 @@
 > **Purpose:** Living document. Records every product, technical, and scope decision for the project.
 > **Owner:** Shyam (3rd-year CS student)
 > **Timeline:** 2 semesters (~8 months) before recruiter season.
-> **Status:** **Phase 6.5 COMPLETE** (experience overhaul + parts E/F/G + Part D stock research
-> expansion). Phase 7 (observability) next.
+> **Status:** **Phase 6.5 COMPLETE** (experience overhaul + parts E/F/G + Part D + review round:
+> Nifty 250 universe, refreshed data, valuation fallback, retroactive alpha, research UX fixes).
+> Phase 7 (observability) next.
 >
 > **Companion file:** `PROGRESS.md` - operational status, what's done/in-progress/next, command
 > cheatsheet, and gotchas. **Read PROGRESS.md first to pick up where we left off.**
@@ -836,6 +837,58 @@ Chronological record of decisions. Append as time progresses.
   (RELIANCE data-rich incl. an honestly missing 2Y window anchor,
   TATAMOTORS insufficient on every endpoint, unknown symbol 404 envelope);
   production preview deep link + API proxy verified; git diff reviewed.
+
+---
+
+### 2026-09-06 - Session 19 (review round: Nifty 250, data refresh, research UX)
+
+- **D64.** **Universe expansion to the official Nifty 250**: constituents
+  sourced from the NSE indices lists (nifty50 + nifty100 + midcap150 =
+  250 symbols, downloaded 2026-09-06) and committed as seed data;
+  `seed.py` maintains the nifty50/nifty100/nifty250 ladder idempotently
+  (prunes dropped constituents, normalizes names/sectors to the NSE
+  taxonomy) and ingestion runs against nifty250. The universe remains data,
+  not code (D16) - the seed file is a one-time bootstrap.
+- **D65.** **Valuation multiple fallback**: when the stored snapshot cannot
+  produce a multiple, the pre-computed ratio comes from Upstox key ratios
+  (P/E, P/B, EV/EBITDA) with a 1-hour in-process cache; applied to the
+  target and peers. This removes the "Cannot compute EV_EBITDA" failure
+  class (yfinance `info` omits EBITDA for many NBFCs) without inventing
+  values: the ratio is real provider data, its provenance logged.
+- **D66.** **Upstox fundamentals enrichment + quarterly history**:
+  `get_fundamentals` derives operating margin, net margin, current ratio
+  and debt/equity from the Upstox income-statement and balance-sheet APIs
+  (converted to the snapshot's decimal/percent conventions) so solvency
+  components exist where yfinance is sparse; `get_financial_history`
+  gained a period_type parameter and the job stores annual + quarterly.
+- **D67.** **Retroactive alpha history**: a backfill job computes a daily
+  snapshot for every stored trading day using the closes up to that date.
+  Fundamental and sentiment are point-in-time metrics with no history, so
+  historical composites renormalize to technical only - the same rule the
+  live score uses; backfilled rows never overwrite full live snapshots
+  (conditional bulk upsert on `fundamental IS NULL`). The graph is real
+  indicator math on real stored prices, ~500 points per stock.
+- **D68.** **News widened (precision trade-down, product decision)**:
+  60-day freshness window, relevance relaxed to any-distinctive-token, and
+  the symbol query merges into the results whenever the name search yields
+  fewer than 8 usable articles (dedup by URL). Known cost: titles matching
+  only one generic-ish token can pass; accepted to keep the research page
+  supplied with at least 8 articles.
+- **D69.** **Logos without remote assets**: company marks are deterministic
+  monogram discs (symbol-hash into the accent palette) so rows can carry a
+  visual identity with zero network requests and zero 250-asset maintenance;
+  real logo CDN integration is deliberately deferred.
+- **D70.** **Auto-refresh limitation (future scope)**: the daily ingestion
+  scheduler runs inside the backend process; data only advances while that
+  process is alive. Unattended daily updates require a deployed worker or
+  OS-level scheduler - tracked for the deployment phase, not solved
+  client-side or with a fake cron.
+- **Verified:** backend pytest **233/233**; frontend tsc clean, vitest
+  **59/59**, `vite build` OK; live smoke of server-side sorting (markets +
+  screener), sector filtering, the EV/EBITDA fallback (BAJFINANCE 18.51 vs
+  13.18), enriched solvency components, 60-day news (20 articles for
+  RELIANCE), and DB freshness (latest bar 2026-09-04, 250 stocks, 2,720
+  periods, 116,982 alpha snapshots, 4,769 news articles).
 
 ---
 

@@ -1,4 +1,4 @@
-
+﻿
 import { SectionHeader } from "@/components/data/SectionHeader";
 import { InfoDot } from "@/components/data/InfoDot";
 
@@ -9,7 +9,7 @@ import { InfoDot } from "@/components/data/InfoDot";
 export default function MethodologyPage() {
   return (
     <div className="mx-auto max-w-6xl px-4 py-12 md:px-6">
-      <SectionHeader index="§" kicker="Transparency" title="Methodology" />
+      <SectionHeader index="Â§" kicker="Transparency" title="Methodology" />
 
       <div className="max-w-3xl space-y-12">
         <Intro />
@@ -156,7 +156,7 @@ function Data() {
     <section>
       <h2 className="font-display text-2xl font-semibold">Data & freshness</h2>
       <p className="mt-3 text-sm leading-relaxed text-muted">
-        Prices: daily OHLCV via Yahoo Finance for the Nifty 50 catalog (built to scale toward
+        Prices: daily OHLCV via Yahoo Finance for the Nifty 250 catalog (built to scale toward
         Nifty 500 as catalog rows, not code). Financials: point-in-time snapshots from the
         same provider, with an explicit updated date shown in the product. Sentiment: local
         FinBERT inference. Explanations: narration over explicitly allow-listed
@@ -177,7 +177,8 @@ const ROWS: string[][] = [
   ["Operating margin", "higher", "0%", "25%", "20% of profitability"],
   ["Net margin", "higher", "0%", "20%", "20% of profitability"],
   ["Debt/Equity", "lower", "200%", "50%", "50% of solvency"],
-  ["Interest coverage", "higher", "1×", "5×", "30% of solvency"],
-  ["Current ratio", "higher", "0.5×", "2×", "20% of solvency"],
+  ["Interest coverage", "higher", "1Ã—", "5Ã—", "30% of solvency"],
+  ["Current ratio", "higher", "0.5Ã—", "2Ã—", "20% of solvency"],
 ];
+
 

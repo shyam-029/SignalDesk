@@ -1,4 +1,4 @@
-import { Link } from "react-router-dom";
+﻿import { Link } from "react-router-dom";
 import { Activity } from "lucide-react";
 
 import { useStockList } from "@/lib/hooks";
@@ -64,7 +64,7 @@ const skeletonRow = (
 );
 
 /**
- * Continuous strip of EVERY catalog constituent (the Nifty 50), auto-scrolling
+ * Continuous strip of EVERY catalog constituent (the Nifty 250), auto-scrolling
  * through the real /stocks response. Pauses on hover; under reduced motion it
  * renders as a plain scrollable row. Static chips, not a fabricated ticker.
  */
@@ -115,10 +115,11 @@ export function MarketPulse() {
             </div>
           )}
           <span className="num hidden shrink-0 pl-1 text-xs text-faint lg:inline">
-            all {stocks.length || 50} constituents · latest close
+            all {stocks.length || 50} constituents Â· latest close
           </span>
         </DataState>
       </div>
     </aside>
   );
 }
+

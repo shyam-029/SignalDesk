@@ -1,13 +1,14 @@
 # Google News RSS news provider.
 #
-# Search strategy (Phase 6.5 Part G): the PRIMARY query is the company's
-# full name when the caller supplies one; only when that produces no usable
-# (relevant) results does the provider fall back to the bare-symbol query
-# ("RELIANCE NSE") it used previously. BOTH result sets pass the same
-# relevance filter (services/news_relevance.py) and the approximately
-# 30-day freshness window before being returned, so false positives and
-# stale articles are dropped either way. Nothing is fabricated: an empty
-# result means no usable articles were found.
+# Search strategy (Phase 6.5 Part G, widened 2026-09-06): the PRIMARY query
+# is the company's full name when the caller supplies one. When that yields
+# fewer than MIN_ARTICLES usable results, the bare-symbol query
+# ("RELIANCE NSE") runs as well and the two result sets are merged
+# (deduplicated by URL) so the research page reliably shows a usable set of
+# articles within the freshness window. EVERY result passes the same
+# relevance filter (services/news_relevance.py) and the freshness window
+# before being returned. Nothing is fabricated: an empty result means no
+# usable articles were found.
 #
 # feedparser is synchronous, so we run it via asyncio.to_thread (same
 # pattern as yfinance) to keep the event loop responsive.
@@ -19,7 +20,11 @@ from urllib.parse import quote
 import feedparser
 
 from app.providers.news_base import Article, NewsProvider
-from app.services.news_relevance import is_fresh, is_relevant_article
+from app.services.news_relevance import (
+    MIN_ARTICLES,
+    is_fresh,
+    is_relevant_article,
+)
 
 
 class NewsProviderError(Exception):
@@ -33,6 +38,9 @@ class GoogleNewsRSSProvider(NewsProvider):
         "https://news.google.com/rss/search"
         "?q={query}&hl=en-IN&gl=IN&ceid=IN:en"
     )
+    # Per-query fetch size: wide enough that the filtered union reaches the
+    # minimum usable set for most symbols.
+    _FETCH_SIZE = 40
 
     @staticmethod
     def _symbol_query(symbol: str) -> str:
@@ -60,7 +68,6 @@ class GoogleNewsRSSProvider(NewsProvider):
         published = None
         if entry.get("published_parsed"):
             from calendar import timegm
-            from datetime import datetime
 
             published = datetime.fromtimestamp(
                 timegm(entry.published_parsed), tz=timezone.utc
@@ -74,32 +81,59 @@ class GoogleNewsRSSProvider(NewsProvider):
             content=None,
         )
 
+    def _usable_articles(
+        self, entries: list, symbol: str, company_name: str | None
+    ) -> list[Article]:
+        """Convert entries and keep only relevant, fresh, well-formed ones."""
+        articles: list[Article] = []
+        for entry in entries:
+            article = self._to_article(entry, symbol)
+            if article is None:
+                continue
+            if not is_relevant_article(article.title, symbol, company_name):
+                continue
+            if not is_fresh(article.published_at):
+                continue
+            articles.append(article)
+        return articles
+
     async def fetch_articles(
         self, symbol: str, limit: int = 20, company_name: str | None = None
     ) -> list[Article]:
         def _fetch() -> list[Article]:
             # PRIMARY: the company's full name, post-filtered for relevance
-            # and freshness. The extra keyword used to be appended to the
-            # symbol query; the full name is discriminative on its own.
+            # and freshness.
+            articles: list[Article] = []
+            seen_urls: set[str] = set()
             if company_name:
-                entries = self._fetch_entries(company_name)
-                articles = [
-                    a for a in (self._to_article(e, symbol) for e in entries)
-                    if a is not None
-                    and is_relevant_article(a.title, symbol, company_name)
-                    and is_fresh(a.published_at)
-                ]
-                if articles:
-                    return articles[:limit]
+                articles = self._usable_articles(
+                    self._fetch_entries(company_name)[: self._FETCH_SIZE],
+                    symbol,
+                    company_name,
+                )
+                seen_urls = {a.url for a in articles}
 
-            # FALLBACK: bare-symbol query, same relevance filter + window.
-            entries = self._fetch_entries(f"{self._symbol_query(symbol)} NSE")
-            articles = [
-                a for a in (self._to_article(e, symbol) for e in entries)
-                if a is not None
-                and is_relevant_article(a.title, symbol, company_name)
-                and is_fresh(a.published_at)
-            ]
+            # MERGE: when the name search alone is thin, also run the
+            # symbol query and union the results (dedup by URL) instead of
+            # showing a starved feed. Same filter on both sets.
+            if len(articles) < MIN_ARTICLES:
+                fallback = self._usable_articles(
+                    self._fetch_entries(
+                        f"{self._symbol_query(symbol)} NSE"
+                    )[: self._FETCH_SIZE],
+                    symbol,
+                    company_name,
+                )
+                for article in fallback:
+                    if article.url not in seen_urls:
+                        seen_urls.add(article.url)
+                        articles.append(article)
+
+            # Newest first, then cap.
+            articles.sort(
+                key=lambda a: a.published_at or datetime.min.replace(tzinfo=timezone.utc),
+                reverse=True,
+            )
             return articles[:limit]
 
         return await asyncio.to_thread(_fetch)

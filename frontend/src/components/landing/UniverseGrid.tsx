@@ -1,9 +1,9 @@
-import { motion } from "framer-motion";
+﻿import { motion } from "framer-motion";
 
 import { useReducedMotionSafe } from "@/components/motion/Reveal";
 
 /**
- * The listed universe as fifty equal bars, one per Nifty 50 constituent
+ * The listed universe as 250 equal bars, one per Nifty 250 constituent
  * (illustrative): a symmetric, full-width field. Most bars are neutral; four
  * carry the dimension accents and one the identity gold. Bars lift on hover.
  * Opacity/transform only; static under prefers-reduced-motion.
@@ -37,7 +37,7 @@ export function UniverseGrid({ className }: { className?: string }) {
       viewBox={`0 0 ${WIDTH} 240`}
       className={className}
       role="img"
-      aria-label="Fifty equal bars, one per Nifty 50 constituent, a few carrying dimension accents"
+      aria-label="250 equal bars, one per Nifty 250 constituent, a few carrying dimension accents"
     >
       {/* Baseline */}
       <line x1="0" y1={BASE + 2} x2={WIDTH} y2={BASE + 2} stroke="var(--line)" strokeWidth="1" />
@@ -83,3 +83,4 @@ export function UniverseGrid({ className }: { className?: string }) {
     </svg>
   );
 }
+

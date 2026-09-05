@@ -1,4 +1,4 @@
-import { CheckCircle2, CircleDashed } from "lucide-react";
+﻿import { CheckCircle2, CircleDashed } from "lucide-react";
 
 import { Reveal } from "@/components/motion/Reveal";
 import { UniverseGrid } from "@/components/landing/UniverseGrid";
@@ -42,7 +42,7 @@ export function Coverage() {
                 </span>
               </div>
               <h3 className="mt-3 font-display text-xl font-semibold">
-                Nifty 50 fundamentals, valuation, technicals, sentiment
+                Nifty 250 fundamentals, valuation, technicals, sentiment
               </h3>
               <p className="mt-3 text-sm leading-relaxed text-muted">
                 Full research screen per company: scores with per-component evidence, relative
@@ -50,7 +50,7 @@ export function Coverage() {
                 news sentiment, and written explanations.
               </p>
               <ul className="num mt-5 space-y-1.5 text-xs text-muted">
-                {["Nifty 50 catalog", "Relative valuation · P/E, EV/EBITDA, P/B, P/S", "Alpha Score with weights", "Daily price ingestion"].map(
+                {["Nifty 250 catalog", "Relative valuation Â· P/E, EV/EBITDA, P/B, P/S", "Alpha Score with weights", "Daily price ingestion"].map(
                   (t) => (
                     <li key={t} className="flex items-start gap-2">
                       <span className="mt-1.5 inline-block size-1 shrink-0 bg-band-strong" />
@@ -90,8 +90,8 @@ export function Coverage() {
                   </p>
                 </div>
                 <div className="num mt-6 shrink-0 space-y-1 text-xs text-faint md:mt-0">
-                  <p>mf_nav_history · AMFI daily</p>
-                  <p>mf_holdings · overlap analysis</p>
+                  <p>mf_nav_history Â· AMFI daily</p>
+                  <p>mf_holdings Â· overlap analysis</p>
                   <p>portfolio-level Alpha view</p>
                 </div>
               </div>
@@ -129,10 +129,11 @@ export function Coverage() {
           <UniverseGrid className="h-auto w-full" />
           <figcaption className="flex items-baseline gap-3 border-t border-line px-4 py-2.5">
             <span className="label-caps">The listed universe</span>
-            <span className="num text-xs text-muted">Illustrative · fifty constituents, one bar each</span>
+            <span className="num text-xs text-muted">Illustrative Â· 250 constituents, one bar each</span>
           </figcaption>
         </figure>
       </div>
     </section>
   );
 }
+

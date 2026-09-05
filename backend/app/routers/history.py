@@ -269,7 +269,7 @@ async def get_alpha_history(symbol: str, session: SessionDep) -> AlphaHistoryRes
 async def get_technicals_series(
     symbol: str,
     session: SessionDep,
-    limit: int = Query(250, ge=26, le=500),
+    limit: int = Query(500, ge=26, le=800),
 ) -> TechnicalsSeriesResponse:
     """Indicator values (SMA20/EMA12/RSI14/MACD) for every stored bar.
 

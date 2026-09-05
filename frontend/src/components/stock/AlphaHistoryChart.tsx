@@ -54,7 +54,7 @@ export function AlphaHistoryChart({ symbol }: { symbol: string }) {
         <p className="label-caps">Alpha over time</p>
         {first && last && (
           <p className="num text-xs text-faint">
-            {fmtDate(first)} to {fmtDate(last)} · one snapshot per computed day
+            {fmtDate(first)} to {fmtDate(last)}
           </p>
         )}
       </div>
@@ -63,8 +63,8 @@ export function AlphaHistoryChart({ symbol }: { symbol: string }) {
         error={query.error}
         onRetry={query.refetch}
         insufficient={Boolean(query.data?.insufficient_data) || items.length < 2}
-        insufficientTitle="Alpha history is building"
-        insufficientMessage="A history point is stored each time the Alpha Score is computed, so the chart fills in over consecutive days. Nothing is back-filled or estimated."
+        insufficientTitle="Not enough history yet"
+        insufficientMessage="The alpha history chart needs at least two computed snapshots. Scores are computed daily for every stock in the catalog, so the chart fills in automatically."
         compact
       >
         {lines.length > 0 && (

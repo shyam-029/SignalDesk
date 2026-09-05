@@ -31,7 +31,7 @@ from app.providers.yfinance_provider import MarketDataError, YFinanceProvider
 
 logger = logging.getLogger(__name__)
 
-UNIVERSE_NAME = "nifty50"
+UNIVERSE_NAME = "nifty250"  # the widest active catalog (50 -> 100 -> 250 ladder)
 PERIOD = "2y"  # how much price history to fetch on each run
 BATCH_SIZE = 5  # concurrent symbols per batch (respect provider rate limits)
 
@@ -330,9 +330,9 @@ def _financial_period_rows(stock_id: int, drafts: list) -> list[dict]:
 
 
 async def _fetch_one_financial_periods(
-    provider: MarketDataProvider, symbol: str
+    provider: MarketDataProvider, symbol: str, period_type: str
 ) -> tuple[str, int]:
-    """Fetch + upsert one symbol's historical income-statement periods.
+    """Fetch + upsert one symbol's income-statement periods (annual/quarterly).
 
     Returns (symbol, periods_stored). A provider without this capability
     (NotImplementedError) is not an error: the symbol simply stores nothing.
@@ -340,8 +340,8 @@ async def _fetch_one_financial_periods(
     """
     try:
         drafts = await _with_retry(
-            lambda: provider.get_financial_history(symbol),
-            what=f"financial history fetch for {symbol}",
+            lambda: provider.get_financial_history(symbol, period_type),
+            what=f"{period_type} financial history fetch for {symbol}",
         )
     except NotImplementedError:
         logger.info("Provider has no financial history for %s; skipping.", symbol)
@@ -397,31 +397,39 @@ async def ingest_financial_periods(
         return {"fetched": 0, "rows": 0, "errors": 0}
 
     rows = 0
-    errors: list[str] = []
+    error_symbols: set[str] = set()
 
-    for i in range(0, len(symbols), batch_size):
-        batch = symbols[i : i + batch_size]
-        results = await asyncio.gather(
-            *(_fetch_one_financial_periods(provider, s) for s in batch),
-            return_exceptions=True,
-        )
-        for symbol, res in zip(batch, results):
-            if isinstance(res, Exception):
-                logger.error(
-                    "Failed to ingest financial history for %s: %s", symbol, res
-                )
-                errors.append(symbol)
-            else:
-                _, stored = res
-                rows += stored
+    # Both granularities: annual gives the multi-year view, quarterly the
+    # recent-quarters view. Failures are isolated per symbol per pass.
+    for period_type in ("annual", "quarterly"):
+        for i in range(0, len(symbols), batch_size):
+            batch = symbols[i : i + batch_size]
+            results = await asyncio.gather(
+                *(_fetch_one_financial_periods(provider, s, period_type) for s in batch),
+                return_exceptions=True,
+            )
+            for symbol, res in zip(batch, results):
+                if isinstance(res, Exception):
+                    logger.error(
+                        "Failed to ingest %s financial history for %s: %s",
+                        period_type, symbol, res,
+                    )
+                    error_symbols.add(symbol)
+                else:
+                    _, stored = res
+                    rows += stored
 
     logger.info(
         "Financial history ingestion done: %d symbols, %d periods, %d errors",
-        len(symbols) - len(errors),
+        len(symbols) - len(error_symbols),
         rows,
-        len(errors),
+        len(error_symbols),
     )
-    return {"fetched": len(symbols) - len(errors), "rows": rows, "errors": len(errors)}
+    return {
+        "fetched": len(symbols) - len(error_symbols),
+        "rows": rows,
+        "errors": len(error_symbols),
+    }
 
 
 # --- News + sentiment ingestion (Phase 3) ---
@@ -556,6 +564,96 @@ async def ingest_news(
         "errors": len(errors),
     }
 
+# --- Alpha history backfill (retroactive snapshots, user decision 2026-09-06) ---
+
+
+async def _backfill_one_alpha(symbol: str) -> int:
+    """Retroactively compute alpha snapshots for every stored trading day.
+
+    For each bar date with enough closes (>= 26), the technical score is
+    computed from the closes UP TO that date with the existing indicator
+    functions (real math on real stored prices). Fundamental and sentiment
+    are point-in-time metrics with no stored history, so historical
+    composites renormalize the available weights to technical only - the
+    same renormalization rule the live score uses. Live snapshots that carry
+    a fundamental score are never overwritten (see upsert_snapshots_bulk).
+    """
+    from app.repositories import alpha as alpha_repo
+    from app.services import indicators
+
+    async with SessionLocal() as session:
+        stock_id = await session.scalar(
+            select(Stock.id).where(Stock.symbol == symbol)
+        )
+        if stock_id is None:
+            return 0
+        bars = (
+            await session.execute(
+                select(DailyPrice.date, DailyPrice.close)
+                .where(DailyPrice.stock_id == stock_id)
+                .order_by(DailyPrice.date.asc())
+            )
+        ).all()
+
+    if len(bars) < 26:
+        return 0
+
+    dates = [b.date for b in bars]
+    closes = [float(b.close) for b in bars]
+
+    rows: list[dict] = []
+    for i in range(25, len(closes)):
+        scored = indicators.score_technicals(closes[: i + 1])
+        if scored.get("score") is None:
+            continue
+        rows.append(
+            {
+                "symbol": symbol,
+                "date": dates[i],
+                "composite": scored["score"],
+                "fundamental": None,
+                "technical": scored["score"],
+                "sentiment": None,
+                "components_json": scored.get("components") or {},
+            }
+        )
+
+    if not rows:
+        return 0
+    async with SessionLocal() as session:
+        return await alpha_repo.upsert_snapshots_bulk(session, rows)
+
+
+async def backfill_alpha_history(batch_size: int = BATCH_SIZE) -> dict:
+    """Retroactively backfill alpha snapshots for the whole active universe.
+
+    Idempotent: existing technical-only rows are recomputed; full live
+    snapshots (with a fundamental score) are preserved. Failures are
+    isolated per symbol (D19).
+    """
+    async with SessionLocal() as session:
+        symbols = await _get_universe_symbols(session)
+
+    total = 0
+    errors: list[str] = []
+    for i in range(0, len(symbols), batch_size):
+        batch = symbols[i : i + batch_size]
+        results = await asyncio.gather(
+            *(_backfill_one_alpha(s) for s in batch), return_exceptions=True
+        )
+        for symbol, res in zip(batch, results):
+            if isinstance(res, Exception):
+                logger.error("Alpha backfill failed for %s: %s", symbol, res)
+                errors.append(symbol)
+            else:
+                total += res
+
+    logger.info(
+        "Alpha history backfill done: %d snapshots, %d errors", total, len(errors)
+    )
+    return {"snapshots": total, "errors": len(errors)}
+
+
 def run_daily_ingestion() -> None:
     """Scheduled entrypoint: run price + financials ingestion once.
 
@@ -565,10 +663,11 @@ def run_daily_ingestion() -> None:
 
 
 async def _ingest_all() -> None:
-    """Run all ingestion passes (prices, financials, history, news+sentiment)."""
+    """Run all ingestion passes (prices, financials, history, alpha, news)."""
     await ingest_universe()
     await ingest_financials()
     await ingest_financial_periods()
+    await backfill_alpha_history()
     await ingest_news()
 
 

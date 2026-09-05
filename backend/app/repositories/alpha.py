@@ -72,3 +72,33 @@ async def upsert_snapshot(
     )
     await session.execute(stmt)
     await session.commit()
+
+
+async def upsert_snapshots_bulk(
+    session: AsyncSession, rows: list[dict]
+) -> int:
+    """Bulk-upsert backfilled snapshots; returns the number of rows offered.
+
+    The conflict update only applies to rows that have no fundamental score
+    yet (i.e. backfilled/technical-only rows). Real snapshots computed by the
+    live /alpha endpoint carry fundamental + sentiment and are never
+    overwritten by the backfill.
+    """
+    if not rows:
+        return 0
+    stmt = pg_insert(AlphaScore).values(rows)
+    stmt = stmt.on_conflict_do_update(
+        constraint="uq_alpha_scores_symbol_date",
+        set_={
+            "composite": stmt.excluded.composite,
+            "fundamental": stmt.excluded.fundamental,
+            "technical": stmt.excluded.technical,
+            "sentiment": stmt.excluded.sentiment,
+            "components_json": stmt.excluded.components_json,
+            "updated_at": func.now(),
+        },
+        where=AlphaScore.fundamental.is_(None),
+    )
+    await session.execute(stmt)
+    await session.commit()
+    return len(rows)

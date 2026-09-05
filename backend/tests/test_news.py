@@ -1,4 +1,4 @@
-# Phase 3 tests — news + sentiment. All network-free:
+﻿# Phase 3 tests â€” news + sentiment. All network-free:
 #  - FakeNewsProvider (no RSS) + FakeScorer (no FinBERT) are used everywhere.
 #  - DB writes go to signaldesk_test via session_factory / monkeypatched SessionLocal.
 
@@ -63,10 +63,10 @@ async def _seed_stock_and_universe(session_factory, symbol="RELIANCE.NS") -> Non
         session.add(s)
         await session.flush()
         universe = await session.scalar(
-            select(Universe).where(Universe.name == "nifty50")
+            select(Universe).where(Universe.name == "nifty250")
         )
         if universe is None:
-            universe = Universe(name="nifty50")
+            universe = Universe(name="nifty250")
             session.add(universe)
             await session.flush()
         await session.execute(

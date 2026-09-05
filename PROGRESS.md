@@ -3,7 +3,7 @@
 > **Purpose:** The operational counterpart to `PLANNING.md`. This is the file to read FIRST to pick up
 > where we left off. Updated after every phase.
 > **Rules:** What's done → in progress → next. Command cheatsheet. Known gotchas.
-> **Last updated:** 2026-09-06 (Session 18 - Phase 6.5 Part D complete: stock research page expansion)
+> **Last updated:** 2026-09-06 (Session 19 - review round: Nifty 250 universe, data refresh to the last trading day, valuation fallback, retroactive alpha, news widening, research UX fixes)
 > **Roadmap audit completed 2026-08-19 - see PLANNING §18 (4-tier product taxonomy).**
 
 ---
@@ -32,22 +32,80 @@
 | **6.5 F - Dual data providers (Upstox + MergingProvider)** | ✅ **COMPLETE** |
 | **6.5 G - News relevance, fallback, freshness** | ✅ **COMPLETE** |
 | **6.5 D - Stock research page expansion** | ✅ **COMPLETE** |
+| **6.5 - Review round (250 universe, refresh, fixes)** | ✅ **COMPLETE** |
 
-**One-line status:** Phase 6.5 parts E/F/G + D COMPLETE. E/F/G added the `financial_periods` table,
-~5-year annual income-statement ingestion (merged yfinance + Upstox), five research endpoints, the
-verified Upstox adapter with a MergingProvider (yfinance primary), and company-name news search with
-relevance + freshness rules (backend 232/232; real 50/50 ingestion; pushed as 2853399). Part D
-expanded the stock research page on the approved design: collapsible research sections with
-data-backed collapsed summaries, a performance strip (1W/1M/3M/6M/1Y, 52w range, 1Y volatility),
-Alpha history chart, chartable indicator series (SMA/EMA overlay, RSI, MACD), a peer comparison
-table, and multi-year financial charts - every block on real backend data with honest loading,
-empty, insufficient, stale, error and unknown states. **Frontend tsc clean, vitest 59/59, build OK;
-backend 234/234; all five endpoints smoke-tested live (RELIANCE data-rich + TATAMOTORS insufficient
-+ unknown-symbol 404); production preview deep link + API proxy verified.**
+**One-line status:** Phase 6.5 COMPLETE including the review round. The catalog is now the official
+**Nifty 250** (universes nifty50/100/250 seeded from the NSE lists), every dataset refreshed to the
+last trading day (122,619 price bars, 250 merged financials with Upstox balance-sheet enrichment,
+2,720 annual + quarterly periods, 116,982 alpha snapshots incl. the retroactive backfill, 4,769
+news articles under the widened 60-day window). Valuation multiples now fall back to Upstox key
+ratios (the EV/EBITDA "Something went wrong" case is gone), stock/markets/screener rows carry
+monogram logos and directional arrows, charts no longer shrink under drag with the OHLC readout
+promoted, technical charts show three stacked equal-size 3-year series, financial history renders
+bars per period, peers link to their pages, the research chat is a real threaded window, and the
+markets/screener tables are server-sorted with sector links and filters. **Backend 233/233;
+frontend tsc clean, vitest 59/59, build OK; every endpoint smoke-tested live.**
 
 ---
 
 ## 2. Completed Work
+
+### Session 19 - review round: Nifty 250, data refresh, research UX fixes (2026-09-06)
+
+Product review fixes across the stock, markets and screener pages plus a full data refresh. See
+PLANNING D64-D68 for the durable decisions.
+
+- [x] **Nifty 250 universe:** official NSE lists (nifty50/nifty100/midcap150) downloaded and
+      committed as `app/data/nifty250.py`; `seed.py` now seeds nifty50 + nifty100 + nifty250
+      (idempotent, prunes constituents the index dropped, normalizes names/sectors to the NSE
+      taxonomy); ingestion universe widened to nifty250. All "50 companies" copy rebranded to 250.
+- [x] **Data refreshed to the last trading day** (prices were stale at Aug 18 because the daily
+      scheduler only runs while the backend process is alive): 250/250 symbols, 122,619 bars
+      (latest 2026-09-04, the last trading day), 250 merged financials, 2,720 income-statement
+      periods (annual + quarterly), 116,982 alpha snapshots, 4,769 news articles, all 0 errors.
+- [x] **Upstox fundamentals enrichment:** `get_fundamentals` now also derives operating margin,
+      net margin, current ratio and debt/equity from the Upstox income-statement + balance-sheet
+      APIs (percent units matching yfinance), so solvency components exist for stocks yfinance
+      leaves sparse (Bajaj Finance: D/E 314.8%, current ratio 0.48).
+- [x] **Valuation multiple fallback:** when the snapshot cannot produce a multiple (e.g. NBFC
+      EBITDA missing so EV/EBITDA failed), the pre-computed Upstox ratio fills in (in-process
+      1h TTL cache; target AND peers). Live-verified: BAJFINANCE EV/EBITDA 18.51 vs 13.18 median
+      where it previously errored.
+- [x] **Quarterly financial history:** `get_financial_history(symbol, period_type)` on the
+      provider ABC + both adapters; the ingestion job stores annual AND quarterly (1,560
+      quarterly rows).
+- [x] **Retroactive alpha history:** `backfill_alpha_history()` computes a snapshot for every
+      stored trading day from the closes up to that date (technical-only composite; the same
+      renormalization rule as live), bulk-upserted without overwriting full live snapshots. Every
+      stock now charts ~500 daily alpha points across ~2 years.
+- [x] **News widened (product decision):** 60-day freshness window, relevance relaxed to
+      any-distinctive-token, and the provider merges the symbol-query results whenever the name
+      search yields fewer than 8 usable articles. RELIANCE now returns 20 articles in the window.
+- [x] **Frontend fixes:** monogram `StockLogo` on the stock header, peers table, markets and
+      screener rows (zero remote assets, deterministic accent color); sector links to the
+      sector-filtered list from the stock header and markets rows; green/red direction arrows on
+      the header, markets and peers; InfoDot "i" forced lowercase (uppercase CSS bleed fixed);
+      charts no longer scale/scroll on drag (`handleScale/handleScroll` off) and the series charts
+      dropped the trailing crosshair label bubble; the OHLC readout is a prominent colored bar;
+      technical charts are three stacked equal-size panels with 3 years of data and consistent
+      contrasting colors; alpha history caption trimmed; financial history renders one bar per
+      period with point-marked margin lines; peer rows link to their research pages with bold
+      accent-colored columns; the research chat is a threaded glass window (answers persist per
+      question); glass surfaces on the performance strip, peer table, screener filter bar/tables;
+      markets gained a sortable Market cap column and server-side sort/direction params; screener
+      gained a sector filter + server-side sorting; stock page carries the landing's sine scroll
+      rail and a petrol header wash for light-mode color. Grid lines were NOT extended beyond the
+      landing (per the approved reference).
+- [x] **Verification actually performed:** backend `pytest` **233/233**; frontend `tsc -b` clean;
+      `vitest` **59/59**; `vite build` OK; live smoke: `/stocks` server-side sort (market cap
+      desc = RELIANCE, BHARTIARTL, HDFCBANK) + 20 distinct sectors, sector filter (Financial
+      Services = 59), `/screener` profit-sort + sector param, BAJFINANCE EV/EBITDA via fallback,
+      BAJFINANCE scores show real solvency components, RELIANCE news 20 articles at
+      freshness_days=60, alpha history 180+ snapshots (2 years stored); DB checks: latest bar
+      2026-09-04, 250 stocks, 1,160 annual + 1,560 quarterly periods.
+- [x] **Known limitation (future scope, tracked in PLANNING):** automatic daily refresh requires
+      the backend process to be running (the APScheduler job fires at 18:30 in-process). True
+      unattended daily updates need a deployed worker or OS-level scheduler.
 
 ### Session 18 - Phase 6.5 Part D: stock research page expansion (2026-09-06)
 

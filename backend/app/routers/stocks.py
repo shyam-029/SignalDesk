@@ -40,9 +40,10 @@ RANGES: dict[str, int] = {
     "2y": 732,
 }
 
-# Default pagination.
+# Default pagination + sorting.
 DEFAULT_LIMIT = 50
-MAX_LIMIT = 200
+MAX_LIMIT = 250
+VALID_SORTS = ("symbol", "company", "sector", "last_price", "change_pct", "market_cap")
 
 
 def normalize_symbol(symbol: str) -> str:
@@ -64,8 +65,10 @@ class StockSummary(BaseModel):
     symbol: str
     name: str
     sector: str | None
+    industry: str | None
     last_price: float
     change_pct: float
+    market_cap: float | None
 
 
 class StockListResponse(BaseModel):
@@ -73,6 +76,7 @@ class StockListResponse(BaseModel):
     total: int
     page: int
     limit: int
+    sectors: list[str]  # distinct sectors in the catalog (for filters)
 
 
 class PriceBar(BaseModel):
@@ -128,10 +132,36 @@ class StockDetailResponse(BaseModel):
 async def list_stocks(
     session: SessionDep,
     sector: str | None = None,
+    sort: str = Query("symbol"),
+    direction: str = Query("asc"),
     page: int = Query(1, ge=1),
     limit: int = Query(DEFAULT_LIMIT, ge=1, le=MAX_LIMIT),
 ) -> StockListResponse:
-    """List stocks in the catalog, with the latest price + daily change."""
+    """List stocks in the catalog with price, change and market cap.
+
+    Sorting is server-side (the catalog is a few hundred rows, loaded once
+    and sorted in Python so the derived last_price/change_pct columns can be
+    ordered with them). Null sort values sort last in both directions.
+    """
+    if sort not in VALID_SORTS:
+        raise ValidationError(
+            "Unsupported sort value",
+            {"sort": sort, "supported": list(VALID_SORTS)},
+        )
+    if direction not in ("asc", "desc"):
+        raise ValidationError(
+            "Unsupported direction value",
+            {"direction": direction, "supported": ["asc", "desc"]},
+        )
+
+    # Distinct sectors for the frontend's filter dropdowns.
+    sectors = list(
+        (
+            await session.execute(
+                select(Stock.sector).where(Stock.sector.is_not(None)).distinct().order_by(Stock.sector)
+            )
+        ).scalars()
+    )
 
     # Total count (respecting sector filter).
     count_q = select(func.count(Stock.id))
@@ -139,51 +169,72 @@ async def list_stocks(
         count_q = count_q.where(Stock.sector == sector)
     total = (await session.execute(count_q)).scalar_one()
 
-    # Page of stocks.
     q = select(Stock)
     if sector:
         q = q.where(Stock.sector == sector)
-    q = q.order_by(Stock.symbol).offset((page - 1) * limit).limit(limit)
+    q = q.order_by(Stock.symbol)
     stocks = (await session.execute(q)).scalars().all()
 
-    # Batch-load the latest two prices for ALL stocks in this page with a
-    # single window-function query (avoids the old per-stock N+1 loop).
-    latest_two = await price_repo.get_two_latest(
-        session, [st.id for st in stocks]
-    )
+    # Batch-load the derived columns for ALL matching stocks (bounded by the
+    # catalog size, ~250 rows) with the existing single-query helpers.
+    latest_two = await price_repo.get_two_latest(session, [st.id for st in stocks])
+    financials = await fin_repo.get_financials_batch(session, stocks)
 
-    items: list[StockSummary] = []
+    rows: list[StockSummary] = []
     for st in stocks:
         last_two = latest_two.get(st.id, [])
-
-        if not last_two:
-            items.append(
-                StockSummary(
-                    symbol=st.symbol, name=st.name, sector=st.sector,
-                    last_price=0.0, change_pct=0.0,
-                )
-            )
-            continue
-
-        latest = last_two[0]
-        prev = last_two[1] if len(last_two) > 1 else latest
+        last_price = 0.0
         change_pct = 0.0
-        if prev.close:
-            change_pct = round(
-                (float(latest.close) - float(prev.close)) / float(prev.close) * 100, 2
-            )
-
-        items.append(
+        if last_two:
+            latest = last_two[0]
+            prev = last_two[1] if len(last_two) > 1 else latest
+            if prev.close:
+                change_pct = round(
+                    (float(latest.close) - float(prev.close)) / float(prev.close) * 100, 2
+                )
+            last_price = float(latest.close)
+        fin = financials.get(st.id)
+        market_cap = float(fin.market_cap) if fin is not None and fin.market_cap else None
+        rows.append(
             StockSummary(
                 symbol=st.symbol,
                 name=st.name,
                 sector=st.sector,
-                last_price=float(latest.close),
+                industry=st.industry,
+                last_price=last_price,
                 change_pct=change_pct,
+                market_cap=market_cap,
             )
         )
 
-    return StockListResponse(items=items, total=total, page=page, limit=limit)
+    reverse = direction == "desc"
+
+    def _key(r: StockSummary):
+        if sort == "company":
+            return r.name.lower()
+        if sort == "sector":
+            return (r.sector is None, r.sector or "")
+        value = getattr(r, sort)
+        if value is None:
+            return (1, 0.0)
+        return (0, value)
+
+    if sort in ("symbol", "company", "sector"):
+        rows.sort(key=_key, reverse=reverse)
+    else:
+        with_value = [r for r in rows if getattr(r, sort) is not None]
+        without = [r for r in rows if getattr(r, sort) is None]
+        with_value.sort(key=lambda r: getattr(r, sort), reverse=reverse)
+        rows = with_value + without
+
+    start = (page - 1) * limit
+    return StockListResponse(
+        items=rows[start : start + limit],
+        total=total,
+        page=page,
+        limit=limit,
+        sectors=sectors,
+    )
 
 
 @router.get("/{symbol}", response_model=StockDetailResponse)

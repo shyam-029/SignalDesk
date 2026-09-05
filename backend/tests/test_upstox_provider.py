@@ -178,20 +178,53 @@ async def test_price_history_unknown_symbol_raises():
 
 async def test_fundamentals_maps_key_ratios():
     async def handler(request: httpx.Request) -> httpx.Response:
-        assert request.url.path == "/v2/fundamentals/INE002A01018/key-ratios"
-        return httpx.Response(
-            200,
-            json={
-                "status": "success",
-                "data": [
-                    {"name": "P/E", "company_value": "20.15", "sector_value": "12.46"},
-                    {"name": "P/B", "company_value": "2.13", "sector_value": "1.53"},
-                    {"name": "ROA", "company_value": "4.39%", "sector_value": "7.54%"},
-                    {"name": "ROE", "company_value": "8.94%", "sector_value": "16.46%"},
-                    {"name": "EV/EBITDA", "company_value": "10.25", "sector_value": "6.94"},
-                ],
-            },
-        )
+        path = request.url.path
+        if path.endswith("/key-ratios"):
+            return httpx.Response(
+                200,
+                json={
+                    "status": "success",
+                    "data": [
+                        {"name": "P/E", "company_value": "20.15", "sector_value": "12.46"},
+                        {"name": "P/B", "company_value": "2.13", "sector_value": "1.53"},
+                        {"name": "ROA", "company_value": "4.39%", "sector_value": "7.54%"},
+                        {"name": "ROE", "company_value": "8.94%", "sector_value": "16.46%"},
+                        {"name": "EV/EBITDA", "company_value": "10.25", "sector_value": "6.94"},
+                    ],
+                },
+            )
+        if path.endswith("/income-statement"):
+            return httpx.Response(
+                200,
+                json={
+                    "status": "success",
+                    "data": {
+                        "units_in": "crore",
+                        "income_statement": [
+                            {"category": "revenue", "history": [{"value": 1000.0, "period": "Mar 2025"}]},
+                            {"category": "operating_profit", "history": [{"value": 250.0, "period": "Mar 2025"}]},
+                            {"category": "net_profit", "history": [{"value": 180.0, "period": "Mar 2025"}]},
+                        ],
+                    },
+                },
+            )
+        if path.endswith("/balance-sheet"):
+            return httpx.Response(
+                200,
+                json={
+                    "status": "success",
+                    "data": {
+                        "units_in": "crore",
+                        "full_statement": [
+                            {"particular": "Current Assets", "history": [{"value": 500.0, "period": "Mar 2025"}]},
+                            {"particular": "Current Liabilities", "history": [{"value": 250.0, "period": "Mar 2025"}]},
+                            {"particular": "Total Liabilities", "history": [{"value": 400.0, "period": "Mar 2025"}]},
+                            {"particular": "Equity Capital", "history": [{"value": 800.0, "period": "Mar 2025"}]},
+                        ],
+                    },
+                },
+            )
+        return httpx.Response(404, text="unmapped")
 
     provider = UpstoxProvider(TOKEN, client=_client(handler), instrument_map=INSTRUMENT_MAP)
     f = await provider.get_fundamentals("RELIANCE.NS")
@@ -199,6 +232,11 @@ async def test_fundamentals_maps_key_ratios():
     assert f.price_to_book == 2.13
     assert f.return_on_assets == pytest.approx(0.0439)
     assert f.return_on_equity == pytest.approx(0.0894)
+    # Balance-sheet/income enrichment fills the snapshot gaps yfinance leaves.
+    assert f.operating_margin == pytest.approx(0.25)
+    assert f.profit_margin == pytest.approx(0.18)
+    assert f.current_ratio == pytest.approx(2.0)
+    assert f.debt_to_equity == pytest.approx(50.0)  # percent, yfinance convention
     # Fields Upstox does not supply stay None (never fabricated).
     assert f.market_cap is None
     assert f.price_to_sales is None

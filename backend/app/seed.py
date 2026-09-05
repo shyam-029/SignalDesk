@@ -1,4 +1,4 @@
-# One-time seeding of the Nifty 50 universe into PostgreSQL.
+# One-time seeding of the Nifty universes (50 / 100 / 250) into PostgreSQL.
 #
 # Concept: idempotent "get-or-create". If a symbol/universe already exists we
 # reuse it instead of failing or duplicating, so re-running the seed is safe.
@@ -14,22 +14,22 @@ import asyncio
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.data.nifty50 import NIFTY50
+from app.data.nifty250 import NIFTY_100, NIFTY_250, NIFTY_50
 from app.db import SessionLocal
 from app.models import Stock, Universe, stock_universe
 from app.providers.yfinance_provider import MarketDataError, YFinanceProvider
 
-UNIVERSE_NAME = "nifty50"
+# The active ingestion universe (the widest catalog).
+UNIVERSE_NAME = "nifty250"
 
 
-async def seed_universe(session: AsyncSession) -> int:
-    """Create the nifty50 universe and its stock members. Returns member count."""
-    # Get-or-create the universe (no relationship collection accessed).
-    universe = await session.scalar(
-        select(Universe).where(Universe.name == UNIVERSE_NAME)
-    )
+async def _seed_one_universe(
+    session: AsyncSession, name: str, entries: list[tuple[str, str, str]]
+) -> int:
+    """Get-or-create one universe and its members. Returns newly added links."""
+    universe = await session.scalar(select(Universe).where(Universe.name == name))
     if universe is None:
-        universe = Universe(name=UNIVERSE_NAME)
+        universe = Universe(name=name)
         session.add(universe)
         await session.flush()  # assign universe.id
 
@@ -43,13 +43,21 @@ async def seed_universe(session: AsyncSession) -> int:
     linked_stock_ids: set[int] = set(linked_result.scalars())
 
     added = 0
-    for symbol, name, sector in NIFTY50:
+    for symbol, company_name, sector in entries:
         # Get-or-create the stock.
-        stock = await session.scalar(select(Stock).where(Stock.symbol == symbol))
+        stock = await session.scalar(
+            select(Stock).where(Stock.symbol == symbol)
+        )
         if stock is None:
-            stock = Stock(symbol=symbol, name=name, sector=sector)
+            stock = Stock(symbol=symbol, name=company_name, sector=sector)
             session.add(stock)
             await session.flush()  # assign stock.id
+        else:
+            # Normalize the display name/sector to the official NSE list when
+            # they differ, so sector filters stay meaningful across all 250.
+            if stock.sector != sector or stock.name != company_name:
+                stock.name = company_name
+                stock.sector = sector
 
         # Link to universe only if not already linked.
         if stock.id not in linked_stock_ids:
@@ -62,6 +70,34 @@ async def seed_universe(session: AsyncSession) -> int:
             linked_stock_ids.add(stock.id)
             added += 1
 
+    # Prune members that the official list no longer contains (index
+    # reconstitutions), so each universe matches its definition exactly.
+    official_ids: set[int] = set()
+    for symbol, _name, _sector in entries:
+        stock_id = await session.scalar(
+            select(Stock.id).where(Stock.symbol == symbol)
+        )
+        if stock_id is not None:
+            official_ids.add(stock_id)
+    for stale_id in linked_stock_ids - official_ids:
+        await session.execute(
+            stock_universe.delete().where(
+                stock_universe.c.universe_id == universe.id,
+                stock_universe.c.stock_id == stale_id,
+            )
+        )
+
+    return added
+
+
+async def seed_universe(session: AsyncSession) -> int:
+    """Seed the nifty50/nifty100/nifty250 universes. Returns total new links."""
+    added = 0
+    added += await _seed_one_universe(session, "nifty50", NIFTY_50)
+    await session.commit()
+    added += await _seed_one_universe(session, "nifty100", NIFTY_100)
+    await session.commit()
+    added += await _seed_one_universe(session, "nifty250", NIFTY_250)
     await session.commit()
     return added
 
@@ -118,7 +154,10 @@ async def backfill_industry(
 async def main() -> None:
     async with SessionLocal() as session:
         linked = await seed_universe(session)
-        print(f"Seeded universe '{UNIVERSE_NAME}' with {len(NIFTY50)} members (new links: {linked}).")
+        print(
+            f"Seeded universes (50/100/250); widest '{UNIVERSE_NAME}' has "
+            f"{len(NIFTY_250)} members (new links: {linked})."
+        )
 
 
 if __name__ == "__main__":

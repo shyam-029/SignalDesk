@@ -1,4 +1,4 @@
-# Hardening tests — cover the audit's missing high-value cases.
+﻿# Hardening tests â€” cover the audit's missing high-value cases.
 #
 #  - EV_EBITDA / PB / PS through the HTTP layer (previously only PE was tested)
 #  - industry-NULL -> sector fallback for peer selection
@@ -159,7 +159,7 @@ async def test_financials_updated_at_refreshes(session_factory, monkeypatch):
         s = Stock(symbol="RELIANCE.NS", name="Reliance", sector="E", industry="O")
         session.add(s)
         await session.flush()
-        universe = Universe(name="nifty50")
+        universe = Universe(name="nifty250")
         session.add(universe)
         await session.flush()
         await session.execute(
@@ -213,7 +213,7 @@ async def test_ingest_universe_retries_transient_failure(session_factory, monkey
         s = Stock(symbol="RELIANCE.NS", name="Reliance", sector="E", industry="O")
         session.add(s)
         await session.flush()
-        universe = Universe(name="nifty50")
+        universe = Universe(name="nifty250")
         session.add(universe)
         await session.flush()
         await session.execute(
@@ -234,7 +234,7 @@ async def test_ingest_universe_gives_up_after_retries(session_factory, monkeypat
         s = Stock(symbol="RELIANCE.NS", name="Reliance", sector="E", industry="O")
         session.add(s)
         await session.flush()
-        universe = Universe(name="nifty50")
+        universe = Universe(name="nifty250")
         session.add(universe)
         await session.flush()
         await session.execute(

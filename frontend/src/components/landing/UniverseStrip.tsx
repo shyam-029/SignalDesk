@@ -1,4 +1,4 @@
-import { Link } from "react-router-dom";
+﻿import { Link } from "react-router-dom";
 import { ArrowRight } from "lucide-react";
 
 import { useStockList } from "@/lib/hooks";
@@ -7,7 +7,7 @@ import { Reveal } from "@/components/motion/Reveal";
 import { fmtPrice, fmtSignedPct } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
-/** The household names to feature first (they exist in the Nifty 50 catalog). */
+/** The household names to feature first (they exist in the Nifty 250 catalog). */
 const FEATURED = new Set([
   "TCS",
   "RELIANCE",
@@ -44,10 +44,10 @@ export function UniverseStrip() {
             {list.data ? (
               <>
                 <span className="num font-semibold text-foreground">{list.data.total}</span>{" "}
-                companies · Nifty 50 today, built to scale toward Nifty 500
+                companies · Nifty 250 today, built to scale toward Nifty 500
               </>
             ) : (
-              "Nifty 50 universe · Yahoo Finance data"
+              "Nifty 250 universe · Yahoo Finance data"
             )}
           </p>
         </Reveal>
@@ -113,3 +113,4 @@ export function UniverseStrip() {
     </section>
   );
 }
+

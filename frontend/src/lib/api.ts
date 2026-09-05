@@ -102,9 +102,11 @@ export function apiPost<T>(path: string, body: unknown): Promise<T> {
 // --- Endpoint helpers (one per backend route the frontend uses) -------------
 
 export const api = {
-  stocks: (page = 1, limit = 50, sector?: string) => {
+  stocks: (page = 1, limit = 50, sector?: string, sort?: string, direction?: string) => {
     const q = new URLSearchParams({ page: String(page), limit: String(limit) });
     if (sector) q.set("sector", sector);
+    if (sort) q.set("sort", sort);
+    if (direction) q.set("direction", direction);
     return apiGet<StockListResponse>(`/stocks?${q.toString()}`);
   },
 
@@ -140,8 +142,11 @@ export const api = {
   screener: (params: ScreenerParams) => {
     const q = new URLSearchParams({ page: String(params.page), limit: String(params.limit) });
     if (params.status) q.set("status", params.status);
+    if (params.sector) q.set("sector", params.sector);
     if (params.minProfitability != null) q.set("min_profitability", String(params.minProfitability));
     if (params.minSolvency != null) q.set("min_solvency", String(params.minSolvency));
+    if (params.sort) q.set("sort", params.sort);
+    if (params.direction) q.set("direction", params.direction);
     return apiGet<ScreenerResponse>(`/screener?${q.toString()}`);
   },
 
@@ -182,8 +187,11 @@ export const api = {
 
 export interface ScreenerParams {
   status?: string | null;
+  sector?: string | null;
   minProfitability?: number | null;
   minSolvency?: number | null;
+  sort?: string;
+  direction?: string;
   page?: number;
   limit?: number;
 }
