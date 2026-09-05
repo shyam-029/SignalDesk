@@ -7,11 +7,13 @@ import {
   VALUATION_METRICS,
 } from "@/lib/hooks";
 import { DataState } from "@/components/data/DataState";
-import { SectionHeader } from "@/components/data/SectionHeader";
+import { CollapsibleSection } from "@/components/stock/CollapsibleSection";
+import { PeersTable } from "@/components/stock/PeersTable";
 import { ExplainAction } from "@/components/explain/ExplainAction";
 import { InfoDot } from "@/components/data/InfoDot";
 import { fmtCompact, fmtRatio } from "@/lib/format";
 import { valuationSemantics } from "@/lib/semantic";
+import { valuationSummary } from "@/lib/summaries";
 import { cn } from "@/lib/utils";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
@@ -51,24 +53,25 @@ export function ValuationSection({ symbol }: { symbol: string }) {
   const ratios = fundamentals.data?.key_ratios ?? {};
 
   return (
-    <section id="valuation" className="border-b border-line">
-      <div className="mx-auto max-w-6xl px-4 py-12 md:px-6">
-        <SectionHeader
-          index="03"
-          kicker="Valuation"
-          title="Relative valuation"
-          aside={
-            <Tabs value={metric} onValueChange={setMetric}>
-              <TabsList aria-label="Valuation metric">
-                {VALUATION_METRICS.map((m) => (
-                  <TabsTrigger key={m} value={m}>
-                    {METRIC_LABELS[m]}
-                  </TabsTrigger>
-                ))}
-              </TabsList>
-            </Tabs>
-          }
-        />
+    <CollapsibleSection
+      id="valuation"
+      index="04"
+      kicker="Valuation"
+      title="Relative valuation"
+      summary={valuationSummary(valuation)}
+      defaultOpen
+      aside={
+        <Tabs value={metric} onValueChange={setMetric}>
+          <TabsList aria-label="Valuation metric">
+            {VALUATION_METRICS.map((m) => (
+              <TabsTrigger key={m} value={m}>
+                {METRIC_LABELS[m]}
+              </TabsTrigger>
+            ))}
+          </TabsList>
+        </Tabs>
+      }
+    >
 
         <DataState
           loading={selected.isLoading}
@@ -203,8 +206,12 @@ export function ValuationSection({ symbol }: { symbol: string }) {
             </div>
           )}
         </DataState>
-      </div>
-    </section>
+
+        {/* Peer comparison table (Part D): the same peer set the multiples use. */}
+        <div className="mt-8">
+          <PeersTable symbol={symbol} />
+        </div>
+    </CollapsibleSection>
   );
 }
 

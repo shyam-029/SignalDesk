@@ -269,6 +269,59 @@ async def test_performance_endpoint_windows(client, session_factory):
     # 52-week range from the high/low columns of the stored window.
     assert body["high_52w"] == 140.0
     assert body["low_52w"] == 99.0
+    # Volatility over the 1y window: returns are uniformly +1/100 per day,
+    # so the sample variance is a known small value; just check plausibility
+    # and the exact value for a tiny deterministic series below.
+    assert body["volatility_1y_pct"] is not None
+    assert body["volatility_1y_pct"] > 0
+
+
+async def test_performance_volatility_exact_small_series(client, session_factory):
+    """Three closes 100 -> 90 -> 110: two returns, one variance degree of
+    freedom. Expected = stdev([-0.10, +0.10]) * sqrt(252) * 100."""
+    async with session_factory() as session:
+        session.add(Stock(symbol="VOL.NS", name="Vol", sector="X", industry="Y"))
+        await session.flush()
+        stock = await session.scalar(select(Stock).where(Stock.symbol == "VOL.NS"))
+        end = date.today()
+        for i, close in enumerate([100.0, 90.0, 110.0]):
+            session.add(
+                DailyPrice(
+                    stock_id=stock.id, date=end - timedelta(days=2 - i),
+                    open=close, high=close, low=close, close=close, volume=10,
+                )
+            )
+        await session.commit()
+
+    r = await client.get("/api/v1/stocks/VOL/performance")
+    assert r.status_code == 200
+    import math
+
+    r1, r2 = -0.10, (110.0 - 90.0) / 90.0
+    mean_r = (r1 + r2) / 2
+    var = ((r1 - mean_r) ** 2 + (r2 - mean_r) ** 2) / 1
+    expected = round(math.sqrt(var) * math.sqrt(252.0) * 100, 2)
+    assert r.json()["volatility_1y_pct"] == expected
+
+
+async def test_performance_volatility_needs_three_closes(client, session_factory):
+    async with session_factory() as session:
+        session.add(Stock(symbol="VOL2.NS", name="Vol2", sector="X", industry="Y"))
+        await session.flush()
+        stock = await session.scalar(select(Stock).where(Stock.symbol == "VOL2.NS"))
+        end = date.today()
+        for i, close in enumerate([100.0, 101.0]):
+            session.add(
+                DailyPrice(
+                    stock_id=stock.id, date=end - timedelta(days=1 - i),
+                    open=close, high=close, low=close, close=close, volume=10,
+                )
+            )
+        await session.commit()
+
+    r = await client.get("/api/v1/stocks/VOL2/performance")
+    assert r.status_code == 200
+    assert r.json()["volatility_1y_pct"] is None
 
 
 async def test_performance_short_history_flags_missing_windows(client, session_factory):
@@ -377,7 +430,8 @@ async def test_peers_endpoint(client, session_factory):
             DailyPrice(stock_id=ioc.id, date=today, open=104, high=106, low=103,
                        close=105, volume=200),
         ])
-        session.add(Financials(stock_id=ioc.id, trailing_pe=12.5))
+        session.add(Financials(stock_id=ioc.id, trailing_pe=12.5, return_on_equity=0.15,
+                               profit_margin=0.08, debt_to_equity=40.0))
         session.add(Financials(stock_id=rel.id, trailing_pe=24.0))
         await session.commit()
 
@@ -391,6 +445,9 @@ async def test_peers_endpoint(client, session_factory):
     assert peer["last_price"] == 105.0
     assert peer["change_pct"] == pytest.approx(0.96, abs=0.01)
     assert peer["trailing_pe"] == 12.5
+    assert peer["return_on_equity"] == 0.15
+    assert peer["profit_margin"] == 0.08
+    assert peer["debt_to_equity"] == 40.0
 
 
 async def test_peers_no_peers_returns_empty(client, session_factory):

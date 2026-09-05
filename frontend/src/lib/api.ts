@@ -6,11 +6,15 @@
 // "unknown symbol") instead of string-matching messages.
 
 import type {
+  AlphaHistoryResponse,
   AlphaResponse,
   ExplainQuestionType,
   ExplainResponse,
+  FinancialsHistoryResponse,
   Fundamentals,
   NewsListResponse,
+  PeersResponse,
+  PerformanceResponse,
   PriceHistory,
   ScoreCard,
   ScreenerResponse,
@@ -18,6 +22,7 @@ import type {
   StockDetail,
   StockListResponse,
   Technicals,
+  TechnicalsSeriesResponse,
   Valuation,
 } from "./types";
 
@@ -144,6 +149,35 @@ export const api = {
     apiPost<ExplainResponse>(`/stocks/${encodeURIComponent(symbol)}/explain`, {
       question_type: questionType,
     }),
+
+  // --- Historical research (Phase 6.5 Part E) ---
+
+  performance: (symbol: string) =>
+    apiGet<PerformanceResponse>(
+      `/stocks/${encodeURIComponent(symbol)}/performance`,
+    ),
+
+  alphaHistory: (symbol: string, limit = 180) =>
+    apiGet<AlphaHistoryResponse>(
+      `/stocks/${encodeURIComponent(symbol)}/alpha/history?limit=${limit}`,
+    ),
+
+  technicalsSeries: (symbol: string, limit = 250) =>
+    apiGet<TechnicalsSeriesResponse>(
+      `/stocks/${encodeURIComponent(symbol)}/technicals/series?limit=${limit}`,
+    ),
+
+  peers: (symbol: string) =>
+    apiGet<PeersResponse>(`/stocks/${encodeURIComponent(symbol)}/peers`),
+
+  financialsHistory: (symbol: string, periodType?: "annual" | "quarterly") => {
+    const q = new URLSearchParams();
+    if (periodType) q.set("period_type", periodType);
+    const suffix = q.toString() ? `?${q.toString()}` : "";
+    return apiGet<FinancialsHistoryResponse>(
+      `/stocks/${encodeURIComponent(symbol)}/financials/history${suffix}`,
+    );
+  },
 };
 
 export interface ScreenerParams {

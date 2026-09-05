@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+﻿import { describe, expect, it } from "vitest";
 
 import { METRIC_INFO } from "@/lib/metrics";
 
@@ -36,6 +36,9 @@ const REQUIRED_KEYS = [
   "reversion",
   "net_sentiment",
   "market_cap",
+  "performance",
+  "volatility",
+  "week_52_range",
   "ev",
   "ebitda",
   "data_freshness",
@@ -64,3 +67,4 @@ describe("METRIC_INFO registry", () => {
     expect(METRIC_INFO.technical_score.method).toContain("not validated predictive models");
   });
 });
+

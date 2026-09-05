@@ -135,3 +135,60 @@ export function useExplain(symbol: string) {
     },
   });
 }
+
+// --- Historical research (Phase 6.5 Part E endpoints) ------------------------
+
+/** Never retry 404s (unknown symbol resolves instantly). */
+function noRetryOn404(failureCount: number, error: Error): boolean {
+  const status = (error as { status?: number }).status;
+  if (status === 404) return false;
+  return failureCount < 2;
+}
+
+export function usePerformance(symbol: string) {
+  return useQuery({
+    queryKey: ["performance", symbol],
+    queryFn: () => api.performance(symbol),
+    staleTime: 5 * 60_000,
+    retry: noRetryOn404,
+  });
+}
+
+export function useAlphaHistory(symbol: string, limit = 180) {
+  return useQuery({
+    queryKey: ["alpha-history", symbol, limit],
+    queryFn: () => api.alphaHistory(symbol, limit),
+    staleTime: 10 * 60_000,
+    retry: noRetryOn404,
+  });
+}
+
+export function useTechnicalsSeries(symbol: string, limit = 250) {
+  return useQuery({
+    queryKey: ["technicals-series", symbol, limit],
+    queryFn: () => api.technicalsSeries(symbol, limit),
+    staleTime: 10 * 60_000,
+    retry: noRetryOn404,
+  });
+}
+
+export function usePeers(symbol: string) {
+  return useQuery({
+    queryKey: ["peers", symbol],
+    queryFn: () => api.peers(symbol),
+    staleTime: 10 * 60_000,
+    retry: noRetryOn404,
+  });
+}
+
+export function useFinancialsHistory(
+  symbol: string,
+  periodType: "annual" | "quarterly" = "annual",
+) {
+  return useQuery({
+    queryKey: ["financials-history", symbol, periodType],
+    queryFn: () => api.financialsHistory(symbol, periodType),
+    staleTime: 30 * 60_000,
+    retry: noRetryOn404,
+  });
+}

@@ -152,6 +152,26 @@ export const METRIC_INFO = {
     short: "Share price x shares outstanding: the market's total valuation of the equity.",
   },
 
+  // --- Performance strip (Part D) ---
+  performance: {
+    label: "Performance",
+    short: "Price return over standard windows, computed from stored daily bars.",
+    method:
+      "Each window compares the latest close with the last close on or before the window start date. Windows without an old-enough bar are shown as '-': with shorter histories some windows simply do not exist yet.",
+  },
+  volatility: {
+    label: "Volatility (1Y)",
+    short: "Annualized standard deviation of daily returns over the last year, in percent.",
+    method:
+      "Computed by the backend from the stored daily closes: the sample standard deviation of daily simple returns scaled by the square root of 252 trading days. It measures how much the price swings, not its direction, and says nothing about future returns.",
+  },
+  week_52_range: {
+    label: "52-week range",
+    short: "Lowest and highest traded prices over the last 52 weeks.",
+    method:
+      "Taken from the daily high and low columns of the stored bars. A stock near the top of its range is not automatically expensive, and near the bottom is not automatically cheap.",
+  },
+
   // --- Technical indicators ---
   sma20: {
     label: "SMA 20",

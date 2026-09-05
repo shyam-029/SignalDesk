@@ -13,6 +13,7 @@
 # and repositories — no duplicated math.
 
 import logging
+import math
 from datetime import date, timedelta
 from typing import Annotated, Any
 
@@ -51,6 +52,31 @@ PERFORMANCE_WINDOWS: dict[str, int] = {
 VALID_PERIOD_TYPES = ("annual", "quarterly")
 
 
+def _annualized_volatility_pct(closes: list[float]) -> float | None:
+    """Annualized daily-return volatility (%) for a chronological close series.
+
+    Sample standard deviation of daily simple returns, scaled by sqrt(252)
+    trading days and expressed in percent. Returns None when fewer than
+    three closes (two returns) exist or a return would divide by zero or a
+    non-finite value: missing volatility is reported, never approximated.
+    """
+    if len(closes) < 3:
+        return None
+    returns: list[float] = []
+    for prev, cur in zip(closes, closes[1:]):
+        if prev is None or cur is None or prev <= 0:
+            continue
+        r = (cur - prev) / prev
+        if math.isfinite(r):
+            returns.append(r)
+    if len(returns) < 2:
+        return None
+    mean_r = sum(returns) / len(returns)
+    variance = sum((r - mean_r) ** 2 for r in returns) / (len(returns) - 1)
+    vol = math.sqrt(variance) * math.sqrt(252.0) * 100.0
+    return round(vol, 2) if math.isfinite(vol) else None
+
+
 # --- Response models -------------------------------------------------------
 
 
@@ -71,6 +97,9 @@ class PerformanceResponse(BaseModel):
     windows: dict[str, WindowPerformance]
     high_52w: float | None
     low_52w: float | None
+    # Annualized daily-return volatility over the last year, in percent.
+    # None when fewer than three closes exist (never a guess).
+    volatility_1y_pct: float | None
     insufficient_data: bool
 
 
@@ -114,6 +143,11 @@ class PeerSummary(BaseModel):
     last_price: float | None
     change_pct: float | None
     trailing_pe: float | None
+    # Profitability / solvency context from the same financials snapshot the
+    # scores use. Null = not available for that peer (distinct from zero).
+    return_on_equity: float | None
+    profit_margin: float | None
+    debt_to_equity: float | None
 
 
 class PeersResponse(BaseModel):
@@ -188,12 +222,14 @@ async def get_performance(symbol: str, session: SessionDep) -> PerformanceRespon
         as_of = None
 
     high_52w = low_52w = None
+    recent_closes: list[float] = []
     if bars:
         cutoff = bars[-1].date - timedelta(days=366)
         recent = [b for b in bars if b.date >= cutoff]
         if recent:
             high_52w = max(float(b.high) for b in recent)
             low_52w = min(float(b.low) for b in recent)
+            recent_closes = [float(b.close) for b in recent]
 
     return PerformanceResponse(
         symbol=stock.symbol,
@@ -202,6 +238,7 @@ async def get_performance(symbol: str, session: SessionDep) -> PerformanceRespon
         windows=windows,
         high_52w=high_52w,
         low_52w=low_52w,
+        volatility_1y_pct=_annualized_volatility_pct(recent_closes),
         insufficient_data=len(bars) < 2,
     )
 
@@ -307,6 +344,15 @@ async def get_peers(symbol: str, session: SessionDep) -> PeersResponse:
                 change_pct=change_pct,
                 trailing_pe=float(fin.trailing_pe)
                 if fin is not None and fin.trailing_pe is not None
+                else None,
+                return_on_equity=float(fin.return_on_equity)
+                if fin is not None and fin.return_on_equity is not None
+                else None,
+                profit_margin=float(fin.profit_margin)
+                if fin is not None and fin.profit_margin is not None
+                else None,
+                debt_to_equity=float(fin.debt_to_equity)
+                if fin is not None and fin.debt_to_equity is not None
                 else None,
             )
         )

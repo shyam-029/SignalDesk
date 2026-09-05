@@ -1,9 +1,10 @@
 import { useNews, useSentiment } from "@/lib/hooks";
 import { DataState } from "@/components/data/DataState";
-import { SectionHeader } from "@/components/data/SectionHeader";
+import { CollapsibleSection } from "@/components/stock/CollapsibleSection";
 import { InfoDot } from "@/components/data/InfoDot";
 import { fmtRelative } from "@/lib/format";
 import { sentimentSemantics } from "@/lib/semantic";
+import { newsSummary } from "@/lib/summaries";
 import { cn } from "@/lib/utils";
 import {
   Collapsible,
@@ -15,7 +16,10 @@ import { ChevronDown, ExternalLink } from "lucide-react";
 /**
  * NewsSection: the aggregate sentiment that feeds Alpha's sentiment
  * component, plus the underlying articles. Part of the analytical pipeline,
- * not a news aggregator: articles expand in place for context.
+ * not a news aggregator: articles expand in place for context. Collapsible
+ * since Part D: the collapsed header carries the article count and the net
+ * sentiment label, only when scored articles exist. Results respect the
+ * backend's approximately 30-day freshness window (freshness_days).
  */
 export function NewsSection({ symbol }: { symbol: string }) {
   const news = useNews(symbol, 12);
@@ -23,11 +27,16 @@ export function NewsSection({ symbol }: { symbol: string }) {
 
   const sem = sentimentSemantics(sentiment.data?.label);
   const articles = news.data?.items ?? [];
+  const summary = newsSummary(articles, sentiment.data?.label);
 
   return (
-    <section id="news" className="border-b border-line">
-      <div className="mx-auto max-w-6xl px-4 py-12 md:px-6">
-        <SectionHeader index="06" kicker="News & sentiment" title="What the news is saying" />
+    <CollapsibleSection
+      id="news"
+      index="07"
+      kicker="News & sentiment"
+      title="What the news is saying"
+      summary={summary}
+    >
 
         <div className="grid gap-8 lg:grid-cols-12">
           {/* Aggregate sentiment */}
@@ -128,7 +137,12 @@ export function NewsSection({ symbol }: { symbol: string }) {
             </DataState>
           </div>
         </div>
-      </div>
-    </section>
+
+        {news.data?.freshness_days != null && (
+          <p className="num mt-4 text-xs text-faint">
+            Showing the last {news.data.freshness_days} days of ingested articles. Sentiment processing is unchanged.
+          </p>
+        )}
+    </CollapsibleSection>
   );
 }

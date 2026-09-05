@@ -2,9 +2,11 @@ import { motion } from "framer-motion";
 
 import { useScores } from "@/lib/hooks";
 import { DataState } from "@/components/data/DataState";
-import { SectionHeader } from "@/components/data/SectionHeader";
+import { CollapsibleSection } from "@/components/stock/CollapsibleSection";
+import { FinancialsHistoryChart } from "@/components/stock/FinancialsHistoryChart";
 import { InfoDot } from "@/components/data/InfoDot";
 import { ExplainAction } from "@/components/explain/ExplainAction";
+import { fundamentalsSummary } from "@/lib/summaries";
 import { scoreBand } from "@/lib/semantic";
 import { cn } from "@/lib/utils";
 
@@ -12,24 +14,28 @@ import { cn } from "@/lib/utils";
  * FundamentalsSection: profitability and solvency, anchored by their scores.
  * Each component shows its raw value AND its threshold score, so "why is the
  * score high/low" is visible without extra clicks. Ratios stay neutral; only
- * the scores carry semantic color.
+ * the scores carry semantic color. Collapsible since Part D: the collapsed
+ * header summarizes the stronger dimension from real score components.
+ * The multi-year financial history charts live at the bottom of the section.
  */
 export function FundamentalsSection({ symbol }: { symbol: string }) {
   const query = useScores(symbol);
   const scores = query.data;
+  const summary = fundamentalsSummary(scores);
 
   const profitBand = scoreBand(scores?.profitability);
   const solvencyBand = scoreBand(scores?.solvency);
 
   return (
-    <section id="fundamentals" className="border-b border-line">
-      <div className="mx-auto max-w-6xl px-4 py-12 md:px-6">
-        <SectionHeader
-          index="04"
-          kicker="Fundamentals"
-          title="Business strength"
-          aside={<ExplainAction symbol={symbol} questionType="fundamental" question="What is driving the fundamental scores?" triggerLabel="What's driving this?" />}
-        />
+    <CollapsibleSection
+      id="fundamentals"
+      index="05"
+      kicker="Fundamentals"
+      title="Business strength"
+      summary={summary}
+      defaultOpen
+      aside={<ExplainAction symbol={symbol} questionType="fundamental" question="What is driving the fundamental scores?" triggerLabel="What's driving this?" />}
+    >
 
         <DataState
           loading={query.isLoading}
@@ -112,8 +118,12 @@ export function FundamentalsSection({ symbol }: { symbol: string }) {
         {scores && (
           <p className="mt-4 text-xs leading-relaxed text-muted">{scores.explanation}</p>
         )}
-      </div>
-    </section>
+
+        {/* Multi-year income-statement history (Part D, backend data only). */}
+        <div className="mt-8">
+          <FinancialsHistoryChart symbol={symbol} />
+        </div>
+    </CollapsibleSection>
   );
 }
 

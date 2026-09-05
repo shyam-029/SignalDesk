@@ -3,7 +3,7 @@
 > **Purpose:** The operational counterpart to `PLANNING.md`. This is the file to read FIRST to pick up
 > where we left off. Updated after every phase.
 > **Rules:** What's done → in progress → next. Command cheatsheet. Known gotchas.
-> **Last updated:** 2026-09-05 (Session 17 - Phase 6.5 parts E/F/G complete: historical financials, dual data providers, news relevance)
+> **Last updated:** 2026-09-06 (Session 18 - Phase 6.5 Part D complete: stock research page expansion)
 > **Roadmap audit completed 2026-08-19 - see PLANNING §18 (4-tier product taxonomy).**
 
 ---
@@ -31,22 +31,71 @@
 | **6.5 E - Historical financial data layer** | ✅ **COMPLETE** |
 | **6.5 F - Dual data providers (Upstox + MergingProvider)** | ✅ **COMPLETE** |
 | **6.5 G - News relevance, fallback, freshness** | ✅ **COMPLETE** |
+| **6.5 D - Stock research page expansion** | ✅ **COMPLETE** |
 
-**One-line status:** Phase 6.5 parts E/F/G COMPLETE on top of the experience overhaul. Part E adds the
-`financial_periods` table (migration `a844177fa25e`), ~5-year annual income-statement ingestion
-(yfinance `income_stmt` + Upstox income-statement API), and five research endpoints (performance,
-alpha history, technicals series, peers, financials history). Part F adds the verified Upstox adapter
-(manual Bearer "Analytics Token" from backend/.env, read-only v2 APIs), a MergingProvider (prices:
-primary wins + gap-fill + source attribution; financials: field coalesce with 5% tolerance and
-disagreement logging), and a provider factory that degrades to yfinance-only without a token. Part G
-moves news ingestion to company-full-name search with symbol fallback only when unusable, applies the
-same relevance filter to both, and enforces the ~30-day freshness window at ingestion and display.
-**Backend 232/232 tests (77 new, zero network); real ingestion 50/50 symbols, 228 periods, 0 errors;
-real 8-stock provider quality check performed; landing background grid lines added (approved reference).**
+**One-line status:** Phase 6.5 parts E/F/G + D COMPLETE. E/F/G added the `financial_periods` table,
+~5-year annual income-statement ingestion (merged yfinance + Upstox), five research endpoints, the
+verified Upstox adapter with a MergingProvider (yfinance primary), and company-name news search with
+relevance + freshness rules (backend 232/232; real 50/50 ingestion; pushed as 2853399). Part D
+expanded the stock research page on the approved design: collapsible research sections with
+data-backed collapsed summaries, a performance strip (1W/1M/3M/6M/1Y, 52w range, 1Y volatility),
+Alpha history chart, chartable indicator series (SMA/EMA overlay, RSI, MACD), a peer comparison
+table, and multi-year financial charts - every block on real backend data with honest loading,
+empty, insufficient, stale, error and unknown states. **Frontend tsc clean, vitest 59/59, build OK;
+backend 234/234; all five endpoints smoke-tested live (RELIANCE data-rich + TATAMOTORS insufficient
++ unknown-symbol 404); production preview deep link + API proxy verified.**
 
 ---
 
 ## 2. Completed Work
+
+### Session 18 - Phase 6.5 Part D: stock research page expansion (2026-09-06)
+
+Frontend integration phase on the approved design (two smallest-coherent backend additions for
+compatibility); see PLANNING D61-D63. No visual redesign: existing typography, tokens, spacing,
+chart styling and component patterns reused throughout.
+
+- [x] **Collapsible research sections:** `CollapsibleSection` shell (header row is the toggle,
+      aria-expanded/controls; content stays mounted hidden so queries stay warm). Valuation,
+      Fundamentals, Technicals, News and Methodology collapse; Alpha (now with its history chart)
+      and the primary price chart stay open. Collapsed summaries are computed from the SAME query
+      data the section renders (pure builders in `lib/summaries.ts`): "Fairly valued · P/E 16.6 vs
+      17.3 peers", "Strong profitability · ROE 47.7%", "Bullish · RSI 62.4", "N articles · net
+      sentiment Positive". A section with insufficient data shows no summary and never invents one.
+- [x] **Performance strip** (always visible, under the header): 1W/1M/3M/6M/1Y signed returns,
+      52-week range and 1Y volatility from `/performance`. Missing windows render "-" (not zero);
+      the strip degrades to an insufficient-data note under two bars.
+- [x] **Alpha history** (`AlphaHistoryChart` in the Alpha section): composite line plus
+      fundamental/technical/sentiment component lines only where snapshots carry them; fewer than
+      two snapshots is an explicit "history is building" state; gaps break lines instead of
+      interpolating.
+- [x] **Technical series** (in the collapsible Technicals section, alongside the moved aggregate
+      positioning panel): price + SMA20/EMA12 overlay, RSI14, MACD (line/signal/histogram) from
+      `/technicals/series` via the shared `TimeSeriesChart`; the frontend renders series and never
+      recomputes indicator math.
+- [x] **Peer comparison table** (in the collapsible Valuation section): same-industry peers with
+      price, 1D change, P/E, ROE, net margin and D/E from `/peers`; "-" always means "the snapshot
+      does not carry this metric" while a rendered zero is a real zero.
+- [x] **Historical financials** (in the collapsible Fundamentals section): annual revenue and net
+      income (displayed in ₹ Cr) and operating/net margin charts from `/financials/history`, with
+      a latest-period readout that shows the row's source and "-" for missing fields.
+- [x] **Backend additions (smallest-coherent):** `/performance` gains `volatility_1y_pct`
+      (annualized daily-return volatility; null under three closes, exact-value test pinned);
+      `/peers` gains ROE/profit margin/D/E from the already-batched financials snapshot.
+- [x] **Verification actually performed:** backend `pytest` **234/234** (2 new volatility tests);
+      frontend `tsc -b` clean; `vitest` **59/59** (16 new summary tests); `vite build` OK (stock
+      page chunk 65.7 kB / gz 18.7); live smoke of all five endpoints on the running backend
+      (RELIANCE: 500 bars, windows incl. an honestly missing 2Y anchor, vol 20.37%, 52w range,
+      BPCL peer with null ROE rendered, 60-bar series matching /technicals values, 5 annual
+      periods, 3 alpha snapshots; TATAMOTORS: insufficient_data on every new endpoint; unknown
+      symbol: 404 envelope); production `vite preview` deep link HTTP 200 + API proxy OK; stale
+      uvicorn on :8000 found and killed before verification (its multiprocessing child held the
+      port after the parent died).
+
+**Durable decisions (see PLANNING D61-D63):** collapsed sections keep their content mounted so
+summaries stay data-backed; summaries are presentation strings from pure tested builders fed by the
+same queries the sections render; the frontend charts backend series and never duplicates indicator
+or performance math; missing windows/values render "-" and insufficient states, never zeros.
 
 ### Session 17 - Phase 6.5 parts E/F/G (2026-09-05)
 
