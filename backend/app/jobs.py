@@ -21,8 +21,9 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import SessionLocal
-from app.models import DailyPrice, Financials, NewsArticle, NewsSentiment, Stock, Universe, stock_universe
+from app.models import DailyPrice, FinancialPeriod, Financials, NewsArticle, NewsSentiment, Stock, Universe, stock_universe
 from app.providers.base import Fundamentals, MarketDataProvider
+from app.providers.factory import build_default_market_provider
 from app.providers.news_base import Article, NewsProvider
 from app.providers.rss_provider import GoogleNewsRSSProvider, NewsProviderError
 from app.providers.sentiment import FinBERTScorer, Sentiment
@@ -78,6 +79,22 @@ async def _get_universe_symbols(session: AsyncSession) -> list[str]:
         .where(Universe.name == UNIVERSE_NAME)
     )
     return list(result.scalars())
+
+
+async def _get_universe_symbols_and_names(
+    session: AsyncSession,
+) -> list[tuple[str, str | None]]:
+    """Return (symbol, name) pairs for the active universe, read from the DB.
+
+    The company full name feeds the news provider's primary search query.
+    """
+    result = await session.execute(
+        select(Stock.symbol, Stock.name)
+        .join(stock_universe, stock_universe.c.stock_id == Stock.id)
+        .join(Universe, Universe.id == stock_universe.c.universe_id)
+        .where(Universe.name == UNIVERSE_NAME)
+    )
+    return [(row.symbol, row.name) for row in result]
 
 
 async def _fetch_one_symbol(
@@ -142,7 +159,7 @@ async def ingest_universe(
     Processes symbols in bounded batches (asyncio.gather) for rate-limit safety.
     A failure in one symbol is logged and isolated; the run continues.
     """
-    provider = provider or YFinanceProvider()
+    provider = provider or build_default_market_provider()
 
     async with SessionLocal() as session:
         symbols = await _get_universe_symbols(session)
@@ -257,7 +274,7 @@ async def ingest_financials(
     whose provider data is entirely missing still produces a row (all NULLs);
     a provider failure is isolated and logged.
     """
-    provider = provider or YFinanceProvider()
+    provider = provider or build_default_market_provider()
 
     async with SessionLocal() as session:
         symbols = await _get_universe_symbols(session)
@@ -284,6 +301,122 @@ async def ingest_financials(
 
     logger.info(
         "Financials ingestion done: %d symbols, %d rows, %d errors",
+        len(symbols) - len(errors),
+        rows,
+        len(errors),
+    )
+    return {"fetched": len(symbols) - len(errors), "rows": rows, "errors": len(errors)}
+
+
+# --- Financial-period history ingestion (Phase 6.5 Part E) ---
+
+
+def _financial_period_rows(stock_id: int, drafts: list) -> list[dict]:
+    """Map provider FinancialPeriodDraft objects onto table columns."""
+    return [
+        {
+            "stock_id": stock_id,
+            "period_end": d.period_end,
+            "period_type": d.period_type,
+            "revenue": d.revenue,
+            "net_income": d.net_income,
+            "operating_margin": d.operating_margin,
+            "net_margin": d.net_margin,
+            "eps": d.eps,
+            "source": d.source or "unknown",
+        }
+        for d in drafts
+    ]
+
+
+async def _fetch_one_financial_periods(
+    provider: MarketDataProvider, symbol: str
+) -> tuple[str, int]:
+    """Fetch + upsert one symbol's historical income-statement periods.
+
+    Returns (symbol, periods_stored). A provider without this capability
+    (NotImplementedError) is not an error: the symbol simply stores nothing.
+    Raises MarketDataError upward so callers can isolate failures per symbol.
+    """
+    try:
+        drafts = await _with_retry(
+            lambda: provider.get_financial_history(symbol),
+            what=f"financial history fetch for {symbol}",
+        )
+    except NotImplementedError:
+        logger.info("Provider has no financial history for %s; skipping.", symbol)
+        return symbol, 0
+
+    if not drafts:
+        return symbol, 0
+
+    async with SessionLocal() as session:
+        stock_id = await session.scalar(
+            select(Stock.id).where(Stock.symbol == symbol)
+        )
+        if stock_id is None:
+            raise MarketDataError(f"Symbol {symbol} not in DB catalog")
+
+        rows = _financial_period_rows(stock_id, drafts)
+        stmt = pg_insert(FinancialPeriod).values(rows)
+        # One row per (stock, period_end, period_type): overwrite on conflict
+        # and refresh ingested_at so re-ingestion stays idempotent and fresh.
+        stmt = stmt.on_conflict_do_update(
+            constraint="uq_financial_periods_stock_period",
+            set_={
+                "revenue": stmt.excluded.revenue,
+                "net_income": stmt.excluded.net_income,
+                "operating_margin": stmt.excluded.operating_margin,
+                "net_margin": stmt.excluded.net_margin,
+                "eps": stmt.excluded.eps,
+                "source": stmt.excluded.source,
+                "ingested_at": func.now(),
+            },
+        )
+        await session.execute(stmt)
+        await session.commit()
+        return symbol, len(rows)
+
+
+async def ingest_financial_periods(
+    provider: MarketDataProvider | None = None, batch_size: int = BATCH_SIZE
+) -> dict:
+    """Ingest ~5 years of annual income-statement history for the universe.
+
+    Same batching + per-symbol isolation as the other ingestions (D19).
+    Missing periods stay missing: the provider decides what exists and the
+    job never fabricates a value.
+    """
+    provider = provider or build_default_market_provider()
+
+    async with SessionLocal() as session:
+        symbols = await _get_universe_symbols(session)
+
+    if not symbols:
+        logger.warning("No symbols found for universe '%s'.", UNIVERSE_NAME)
+        return {"fetched": 0, "rows": 0, "errors": 0}
+
+    rows = 0
+    errors: list[str] = []
+
+    for i in range(0, len(symbols), batch_size):
+        batch = symbols[i : i + batch_size]
+        results = await asyncio.gather(
+            *(_fetch_one_financial_periods(provider, s) for s in batch),
+            return_exceptions=True,
+        )
+        for symbol, res in zip(batch, results):
+            if isinstance(res, Exception):
+                logger.error(
+                    "Failed to ingest financial history for %s: %s", symbol, res
+                )
+                errors.append(symbol)
+            else:
+                _, stored = res
+                rows += stored
+
+    logger.info(
+        "Financial history ingestion done: %d symbols, %d periods, %d errors",
         len(symbols) - len(errors),
         rows,
         len(errors),
@@ -353,11 +486,15 @@ async def _score_unscored(session: AsyncSession, symbol: str, scorer: FinBERTSco
 
 
 async def _fetch_and_store_one(
-    provider: NewsProvider, scorer: FinBERTScorer, symbol: str
+    provider: NewsProvider, scorer: FinBERTScorer, symbol: str, name: str | None
 ) -> dict:
-    """Fetch + store + score one symbol's news. Returns counts."""
+    """Fetch + store + score one symbol's news. Returns counts.
+
+    The stock's full name is passed through so the provider can run its
+    primary company-name search; relevance filtering happens in the provider.
+    """
     articles = await _with_retry(
-        lambda: provider.fetch_articles(symbol),
+        lambda: provider.fetch_articles(symbol, company_name=name),
         what=f"news fetch for {symbol}",
     )
 
@@ -381,9 +518,9 @@ async def ingest_news(
     scorer = scorer or FinBERTScorer()
 
     async with SessionLocal() as session:
-        symbols = await _get_universe_symbols(session)
+        universe = await _get_universe_symbols_and_names(session)
 
-    if not symbols:
+    if not universe:
         logger.warning("No symbols found for universe '%s'.", UNIVERSE_NAME)
         return {"fetched": 0, "inserted": 0, "scored": 0, "errors": 0}
 
@@ -391,13 +528,13 @@ async def ingest_news(
     total_scored = 0
     errors: list[str] = []
 
-    for i in range(0, len(symbols), batch_size):
-        batch = symbols[i : i + batch_size]
+    for i in range(0, len(universe), batch_size):
+        batch = universe[i : i + batch_size]
         results = await asyncio.gather(
-            *(_fetch_and_store_one(provider, scorer, s) for s in batch),
+            *(_fetch_and_store_one(provider, scorer, s, n) for s, n in batch),
             return_exceptions=True,
         )
-        for symbol, res in zip(batch, results):
+        for (symbol, _name), res in zip(batch, results):
             if isinstance(res, Exception):
                 logger.error("Failed to ingest news for %s: %s", symbol, res)
                 errors.append(symbol)
@@ -407,13 +544,13 @@ async def ingest_news(
 
     logger.info(
         "News ingestion done: %d symbols, %d new articles, %d scored, %d errors",
-        len(symbols) - len(errors),
+        len(universe),
         total_inserted,
         total_scored,
         len(errors),
     )
     return {
-        "fetched": len(symbols) - len(errors),
+        "fetched": len(universe) - len(errors),
         "inserted": total_inserted,
         "scored": total_scored,
         "errors": len(errors),
@@ -428,9 +565,10 @@ def run_daily_ingestion() -> None:
 
 
 async def _ingest_all() -> None:
-    """Run all ingestion passes (prices, financials, news+sentiment)."""
+    """Run all ingestion passes (prices, financials, history, news+sentiment)."""
     await ingest_universe()
     await ingest_financials()
+    await ingest_financial_periods()
     await ingest_news()
 
 

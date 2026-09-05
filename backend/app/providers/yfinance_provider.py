@@ -6,19 +6,18 @@
 # the ingestion job catches per-symbol (D19: one bad symbol never aborts a run).
 
 import asyncio
+import math
 
 import yfinance as yf
 
 from app.providers.base import (
+    FinancialPeriodDraft,
     Fundamentals,
+    MarketDataError,
     MarketDataProvider,
     OHLCV,
     StockProfile,
 )
-
-
-class MarketDataError(Exception):
-    """Raised when a market data provider fails for a specific symbol."""
 
 
 def _as_float(value) -> float | None:
@@ -36,6 +35,19 @@ def _as_float(value) -> float | None:
     if f != f or f in (float("inf"), float("-inf")):  # NaN / inf checks
         return None
     return f
+
+
+def _margin(part: float | None, base: float | None) -> float | None:
+    """Compute part/base as a decimal margin; None when not computable.
+
+    A margin is only computed from two real, finite numbers with a non-zero
+    base. Anything else stays None (missing values are never invented).
+    """
+    if part is None or base is None or base == 0:
+        return None
+    if any(math.isnan(v) or math.isinf(v) for v in (part, base)):
+        return None
+    return part / base
 
 
 class YFinanceProvider(MarketDataProvider):
@@ -62,6 +74,7 @@ class YFinanceProvider(MarketDataProvider):
                         low=float(row["Low"]),
                         close=float(row["Close"]),
                         volume=int(row["Volume"]),
+                        source="yfinance",
                     )
                 )
             return bars
@@ -112,5 +125,60 @@ class YFinanceProvider(MarketDataProvider):
                 interest_coverage=_as_float(info.get("interestCoverage")),
                 current_ratio=_as_float(info.get("currentRatio")),
             )
+
+        return await asyncio.to_thread(_fetch)
+
+    # Annual income-statement history (Phase 6.5 Part E). yfinance exposes a
+    # few years of annual columns (typically 4-5) on the `income_stmt`
+    # DataFrame: columns = period-end timestamps, index = line items.
+    async def get_financial_history(self, symbol: str) -> list[FinancialPeriodDraft]:
+        def _fetch() -> list[FinancialPeriodDraft]:
+            try:
+                df = yf.Ticker(symbol).income_stmt
+            except Exception as exc:
+                raise MarketDataError(
+                    f"yfinance income_stmt failed for {symbol}: {exc}"
+                ) from exc
+
+            if df is None or df.empty:
+                return []
+
+            def _row(*names: str) -> dict:
+                """Map the first matching line item to {period: value}."""
+                for name in names:
+                    if name in df.index:
+                        return df.loc[name].to_dict()
+                return {}
+
+            revenue = _row("Total Revenue")
+            operating = _row("Operating Income")
+            net_income = _row("Net Income")
+            eps = _row("Diluted EPS", "Basic EPS")
+
+            periods: list[FinancialPeriodDraft] = []
+            for col in df.columns:  # yfinance returns columns newest-first
+                # Column labels are pandas Timestamps; .date() is a method.
+                try:
+                    end = col.date()
+                except AttributeError:
+                    continue
+                rev = _as_float(revenue.get(col))
+                ni = _as_float(net_income.get(col))
+                oi = _as_float(operating.get(col))
+                periods.append(
+                    FinancialPeriodDraft(
+                        period_end=end,
+                        period_type="annual",
+                        revenue=rev,
+                        net_income=ni,
+                        # Backend-owned math: margins derive from the same
+                        # period's figures, or stay None when uncomputable.
+                        operating_margin=_margin(oi, rev),
+                        net_margin=_margin(ni, rev),
+                        eps=_as_float(eps.get(col)),
+                        source="yfinance",
+                    )
+                )
+            return periods
 
         return await asyncio.to_thread(_fetch)

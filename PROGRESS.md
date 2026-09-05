@@ -3,7 +3,7 @@
 > **Purpose:** The operational counterpart to `PLANNING.md`. This is the file to read FIRST to pick up
 > where we left off. Updated after every phase.
 > **Rules:** What's done → in progress → next. Command cheatsheet. Known gotchas.
-> **Last updated:** 2026-09-04 (Session 15 - Phase 6 complete: production React frontend + 4 backend additions)
+> **Last updated:** 2026-09-05 (Session 17 - Phase 6.5 parts E/F/G complete: historical financials, dual data providers, news relevance)
 > **Roadmap audit completed 2026-08-19 - see PLANNING §18 (4-tier product taxonomy).**
 
 ---
@@ -27,17 +27,100 @@
 | 4 - Technical indicators + Alpha Score composite | ✅ **COMPLETE** |
 | 5 - Grounded LLM explanation | ✅ **COMPLETE** |
 | **6 - React dashboard + charts (frontend + backend gaps)** | ✅ **COMPLETE** |
+| **6.5 - Experience overhaul (copy, typography, palette, motion)** | ✅ **COMPLETE** |
+| **6.5 E - Historical financial data layer** | ✅ **COMPLETE** |
+| **6.5 F - Dual data providers (Upstox + MergingProvider)** | ✅ **COMPLETE** |
+| **6.5 G - News relevance, fallback, freshness** | ✅ **COMPLETE** |
 
-**One-line status:** Phase 6 COMPLETE - production **React 19 + Vite + TS + Tailwind v4** frontend
-(landing / markets / screener / stock-research / methodology) consuming the existing `/api/v1`;
-4 smallest-coherent backend additions (CORS config, `GET /stocks/{symbol}` detail+quote,
-`GET /stocks/{symbol}/technicals` raw indicators, `POST /stocks/{symbol}/explain` grounded contextual
-explanations reusing the Phase 5 LLM architecture). **Backend 155/155 tests, frontend 38/38 vitest,
-tsc clean, vite build OK. Live uvicorn+Vite integration verified (CORS, deep link, all endpoints).**
+**One-line status:** Phase 6.5 parts E/F/G COMPLETE on top of the experience overhaul. Part E adds the
+`financial_periods` table (migration `a844177fa25e`), ~5-year annual income-statement ingestion
+(yfinance `income_stmt` + Upstox income-statement API), and five research endpoints (performance,
+alpha history, technicals series, peers, financials history). Part F adds the verified Upstox adapter
+(manual Bearer "Analytics Token" from backend/.env, read-only v2 APIs), a MergingProvider (prices:
+primary wins + gap-fill + source attribution; financials: field coalesce with 5% tolerance and
+disagreement logging), and a provider factory that degrades to yfinance-only without a token. Part G
+moves news ingestion to company-full-name search with symbol fallback only when unusable, applies the
+same relevance filter to both, and enforces the ~30-day freshness window at ingestion and display.
+**Backend 232/232 tests (77 new, zero network); real ingestion 50/50 symbols, 228 periods, 0 errors;
+real 8-stock provider quality check performed; landing background grid lines added (approved reference).**
 
 ---
 
 ## 2. Completed Work
+
+### Session 17 - Phase 6.5 parts E/F/G (2026-09-05)
+
+Historical financials, dual data providers, news relevance. Frontend unchanged except the approved
+landing background grid lines; see PLANNING D56-D60.
+
+- [x] **Part E, historical financial data:** `FinancialPeriod` model + migration `a844177fa25e`
+      (UNIQUE stock_id+period_end+period_type; every metric nullable); `get_financial_history()`
+      as an optional provider capability (ABC default raises NotImplementedError, callers treat as
+      "no history", never an error); yfinance maps `income_stmt` (4-5 annual periods, backend
+      computes margins, missing stays None); `ingest_financial_periods()` job (batched, D19
+      isolation, idempotent upsert refreshing ingested_at) wired into the daily run; five new
+      endpoints in `routers/history.py`: `GET /stocks/{symbol}/performance` (windowed returns,
+      52w range), `/alpha/history`, `/technicals/series`, `/peers`, `/financials/history`.
+      Series variants (sma/ema/rsi/macd) added to `services/indicators.py`, test-pinned equal to
+      the scalar functions.
+- [x] **Part F, dual providers:** Upstox official docs verified before implementation (manual
+      "Analytics Token" generation = Bearer credential; no interactive OAuth). `UpstoxProvider`
+      resolves symbols via the official NSE instruments master (trading_symbol -> instrument_key
+      + ISIN, cached per process), serves candles (yearly windows), key-ratios fundamentals
+      (P/E, P/B, ROE, ROA; the rest stay None), company profile sector, and annual income
+      statements (crore converted to rupees; EPS diluted-over-basic; unparseable period labels
+      skipped, never guessed). `MergingProvider` + pure merge helpers: prices primary-wins by
+      date with secondary gap-fill and per-bar source attribution; fundamentals field coalesce
+      with 5% material-disagreement tolerance and logs (no credentials); financial history
+      period coalesce with per-row source (yfinance/upstox/merged). `build_default_market_provider()`
+      factory: yfinance-only without a token, merged with one; jobs use it. `MarketDataError`
+      moved to `providers/base.py` (re-exported for compatibility). Config gains
+      `upstox_analytics_token` + `openrouter_api_key` (recognized, not wired); `.env.example`
+      documents both.
+- [x] **Part G, news:** `services/news_relevance.py` (pure): relevance = long-symbol mention
+      (>= 4 chars, word-bounded) OR all distinctive company-name tokens (corporate suffixes
+      stripped); blocks generic nouns and unrelated symbol matches ("LT Foods" vs "Larsen &
+      Toubro", "HDFC" parent confusion). `GoogleNewsRSSProvider` searches the company full name
+      first, falls back to the bare-symbol query only when the name search yields nothing
+      usable, applies the same relevance filter + ~30-day freshness to both. Jobs pass the
+      catalog name. `/news` applies the display window (`freshness_days` in the response);
+      sentiment processing untouched.
+- [x] **Verification actually performed:** backend `pytest` **232/232** (77 new: indicator
+      series equality, merge helpers + provider fallbacks, mocked-HTTP Upstox incl. token
+      hygiene, financial-history job + all five endpoints, news relevance/fallback/freshness);
+      migration applied (`alembic current` = head); **real ingestion 50/50 symbols, 228 periods,
+      0 errors** via the merged provider (disagreements logged, primary kept); **real 8-stock
+      provider quality check** (RELIANCE, TCS, INFY, APOLLOHOSP, HDFCBANK, ICICIBANK, SBIN, LT):
+      price bars identical across providers (same 2026-09-04 closes), Upstox fills ROE/ROA gaps
+      yfinance omits (RELIANCE/APOLLOHOSP/LT), confirmed yfinance `.info` defects (INFY P/S
+      225.5x, ~10x INFY EBITDA error), Upstox P/E differs up to ~15% (basis/window differences),
+      Upstox supplies no market cap/P/S/EV/EBITDA absolutes; backend starts and `/health` ok.
+- [x] **Landing grid lines:** `.grid-lines` CSS utility (theme-aware `--rule` color, 80px cells)
+      applied to the landing root only, per the approved reference; nothing else changed.
+
+**Durable decisions (see PLANNING D56-D60):** the Upstox token is a manually generated Bearer
+credential, server-side only; yfinance stays primary (free, no key) with Upstox as gap-filler;
+provider merges are pure, tested functions; financial history is never fabricated (nulls and
+insufficient_data are contractual); news precision beats recall.
+
+### Session 16 - Phase 6.5: experience overhaul (2026-09-05)
+
+Frontend-only phase (zero backend changes). Executed in parts A-C plus review rounds; see PLANNING D49-D55.
+
+- [x] **Part A, copy discipline:** every em dash and AI-tell word removed from user-visible strings, comments, tests and both docs (scrubs verified at zero); null placeholder "-" site-wide; disclaimers normalized; `Grounded` landing section renamed `ExplainerSection`; DataState className regression from the interrupted first attempt reverted.
+- [x] **Part B, typography:** Hanken Grotesk → Instrument Sans, JetBrains Mono → IBM Plex Mono (500/600/700 only, no 400 face), Libre Caslon kept; 12px floor everywhere (54 sub-12px instances removed); `.num` weight 500 floor; `.label-caps` 12px/600; chart canvas font swapped; per-role weight fixes (table cells, metadata labels, nav) without a global bump; light mode inherits identical floors.
+- [x] **Part C, palette:** dimension accent tokens (jade/amber/coral/teal) wired through Framework cards, Hero chips, structure rows, universe bars and the signal diagram; dark-first default via ThemeProvider.
+- [x] **Review round 1 (feedback applied):** dark theme re-skinned to "Warm Ink + Gold" at token level (warm near-black surfaces, off-white ink, gold identity); three stock photos replaced by authored SVG plates (CandleField, UniverseGrid) after the photographic treatment was rejected; all blend modes and 660 KB of images removed (frame-rate fix); sub-12px and blend-mode scans clean.
+- [x] **Review round 2 (feedback applied):** market pulse → continuous marquee of ALL 50 constituents (transform-only, pause on hover, reduced-motion static row); CandleField hover/tap interactive with illustrative OHLC readout; NumbersToSignal flows made equal-length, symmetric, dimension-colored and touching the pulse origin; metric chips spring-hop on hover; framework cards clickable with accent borders + weight-row dim logic; UniverseGrid rebuilt as fifty equal bars; ScrollPulse right rail added (uniform sine, arc-length-exact dot, reduced-motion hidden); glass panels, static washes, section tint rhythm, keyword highlights (`.hi`), logo slots in UniverseStrip, blue ticker treatment, `.chart-frame` boxes; PriceChart crosshair strengthened (dashed faint lines, petrol labels) so hover feedback is visible in light mode.
+- [x] **Review round 3 (palette regrade):** light mode graded from the approved reference concept (bg #f8f9ff, cards #fff, ink #0b1c30, petrol identity #006781, borders #ccd5e6/#b7c5de); dark "Warm Ink + Gold" reverted to and kept exactly as approved.
+- [x] **Verification actually performed:** `tsc -b` clean; vitest **43/43** (5 new `pickTopMovers` tests: magnitude ranking, cap, value integrity, non-finite rejection, empty); `vite build` OK (landing chunk 56.8 kB / gz 17.0); **zero raster images in dist** and zero blend modes (only the pre-existing sticky-header blur); marquee/rail/reveals honor `prefers-reduced-motion`; pulse math checked against the live `/api/v1/stocks` response (top movers match `pickTopMovers` exactly); servers restarted and re-verified (root 200, deep link 200, `/api` proxy 200, backend `/health` ok).
+- [x] **Pushed:** commit `3efb78d` on `main` (58 files); `Refine design concept(2)/` added to `.gitignore` with the other local-only reference folders.
+
+**Durable decisions (see PLANNING D49-D55):** copy discipline is a hard rule; typography has a 500
+weight + 12px floor with no 400 mono face loaded; dimension accents never touch raw metrics; light
+"Cloud White + Petrol" and dark "Warm Ink + Gold" are both approved and independently frozen; no
+photographs, authored SVG plates instead; motion budget = opacity/transform only, reduced-motion
+everywhere; crosshair visibility is part of chart DoD.
 
 ### Session 15 - Phase 6: production frontend + backend gaps (2026-09-04)
 

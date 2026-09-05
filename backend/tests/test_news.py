@@ -2,7 +2,7 @@
 #  - FakeNewsProvider (no RSS) + FakeScorer (no FinBERT) are used everywhere.
 #  - DB writes go to signaldesk_test via session_factory / monkeypatched SessionLocal.
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import select
 
@@ -19,13 +19,17 @@ class FakeNewsProvider(NewsProvider):
 
     def __init__(self, fail_symbol: str | None = None):
         self.fail_symbol = fail_symbol
+        self.company_names: dict[str, str | None] = {}
         self._titles = [
             "Company posts record profits and raises guidance",
             "Analysts downgrade the stock after weak quarter",
             "Board announces share buyback",
         ]
 
-    async def fetch_articles(self, symbol: str, limit: int = 20) -> list[Article]:
+    async def fetch_articles(
+        self, symbol: str, limit: int = 20, company_name: str | None = None
+    ) -> list[Article]:
+        self.company_names[symbol] = company_name
         if symbol == self.fail_symbol:
             raise MarketDataError(f"simulated news failure for {symbol}")
         return [
@@ -128,11 +132,13 @@ async def test_ingest_news_isolates_failures(session_factory, monkeypatch):
 
 
 async def _seed_news(session_factory) -> None:
+    # Recent, timezone-aware dates so the freshness window never ages out.
+    now = datetime.now(timezone.utc)
     async with session_factory() as session:
         a1 = NewsArticle(symbol="RELIANCE.NS", source="Test", title="Profits up",
-                         url="https://e.com/1", published_at=datetime(2026, 8, 18, tzinfo=timezone.utc))
+                         url="https://e.com/1", published_at=now - timedelta(days=1))
         a2 = NewsArticle(symbol="RELIANCE.NS", source="Test", title="Stock drops",
-                         url="https://e.com/2", published_at=datetime(2026, 8, 17, tzinfo=timezone.utc))
+                         url="https://e.com/2", published_at=now - timedelta(days=2))
         session.add_all([a1, a2])
         await session.flush()
         session.add_all([

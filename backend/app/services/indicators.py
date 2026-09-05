@@ -138,3 +138,117 @@ def score_technicals(closes: list[float]) -> dict:
 def _clamp(value: float, low: float = 0.0, high: float = 100.0) -> float:
     """Clamp a value into [low, high]."""
     return max(low, min(high, value))
+
+
+# --- Series variants (Phase 6.5 Part E: /technicals/series) ----------------
+#
+# Each series function produces, for every close, the same value the scalar
+# function would produce if called on the prefix ending at that close. Tests
+# pin this equality (series[-1] == scalar(closes)), so the two stay one math.
+
+
+def sma_series(closes: list[float], period: int = 20) -> list[float | None]:
+    """Rolling SMA; None until `period` closes exist.
+
+    Each value is computed with the same statistics.mean call the scalar
+    function uses, so the two agree bit-for-bit.
+    """
+    out: list[float | None] = [None] * len(closes)
+    if len(closes) < period:
+        return out
+    for i in range(period - 1, len(closes)):
+        out[i] = mean(closes[i - period + 1 : i + 1])
+    return out
+
+
+def ema_series(closes: list[float], period: int = 12) -> list[float | None]:
+    """EMA series; None until the SMA seed exists, then one value per close.
+
+    Reuses `_ema_series` (the MACD code path) so the seed and smoothing are
+    literally the same math.
+    """
+    out: list[float | None] = [None] * len(closes)
+    values = _ema_series(closes, period)
+    if values is None:
+        return out
+    for i, v in enumerate(values):
+        out[i + period - 1] = v
+    return out
+
+
+def rsi_series(closes: list[float], period: int = 14) -> list[float | None]:
+    """Wilder RSI series; the first value appears at index `period`."""
+    out: list[float | None] = [None] * len(closes)
+    if len(closes) < period + 1:
+        return out
+
+    gains: list[float] = []
+    losses: list[float] = []
+    for i in range(1, len(closes)):
+        change = closes[i] - closes[i - 1]
+        gains.append(max(change, 0.0))
+        losses.append(max(-change, 0.0))
+
+    def _rsi(avg_gain: float, avg_loss: float) -> float:
+        if avg_loss == 0:
+            return 100.0
+        rs = avg_gain / avg_loss
+        return 100.0 - (100.0 / (1.0 + rs))
+
+    # Seed: simple mean of the first `period` deltas (index `period` in closes).
+    avg_gain = mean(gains[:period])
+    avg_loss = mean(losses[:period])
+    out[period] = _rsi(avg_gain, avg_loss)
+
+    # Wilder smoothing for every subsequent close (same recursion as rsi()).
+    for i in range(period, len(gains)):
+        avg_gain = (avg_gain * (period - 1) + gains[i]) / period
+        avg_loss = (avg_loss * (period - 1) + losses[i]) / period
+        out[i + 1] = _rsi(avg_gain, avg_loss)
+    return out
+
+
+def macd_series(
+    closes: list[float], fast: int = 12, slow: int = 26, signal: int = 9
+) -> dict[str, list[float | None]]:
+    """MACD line/signal/histogram series aligned to the closes.
+
+    Uses the same alignment as macd(): the MACD line exists where both EMA
+    series exist (from index slow-1), the signal is an EMA of that line.
+    """
+    n = len(closes)
+    out: dict[str, list[float | None]] = {
+        "macd": [None] * n,
+        "signal": [None] * n,
+        "histogram": [None] * n,
+    }
+
+    ema_fast = _ema_series(closes, fast)
+    ema_slow = _ema_series(closes, slow)
+    if ema_fast is None or ema_slow is None:
+        return out
+
+    macd_line: list[float | None] = [None] * n
+    # Same alignment as macd(): pair ema_slow[j] with ema_fast[start + j],
+    # where both EMAs are seeded for closes index j + slow - 1.
+    start = slow - fast
+    for j in range(len(ema_slow)):
+        closes_idx = j + slow - 1
+        macd_line[closes_idx] = ema_fast[start + j] - ema_slow[j]
+
+    # The signal EMA runs over the contiguous tail of MACD line values.
+    tail_start = slow - 1
+    valid = [v for v in macd_line[tail_start:] if v is not None]
+    sig = _ema_series(valid, signal) if len(valid) >= signal else None
+    signal_line: list[float | None] = [None] * n
+    if sig is not None:
+        for j, v in enumerate(sig):
+            signal_line[tail_start + (signal - 1) + j] = v
+
+    for i in range(n):
+        m, s = macd_line[i], signal_line[i]
+        if m is not None and s is not None:
+            out["histogram"][i] = m - s
+    out["macd"] = macd_line
+    out["signal"] = signal_line
+    return out

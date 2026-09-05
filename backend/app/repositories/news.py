@@ -1,5 +1,7 @@
 # News repository — read queries for the /news and /sentiment endpoints.
 
+from datetime import datetime, timedelta, timezone
+
 from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -8,16 +10,32 @@ from app.models import NewsArticle, NewsSentiment
 
 
 async def get_articles(
-    session: AsyncSession, symbol: str, limit: int
+    session: AsyncSession,
+    symbol: str,
+    limit: int,
+    fresh_days: int | None = None,
 ) -> list[NewsArticle]:
-    """Return a symbol's articles, newest first, eager-loading sentiment."""
-    result = await session.execute(
+    """Return a symbol's articles, newest first, eager-loading sentiment.
+
+    fresh_days applies the display freshness window (approximately 30 days
+    per the product plan): dated articles older than the window are hidden.
+    Undated articles cannot be proven stale and are kept. Pass None to
+    disable the window entirely.
+    """
+    q = (
         select(NewsArticle)
         .options(selectinload(NewsArticle.sentiment))
         .where(NewsArticle.symbol == symbol)
-        .order_by(NewsArticle.published_at.desc().nulls_last(), NewsArticle.id.desc())
-        .limit(limit)
     )
+    if fresh_days is not None:
+        cutoff = datetime.now(timezone.utc) - timedelta(days=fresh_days)
+        q = q.where(
+            (NewsArticle.published_at.is_(None)) | (NewsArticle.published_at >= cutoff)
+        )
+    q = q.order_by(
+        NewsArticle.published_at.desc().nulls_last(), NewsArticle.id.desc()
+    ).limit(limit)
+    result = await session.execute(q)
     return list(result.scalars())
 
 

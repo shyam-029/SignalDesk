@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db import get_session
 from app.routers.common import resolve_stock
 from app.repositories import news as news_repo
+from app.services.news_relevance import NEWS_FRESHNESS_DAYS
 
 router = APIRouter(prefix="/stocks", tags=["news"])
 
@@ -26,6 +27,7 @@ class NewsArticleResponse(BaseModel):
 
 class NewsListResponse(BaseModel):
     items: list[NewsArticleResponse]
+    freshness_days: int  # the display window applied to these items
 
 
 class SentimentResponse(BaseModel):
@@ -41,9 +43,15 @@ async def get_news(
     session: SessionDep,
     limit: int = Query(20, ge=1, le=50),
 ) -> NewsListResponse:
-    """Return recent news articles for a stock, newest first."""
+    """Return recent news articles for a stock, newest first.
+
+    The approximately 30-day freshness window is applied to what is
+    displayed here (and at ingestion); sentiment processing is unchanged.
+    """
     stock = await resolve_stock(session, symbol)
-    articles = await news_repo.get_articles(session, stock.symbol, limit)
+    articles = await news_repo.get_articles(
+        session, stock.symbol, limit, fresh_days=NEWS_FRESHNESS_DAYS
+    )
     return NewsListResponse(
         items=[
             NewsArticleResponse(
@@ -55,7 +63,8 @@ async def get_news(
                 sentiment=a.sentiment.label if a.sentiment else None,
             )
             for a in articles
-        ]
+        ],
+        freshness_days=NEWS_FRESHNESS_DAYS,
     )
 
 

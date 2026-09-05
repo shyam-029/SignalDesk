@@ -11,6 +11,15 @@ from dataclasses import dataclass
 from datetime import date
 
 
+class MarketDataError(Exception):
+    """Raised when a market data provider fails for a specific symbol.
+
+    Defined on the shared interface (not in a concrete provider) so every
+    adapter can raise the same error type without importing each other.
+    Kept importable from `yfinance_provider` for backward compatibility.
+    """
+
+
 @dataclass(frozen=True)
 class OHLCV:
     """One daily price bar (open / high / low / close / volume)."""
@@ -21,6 +30,9 @@ class OHLCV:
     low: float
     close: float
     volume: int
+    # Which provider produced this bar (source attribution for merged
+    # series). None when the origin is unknown.
+    source: str | None = None
 
 
 @dataclass(frozen=True)
@@ -61,6 +73,26 @@ class Fundamentals:
     current_ratio: float | None = None
 
 
+@dataclass(frozen=True)
+class FinancialPeriodDraft:
+    """One historical income-statement period as reported by a provider.
+
+    Values are raw provider numbers in RUPEES (adapters must convert their
+    native units, e.g. Upstox crore, before constructing this). Margins are
+    decimals (0.18 = 18%). None means the provider did not supply the field
+    for that period; callers must never invent a value.
+    """
+
+    period_end: date
+    period_type: str  # "annual" | "quarterly"
+    revenue: float | None = None
+    net_income: float | None = None
+    operating_margin: float | None = None
+    net_margin: float | None = None
+    eps: float | None = None
+    source: str = ""
+
+
 class MarketDataProvider(ABC):
     """Contract every market data source must implement."""
 
@@ -92,3 +124,16 @@ class MarketDataProvider(ABC):
         Returns a Fundamentals object; fields the source cannot supply are None.
         """
         ...
+
+    async def get_financial_history(
+        self, symbol: str
+    ) -> list["FinancialPeriodDraft"]:
+        """Return historical income-statement periods for a symbol.
+
+        Optional capability: providers that do not implement it keep the
+        default, which callers treat as "no history available" (never an
+        error). Implementations return one draft per reporting period,
+        newest or oldest first (the repository normalizes ordering), with
+        None for every field the source does not supply.
+        """
+        raise NotImplementedError(f"{type(self).__name__} has no financial history")

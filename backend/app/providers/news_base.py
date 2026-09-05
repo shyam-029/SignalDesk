@@ -21,12 +21,17 @@ class NewsProvider(ABC):
     """Contract every news source must implement."""
 
     @abstractmethod
-    async def fetch_articles(self, symbol: str, limit: int = 20) -> list[Article]:
+    async def fetch_articles(
+        self, symbol: str, limit: int = 20, company_name: str | None = None
+    ) -> list[Article]:
         """Return recent articles for a symbol (newest first).
 
         Args:
             symbol: fully-qualified symbol, e.g. "RELIANCE.NS".
             limit: maximum number of articles to return.
+            company_name: the stock's full name from the catalog, when
+                known. Sources should prefer it for the primary search and
+                fall back to symbol-based search only when needed.
 
         Returns:
             Chronologically-sorted (newest-first) list of Article objects.
