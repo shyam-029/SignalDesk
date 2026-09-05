@@ -29,7 +29,7 @@ export default function LandingPage() {
     : null;
 
   return (
-    <div>
+    <div className="grid-lines">
       <ScrollPulse />
       <MarketPulse />
       <Hero sparkline={sparkline} />
