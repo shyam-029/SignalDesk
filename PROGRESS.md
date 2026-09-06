@@ -3,7 +3,7 @@
 > **Purpose:** The operational counterpart to `PLANNING.md`. This is the file to read FIRST to pick up
 > where we left off. Updated after every phase.
 > **Rules:** What's done → in progress → next. Command cheatsheet. Known gotchas.
-> **Last updated:** 2026-09-06 (Session 19 - review round: Nifty 250 universe, data refresh to the last trading day, valuation fallback, retroactive alpha, news widening, research UX fixes)
+> **Last updated:** 2026-09-06 (Session 20 - alpha-history recompute, chart legibility + date tracker, peers table sort/collapse, section alternation + glass panels, Part H grounded single-shot ask)
 > **Roadmap audit completed 2026-08-19 - see PLANNING §18 (4-tier product taxonomy).**
 
 ---
@@ -33,22 +33,115 @@
 | **6.5 G - News relevance, fallback, freshness** | ✅ **COMPLETE** |
 | **6.5 D - Stock research page expansion** | ✅ **COMPLETE** |
 | **6.5 - Review round (250 universe, refresh, fixes)** | ✅ **COMPLETE** |
+| **Session 20 - Alpha history recompute + research UX fixes** | ✅ **COMPLETE** |
+| **Part H - Grounded single-shot ask (LLM)** | ✅ **COMPLETE** |
 
-**One-line status:** Phase 6.5 COMPLETE including the review round. The catalog is now the official
-**Nifty 250** (universes nifty50/100/250 seeded from the NSE lists), every dataset refreshed to the
-last trading day (122,619 price bars, 250 merged financials with Upstox balance-sheet enrichment,
-2,720 annual + quarterly periods, 116,982 alpha snapshots incl. the retroactive backfill, 4,769
-news articles under the widened 60-day window). Valuation multiples now fall back to Upstox key
-ratios (the EV/EBITDA "Something went wrong" case is gone), stock/markets/screener rows carry
-monogram logos and directional arrows, charts no longer shrink under drag with the OHLC readout
-promoted, technical charts show three stacked equal-size 3-year series, financial history renders
-bars per period, peers link to their pages, the research chat is a real threaded window, and the
-markets/screener tables are server-sorted with sector links and filters. **Backend 233/233;
-frontend tsc clean, vitest 59/59, build OK; every endpoint smoke-tested live.**
+**One-line status:** Phase 6.5 + Session 20 + Part H COMPLETE. Session 20 recomputed the entire
+alpha history under a corrected, EMA-smoothed formula (119,707 snapshots, all real 40/30/30
+blends; RELIANCE's composite now drifts ~0.25 points/day instead of sawtoothing across 0-100),
+gave every research chart a single date tracker cursor and a legible 1-year indicator series,
+made the peers table sortable with a show-3 / show-all collapse, alternated section backgrounds
+in both themes, and added glass panels. Part H adds `POST /stocks/{symbol}/ask`: a single-shot,
+evidence-only grounded LLM question (allow-listed evidence, untrusted-question sandboxing,
+strict JSON output contract, 15-min TTL cache, shared daily cap, rule-based fallback,
+OpenRouter guardrail integration; verified with ONE real request - `source: "model"`).
+**Backend 259/259; frontend tsc clean, vitest 59/59, build OK.**
 
 ---
 
 ## 2. Completed Work
+
+### Session 20 - alpha-history recompute, research UX fixes, Part H ask (2026-09-06)
+
+Product-review fixes (wrong-looking alpha charts, illegible charts, missing section separation,
+derived-number audit) followed by the Part H grounded single-shot ask. See PLANNING D71-D76 for
+the durable decisions.
+
+- [x] **Alpha history recomputed (the "Alpha == Technical" bug):** the retroactive backfill
+      previously renormalized missing fundamental/sentiment weights down to technical-only, so
+      the composite was IDENTICAL to the technical score at every point. The backfill now holds
+      each stock's latest known fundamental + sentiment scores constant across the window and
+      computes the REAL 40/30/30 blend per day, then replaces the symbol's stored snapshots.
+      Full recompute executed against the dev DB: 119,707 snapshots, 119,707 with a fundamental
+      component (was 39).
+- [x] **Technical score no longer sawtooths:** sub-score scaling softened (trend ±20% vs SMA20
+      spans 0-100 instead of ±10%; momentum ±2% histogram/price instead of ±1%) and the
+      composite is an EMA(5) of the daily raw scores (`score_technicals_series`, O(n) rolling).
+      The scalar `score_technicals` is literally the last entry of the series, so live /alpha,
+      /technicals and the backfill are one math. RELIANCE's daily composite delta dropped to
+      ~0.25 points on average (range 51-60).
+- [x] **Chart legibility + date tracker:** every chart (price, alpha history, indicator series,
+      financial history) now shows a single vertical crosshair whose time-axis label carries the
+      date; no horizontal price line/bubble. Technical series default window cut from 750 to 250
+      bars (one trading year) - dense 3-year lines were unreadable at panel size.
+- [x] **Peers table UX:** all six metric columns (price, 1D, P/E, ROE, net margin, D/E) are
+      sortable (nulls last both directions, aria-sort, click to flip); three peers show by
+      default with a "Show all N peers" / "Show less" footer toggle.
+- [x] **Visual section separation:** new `--section-alt` token ("a bit darker shade of white"
+      light mode, lighter warm-ink dark mode) applied to alternating sections on the stock page
+      (Price, Fundamentals, News) and across the landing sequence; the ad-hoc
+      `bg-surface-2/30|40` washes were replaced by the token. Glassy `.glass` panels: alpha
+      history chart, technical-evidence and written-explanation cards (peers table and
+      performance strip were already glass).
+- [x] **Derived-number audit:** peer medians (median over valid positive multiples, target
+      excluded), profitability/solvency threshold scoring, performance windows, 52w range,
+      annualized volatility, sentiment aggregation and D/E-vs-percent unit handling all
+      verified correct against the code. One real display bug found and fixed:
+      `summaries.ts` looked for components named `roe`/`de_ratio` but the backend sends
+      `ROE`/`Debt/Equity`, so collapsed fundamentals summaries never showed their raw input.
+      Tests updated to the real component names.
+- [x] **Part H - grounded single-shot ask** (below).
+
+### Session 20 Part H - grounded single-shot ask (2026-09-06)
+
+`POST /stocks/{symbol}/ask` - one natural-language question about THIS stock's computed data.
+NOT a chatbot: single-shot, no conversation memory, no tool use, no DB access from the model.
+
+- [x] **Evidence-only architecture:** the router (`app/routers/ask.py`) builds the evidence
+      object EXPLICITLY (company, quote, alpha + value signal, technicals, P/E valuation,
+      fundamental scores, windowed performance + volatility, sentiment aggregate, last five
+      annual periods, static methodology). `ask_narrative.filter_evidence()` allow-lists the
+      top level AND one nested level before anything reaches a prompt; `_gather_evidence`
+      never touches ORM `__dict__`. Bare stocks carry no alpha block at all, so the
+      evidence-sufficiency check sees honest emptiness.
+- [x] **Untrusted question handling:** sanitize (control chars stripped, whitespace collapsed,
+      500-char cap measured on the RAW input), rule-based scope classifier rejects clearly
+      off-topic questions with no LLM spend (finance hints win ambiguity), insufficient-evidence
+      state answers without the LLM, and the question is embedded in the user message as a
+      quoted data string while the system prompt forbids following embedded instructions,
+      revealing the prompt, giving advice, or claiming external sources.
+- [x] **Strict output contract:** the model must return `{"answer", "evidence", "confidence"}`
+      JSON; `validate_output()` parses defensively (fences/preamble tolerated) and validates
+      strictly - malformed output falls back to the deterministic rule-based answer built from
+      the same evidence (confidence "low").
+- [x] **Cache / cap / fallback:** 15-minute TTL per (symbol, question) in-process; the SHARED
+      Phase 5 daily budget (`llm_narrative.budget_ok/register_llm_call` - no second counter);
+      fallback chain: no key -> no model -> cap -> model unavailable -> provider error ->
+      malformed output -> rule-based answer. Model availability is verified against the
+      OpenRouter catalog (GET /models, 10-min memo) before the first real request.
+- [x] **OpenRouter guardrail integration:** the workspace prompt-injection regex guardrail is
+      provider-side (never recreated in-app); a 403 from OpenRouter is surfaced as a safe
+      `ASK_BLOCKED` 422 envelope with a generic message - no guardrail internals exposed.
+      `LLMError` now carries the HTTP status.
+- [x] **Config wiring:** `LLM_API_KEY` is primary with `OPENROUTER_API_KEY` as an
+      `AliasChoices` alias (the dev .env only ever set the latter, so the LLM was silently
+      disabled before); `.env.example` documents both plus the guardrail note.
+- [x] **Frontend:** `AskPanel` rebuilt as a single-shot glass panel (no thread): 500-char
+      textarea with counter, suggested questions, answer with evidence bullets + confidence
+      badge, dedicated states for blocked/off-network, Enter-to-send. New `api.ask`,
+      `AskResponse` types, `useAsk` mutation (no auto-retry).
+- [x] **Zero-network tests (`tests/test_ask.py`, 21 tests):** sanitization, scope classification
+      (incl. finance-hint win), evidence allow-list, prompt-embedding-of-injection, contract
+      validation (valid/fenced/preamble/malformed), rule-based fallback numbers, endpoint
+      success (shares the daily cap), injection attempt stays structured, guardrail block ->
+      safe error, off-topic skip, insufficient-evidence skip, malformed-output fallback,
+      provider-error fallback, TTL cache hit, daily cap fallback, model-unavailable fallback.
+- [x] **Real smoke test:** model availability verified, then ONE live request
+      (`POST /stocks/RELIANCE/ask`, question "Why is the Alpha score what it is, and how is the
+      valuation versus peers?") returned 200 with `source: "model"`, a fully grounded answer
+      (Alpha 54 = 40% fundamental 62 / 30% technical 49 / 30% sentiment 48; P/E 23.92 vs peer
+      median 7.87, overvalued +203.94% with peer_count=1 caveat) and a 5-item evidence list.
+      Model: `minimax/minimax-m3:free` (configured via `LLM_MODEL`; availability verified).
 
 ### Session 19 - review round: Nifty 250, data refresh, research UX fixes (2026-09-06)
 
@@ -413,10 +506,10 @@ backend math (EV/EBITDA comes only from the valuation endpoint); verdict wording
 
 ### Phase 5 recap (done - grounded LLM explanation)
 - LLM provider abstraction (`LLMProvider`, `LLMResult`, `OpenRouterProvider`) - prompt **only with allow-listed computed facts** via `_alpha_facts()`.
-- Wired into `/alpha` only (`explanation` field). `/scores` + `/valuation` reuse the ABC later.
+- Wired into `/alpha` (explanation), `/explain` (five fixed question types) and `/ask` (Part H single-shot questions).
 - LLM mocked in tests (FakeLLMProvider + mocked httpx); rule-based fallback always available.
-- In-process TTL cache + daily cap + cost logging; Redis deferred.
-- **To enable the LLM live:** set `LLM_API_KEY` + a currently-available `LLM_MODEL` in `backend/.env` (see `.env.example`). Verify the free model is still served by OpenRouter first.
+- In-process TTL cache + SHARED daily cap + cost logging; Redis deferred.
+- **To enable the LLM live:** set `LLM_API_KEY` (or `OPENROUTER_API_KEY`, accepted as an alias) + a currently-available `LLM_MODEL` in `backend/.env` (see `.env.example`). The ask endpoint additionally verifies the model against the OpenRouter catalog before its first real request.
 
 ### Note on test DB
 Tests use dedicated `signaldesk_test`; `conftest.py` handles schema rebuild + dependency override. Never hit the real `signaldesk` DB.
@@ -456,6 +549,8 @@ cd C:\Users\shyam\Desktop\Projects\signaldesk\backend
 .\.venv\Scripts\python.exe -c "import asyncio; from app.jobs import ingest_universe; asyncio.run(ingest_universe())"  # run price ingestion
 .\.venv\Scripts\python.exe -c "import asyncio; from app.jobs import ingest_financials; asyncio.run(ingest_financials())"  # run financials ingestion
 .\.venv\Scripts\python.exe -c "import asyncio; from app.jobs import ingest_news; asyncio.run(ingest_news())"  # run news + sentiment (slow: FinBERT)
+.\.venv\Scripts\python.exe -m app.jobs backfill                        # recompute the whole alpha history (replaces snapshots per symbol)
+.\.venv\Scripts\python.exe -m app.jobs ingest                          # run the full daily ingestion pass (prices, financials, periods, backfill, news)
 
 # --- Tests ---
 cd C:\Users\shyam\Desktop\Projects\signaldesk\backend
@@ -500,6 +595,17 @@ git push
 
 ## 6. Known Gotchas & Decisions Made
 
+- **Never rewrite repo .md files with PowerShell text processing** - PS 5.1 `Get-Content`/`Set-Content`
+  mangles UTF-8 (→ mojibake + BOM). Use the editor/edit tool for .md files; if corrupted,
+  `git checkout -- <file>` restores.
+- **Alpha backfill replaces a symbol's snapshots** (Session 20): `_backfill_one_alpha` deletes the
+  symbol's rows before inserting the recomputed series - that is what makes formula changes propagate.
+  Live /alpha requests rebuild today's snapshot on the next page view, so the daily job stays safe.
+- **`OPENROUTER_API_KEY` is an alias for `LLM_API_KEY`** (AliasChoices in config.py). The dev .env
+  only set the former, which silently disabled the LLM until Session 20 wired the alias.
+- **The ask endpoint's evidence sufficiency is explicit** - a bare stock must carry NO alpha block
+  (composite None) or `has_min_evidence` treats the all-null dict as data and skips the honest
+  "insufficient" state.
 - **PostgreSQL is 17.11, not 16** - decided to keep 17 (newer). Documented in PLANNING (D20).
 - **EDB automated downloads are geo/network-blocked** (403 via CloudFront) - must use the
   `sbp.enterprisedb.com/getfile.jsp?fileid=...` tokenized binaries links if reinstall needed.

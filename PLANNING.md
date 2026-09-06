@@ -883,12 +883,63 @@ Chronological record of decisions. Append as time progresses.
   process is alive. Unattended daily updates require a deployed worker or
   OS-level scheduler - tracked for the deployment phase, not solved
   client-side or with a fake cron.
-- **Verified:** backend pytest **233/233**; frontend tsc clean, vitest
-  **59/59**, `vite build` OK; live smoke of server-side sorting (markets +
-  screener), sector filtering, the EV/EBITDA fallback (BAJFINANCE 18.51 vs
-  13.18), enriched solvency components, 60-day news (20 articles for
-  RELIANCE), and DB freshness (latest bar 2026-09-04, 250 stocks, 2,720
-  periods, 116,982 alpha snapshots, 4,769 news articles).
+- **D71.** (2026-09-06, Session 20) **Alpha history is a real blend, never a
+  technical-only collapse**: the retroactive backfill holds each stock's
+  latest known fundamental and sentiment scores constant across the window
+  (they are slow-moving point-in-time metrics with no stored history) and
+  computes the true 40/30/30 composite per day, then REPLACES the symbol's
+  stored snapshots so formula changes propagate. Live /alpha requests rebuild
+  today's snapshot on the next page view.
+- **D72.** (2026-09-06, Session 20) **Technical score calibration**: sub-score
+  sensitivity softened (trend: ±20% vs SMA20 spans 0-100; momentum: ±2%
+  MACD-histogram/price spans 0-100) and the composite is an EMA(5) of the
+  daily raw scores (`score_technicals_series`). The scalar
+  `score_technicals` is the last entry of the series, so live scores and the
+  backfill are one math. Rationale: a research signal should drift, not
+  sawtooth with single-day indicator noise.
+- **D73.** (2026-09-06, Session 20) **Research-page visual system**: every
+  chart carries a single vertical date tracker (no horizontal price line or
+  axis bubble - values live in the readouts); technical series default to
+  250 bars (one trading year) for legibility; sections alternate on a
+  `--section-alt` background token (light: slightly darker cool white, dark:
+  lighter warm ink) with `.glass` reserved for small/medium panels (alpha
+  history, evidence, explanation, peers, performance).
+- **D74.** (2026-09-06, Session 20) **Peers table interaction**: six sortable
+  metric columns (price, 1D, P/E, ROE, net margin, D/E; nulls sort last in
+  both directions), three peers visible by default with a show-all/show-less
+  footer toggle.
+- **D75.** (2026-09-06, Session 20, Part H) **`POST /stocks/{symbol}/ask` -
+  grounded single-shot ask, evidence-only architecture**: the backend builds
+  an explicit allow-listed evidence object (company, quote, alpha + value
+  signal, technicals, P/E valuation, fundamentals, performance + volatility,
+  sentiment, last five annual periods, methodology) and double-filters it
+  (`filter_evidence`, top level + one nested level). The user question is
+  untrusted input: sanitized, 500-char capped (raw length), scope-classified
+  (clearly off-topic → no LLM spend), and embedded in the prompt as a quoted
+  data string while the system prompt forbids instruction-following from it,
+  advice, invented facts, and external-source claims. Strict JSON output
+  contract `{"answer", "evidence", "confidence"}` validated in the backend;
+  malformed output falls back to a deterministic rule-based answer built from
+  the same evidence. Single-shot only: no conversation memory, no thread.
+- **D76.** (2026-09-06, Session 20, Part H) **Ask operations**: 15-minute
+  in-process TTL cache per (symbol, question); the SHARED Phase 5 daily cap
+  (`llm_narrative.budget_ok/register_llm_call` - one counter across /alpha,
+  /explain and /ask); model availability verified against the OpenRouter
+  catalog (10-min memo) before the first real request; OpenRouter's
+  workspace prompt-injection guardrail is the provider-side layer (never
+  recreated in-app) and a 403 from it maps to a safe generic `ASK_BLOCKED`
+  error with no guardrail internals exposed. `LLM_API_KEY` is primary with
+  `OPENROUTER_API_KEY` accepted as an alias (the alias wiring was required -
+  the dev .env only set the latter, silently disabling the LLM).
+- **Verified (Session 20):** backend pytest **259/259** (was 238 before Part
+  H's 21 ask tests; alpha/indicator suites updated for the new score math);
+  frontend tsc clean, vitest **59/59**, `vite build` OK; alpha history
+  recomputed in the dev DB (119,707 snapshots, all real blends; RELIANCE
+  average daily composite delta ~0.25 pts, range 51-60); ONE real OpenRouter
+  request (`POST /stocks/RELIANCE/ask`) returned 200 with `source: "model"`,
+  grounded answer (Alpha 54; P/E 23.92 vs peer median 7.87) and a 5-item
+  evidence list, model `minimax/minimax-m3:free` (availability verified
+  first). `git ls-files backend/.env` returns nothing; no secrets in the diff.
 
 ---
 

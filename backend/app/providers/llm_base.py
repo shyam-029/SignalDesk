@@ -20,7 +20,17 @@ class LLMResult:
 
 
 class LLMError(Exception):
-    """Raised when an LLM provider fails (network, non-2xx, or malformed body)."""
+    """Raised when an LLM provider fails (network, non-2xx, or malformed body).
+
+    `status_code` carries the HTTP status when the failure came from a
+    non-2xx provider response (None for network/parse failures). Callers use
+    it to distinguish policy rejections (e.g. 403 from a provider-side
+    guardrail) from transient outages without parsing message strings.
+    """
+
+    def __init__(self, message: str, status_code: int | None = None):
+        super().__init__(message)
+        self.status_code = status_code
 
 
 class LLMProvider(ABC):

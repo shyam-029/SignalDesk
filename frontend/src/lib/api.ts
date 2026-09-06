@@ -8,6 +8,7 @@
 import type {
   AlphaHistoryResponse,
   AlphaResponse,
+  AskResponse,
   ExplainQuestionType,
   ExplainResponse,
   FinancialsHistoryResponse,
@@ -153,6 +154,12 @@ export const api = {
   explain: (symbol: string, questionType: ExplainQuestionType) =>
     apiPost<ExplainResponse>(`/stocks/${encodeURIComponent(symbol)}/explain`, {
       question_type: questionType,
+    }),
+
+  // Part H: grounded single-shot ask.
+  ask: (symbol: string, question: string) =>
+    apiPost<AskResponse>(`/stocks/${encodeURIComponent(symbol)}/ask`, {
+      question,
     }),
 
   // --- Historical research (Phase 6.5 Part E) ---

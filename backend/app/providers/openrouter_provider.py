@@ -25,11 +25,15 @@ class OpenRouterProvider(LLMProvider):
         base_url: str = "https://openrouter.ai/api/v1",
         model: str = "",
         timeout: float = 30.0,
+        temperature: float = 0.2,
+        max_tokens: int = 300,
     ):
         self._api_key = api_key
         self._base_url = base_url.rstrip("/")
         self._model = model
         self._timeout = timeout
+        self._temperature = temperature
+        self._max_tokens = max_tokens
 
     def _endpoint(self) -> str:
         return f"{self._base_url}/chat/completions"
@@ -41,9 +45,33 @@ class OpenRouterProvider(LLMProvider):
                 {"role": "system", "content": system},
                 {"role": "user", "content": user},
             ],
-            "temperature": 0.2,  # low: narrate facts, do not improvise
-            "max_tokens": 300,
+            "temperature": self._temperature,  # low: narrate facts, do not improvise
+            "max_tokens": self._max_tokens,
         }
+
+    async def model_available(self) -> bool:
+        """True if the configured model is currently served by OpenRouter.
+
+        Uses the public GET /models catalog (network call). A failure to
+        reach the catalog returns False so the caller can fall back instead
+        of spending a doomed completion request.
+        """
+        try:
+            async with httpx.AsyncClient(timeout=self._timeout) as client:
+                resp = await client.get(
+                    f"{self._base_url}/models",
+                    headers={"Authorization": f"Bearer {self._api_key}"},
+                )
+        except httpx.HTTPError:
+            return False
+        if resp.status_code != 200:
+            return False
+        try:
+            payload = resp.json()
+            ids = {m.get("id") for m in payload.get("data", [])}
+        except (ValueError, AttributeError):
+            return False
+        return self._model in ids
 
     @staticmethod
     def _parse_text(payload: dict, model: str) -> str:
@@ -80,8 +108,13 @@ class OpenRouterProvider(LLMProvider):
             raise LLMError(f"LLM request failed: {exc}")
 
         if resp.status_code != 200:
-            # Non-2xx: surface a clean error so the caller can fall back.
-            raise LLMError(f"LLM returned HTTP {resp.status_code}")
+            # Non-2xx: surface a clean error so the caller can fall back. The
+            # status is preserved (e.g. 403 = rejected by an OpenRouter
+            # guardrail such as prompt-injection detection) without exposing
+            # the response body, which may carry provider-internal details.
+            raise LLMError(
+                f"LLM returned HTTP {resp.status_code}", status_code=resp.status_code
+            )
 
         try:
             payload = resp.json()

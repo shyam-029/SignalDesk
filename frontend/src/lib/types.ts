@@ -180,6 +180,18 @@ export interface ExplainResponse {
   explanation: string;
 }
 
+// Part H: grounded single-shot ask (POST /stocks/{symbol}/ask).
+export type AskSource = "model" | "rule_based" | "scope" | "insufficient";
+export type AskConfidence = "high" | "medium" | "low";
+
+export interface AskResponse {
+  symbol: string;
+  answer: string;
+  evidence: string[];
+  confidence: AskConfidence;
+  source: AskSource;
+}
+
 // --- Historical research (Phase 6.5 Part E endpoints) ------------------------
 
 export interface WindowPerformance {
