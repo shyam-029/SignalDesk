@@ -940,6 +940,30 @@ Chronological record of decisions. Append as time progresses.
   grounded answer (Alpha 54; P/E 23.92 vs peer median 7.87) and a 5-item
   evidence list, model `minimax/minimax-m3:free` (availability verified
   first). `git ls-files backend/.env` returns nothing; no secrets in the diff.
+- **D77.** (2026-09-06, Session 20 follow-up) **Charts never build at zero
+  width; even grid backgrounds**: chart components (PriceChart,
+  TimeSeriesChart) gate creation on a real container width (ResizeObserver
+  gate + rebuild on visibility) because collapsible sections keep content
+  mounted with `hidden` - a chart created at width 0 renders squished/offset.
+  Vertical grid lines are disabled everywhere: the time scale's calendar
+  ticks sit at uneven trading-day distances, so horizontal-only reference
+  lines keep the background regular; the hover date tracker remains.
+- **D78.** (2026-09-06, Session 20 follow-up) **Financials history views**:
+  quarterly results are the default view of the historical financials chart.
+  Larger buckets are BACKEND-derived (the frontend never aggregates):
+  `group=half_yearly` sums two consecutive fiscal quarters and
+  `group=three_yearly` sums three consecutive fiscal years on
+  `/financials/history`. Revenue/net income are summed over periods that
+  carry them, net margin is recomputed from the sums, operating margin is
+  revenue-weighted, EPS is never summed across periods, and every grouped
+  row declares `aggregated_from`. Yearly view = stored annual rows; missing
+  granularities show an honest insufficient state.
+- **Verified (Session 20 follow-up):** backend pytest **262/262** (3 new
+  grouping tests), frontend tsc clean, vitest **59/59**, build OK; live
+  checks: `POST /stocks/BEL/ask` ("should i buy it") → 200 grounded
+  advice-refusing model answer after the stale backend was restarted, and
+  `GET /stocks/BEL/financials/history?period_type=quarterly&group=half_yearly`
+  → correct fiscal-half buckets.
 
 ---
 

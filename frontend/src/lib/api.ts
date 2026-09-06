@@ -182,9 +182,14 @@ export const api = {
   peers: (symbol: string) =>
     apiGet<PeersResponse>(`/stocks/${encodeURIComponent(symbol)}/peers`),
 
-  financialsHistory: (symbol: string, periodType?: "annual" | "quarterly") => {
+  financialsHistory: (
+    symbol: string,
+    periodType?: "annual" | "quarterly",
+    group?: "half_yearly" | "three_yearly",
+  ) => {
     const q = new URLSearchParams();
     if (periodType) q.set("period_type", periodType);
+    if (group) q.set("group", group);
     const suffix = q.toString() ? `?${q.toString()}` : "";
     return apiGet<FinancialsHistoryResponse>(
       `/stocks/${encodeURIComponent(symbol)}/financials/history${suffix}`,

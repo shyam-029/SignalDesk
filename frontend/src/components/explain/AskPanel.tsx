@@ -148,23 +148,46 @@ export function AskPanel({ symbol, displayName }: { symbol: string; displayName:
 
             {ask.isError && (
               <div className="border-l-2 border-band-weak/60 pl-3" aria-live="polite">
-                {blocked ? (
-                  <p className="text-xs leading-relaxed text-band-weak">
-                    This question was blocked by safety filters. Rephrase it as a
-                    question about the stock&apos;s research data.
-                  </p>
-                ) : (
-                  <p className="text-xs leading-relaxed text-band-weak">
-                    The ask service could not be reached.
-                    <button
-                      type="button"
-                      className="ml-1 cursor-pointer underline underline-offset-2"
-                      onClick={() => trimmed && ask.mutate(trimmed, { onSuccess: (d) => setResult(d) })}
-                    >
-                      Try again
-                    </button>
-                  </p>
-                )}
+                {(() => {
+                  if (blocked) {
+                    return (
+                      <p className="text-xs leading-relaxed text-band-weak">
+                        This question was blocked by safety filters. Rephrase it as a
+                        question about the stock&apos;s research data.
+                      </p>
+                    );
+                  }
+                  const err = ask.error as ApiError | undefined;
+                  if (err && err.code !== "NETWORK_ERROR" && err.code === "HTTP_404") {
+                    // A 404 without the standard envelope means the route is
+                    // missing: the backend process predates the ask endpoint.
+                    return (
+                      <p className="text-xs leading-relaxed text-band-weak">
+                        The ask endpoint is not on the running backend. Restart the
+                        backend server (uvicorn) to pick it up.
+                      </p>
+                    );
+                  }
+                  if (err && (err.status >= 500 || err.code === "NETWORK_ERROR")) {
+                    return (
+                      <p className="text-xs leading-relaxed text-band-weak">
+                        The ask service could not be reached.
+                        <button
+                          type="button"
+                          className="ml-1 cursor-pointer underline underline-offset-2"
+                          onClick={() => trimmed && ask.mutate(trimmed, { onSuccess: (d) => setResult(d) })}
+                        >
+                          Try again
+                        </button>
+                      </p>
+                    );
+                  }
+                  return (
+                    <p className="text-xs leading-relaxed text-band-weak">
+                      {err?.message ?? "The question could not be answered."}
+                    </p>
+                  );
+                })()}
               </div>
             )}
 

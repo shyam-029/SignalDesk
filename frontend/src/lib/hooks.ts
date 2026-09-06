@@ -196,13 +196,18 @@ export function usePeers(symbol: string) {
   });
 }
 
-export function useFinancialsHistory(
-  symbol: string,
-  periodType: "annual" | "quarterly" = "annual",
-) {
+// Financials history view: quarterly by default, with derived buckets the
+// backend computes from stored periods (never the frontend).
+export type FinancialsView = "quarterly" | "half_yearly" | "yearly" | "three_yearly";
+
+export function useFinancialsHistory(symbol: string, view: FinancialsView = "quarterly") {
+  const periodType: "annual" | "quarterly" =
+    view === "yearly" || view === "three_yearly" ? "annual" : "quarterly";
+  const group: "half_yearly" | "three_yearly" | undefined =
+    view === "half_yearly" || view === "three_yearly" ? view : undefined;
   return useQuery({
-    queryKey: ["financials-history", symbol, periodType],
-    queryFn: () => api.financialsHistory(symbol, periodType),
+    queryKey: ["financials-history", symbol, view],
+    queryFn: () => api.financialsHistory(symbol, periodType, group),
     staleTime: 30 * 60_000,
     retry: noRetryOn404,
   });

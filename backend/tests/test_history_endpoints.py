@@ -225,6 +225,84 @@ async def test_financials_history_unknown_symbol_404(client, session_factory):
     assert r.status_code == 404
 
 
+# --- /financials/history grouped views (Session 20 follow-up) ---------------------
+
+
+async def _seed_quarters_and_years(session_factory) -> None:
+    """Four fiscal quarters (FY2026) + two annual rows for grouping tests."""
+    async with session_factory() as session:
+        session.add(Stock(symbol="RELIANCE.NS", name="Reliance", sector="E", industry="O"))
+        await session.flush()
+        stock = await session.scalar(select(Stock).where(Stock.symbol == "RELIANCE.NS"))
+        session.add_all([
+            # FY2026 quarters: H1 = Jun+Sep 2025, H2 = Dec 2025 + Mar 2026.
+            FinancialPeriod(stock_id=stock.id, period_end=date(2025, 6, 30), period_type="quarterly",
+                            revenue=10.0, net_income=1.0, operating_margin=0.20, source="t"),
+            FinancialPeriod(stock_id=stock.id, period_end=date(2025, 9, 30), period_type="quarterly",
+                            revenue=30.0, net_income=3.0, operating_margin=0.10, source="t"),
+            FinancialPeriod(stock_id=stock.id, period_end=date(2025, 12, 31), period_type="quarterly",
+                            revenue=20.0, net_income=None, operating_margin=None, source="t"),
+            FinancialPeriod(stock_id=stock.id, period_end=date(2026, 3, 31), period_type="quarterly",
+                            revenue=40.0, net_income=8.0, operating_margin=0.25, source="t"),
+            # Annual rows: FY2025 + FY2026 (three_yearly groups them in threes).
+            FinancialPeriod(stock_id=stock.id, period_end=date(2025, 3, 31), period_type="annual",
+                            revenue=80.0, net_income=6.0, source="t"),
+            FinancialPeriod(stock_id=stock.id, period_end=date(2026, 3, 31), period_type="annual",
+                            revenue=100.0, net_income=14.0, source="t"),
+        ])
+        await session.commit()
+
+
+async def test_financials_history_half_yearly_sums_quarters(client, session_factory):
+    await _seed_quarters_and_years(session_factory)
+    r = await client.get(
+        "/api/v1/stocks/RELIANCE/financials/history?period_type=quarterly&group=half_yearly"
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["insufficient_data"] is False
+    assert len(body["items"]) == 2
+    first, second = body["items"]  # ascending period_end within the response
+    assert first["period_end"] == "2025-09-30"  # end of the H1 bucket
+    assert first["revenue"] == 40.0             # 10 + 30
+    assert first["net_income"] == 4.0           # 1 + 3
+    assert first["net_margin"] == pytest.approx(0.1)  # 4/40, recomputed from sums
+    # Revenue-weighted operating margin: (0.20*10 + 0.10*30) / 40 = 0.125
+    assert first["operating_margin"] == pytest.approx(0.125)
+    assert first["eps"] is None                 # per-share metric is never summed
+    assert first["aggregated_from"] == 2
+    assert second["period_end"] == "2026-03-31"
+    assert second["revenue"] == 60.0            # 20 + 40
+    assert second["net_income"] == 8.0          # None quarter contributes nothing
+    assert second["operating_margin"] == pytest.approx(0.25)  # only one input
+
+
+async def test_financials_history_three_yearly_sums_annual(client, session_factory):
+    await _seed_quarters_and_years(session_factory)
+    r = await client.get(
+        "/api/v1/stocks/RELIANCE/financials/history?period_type=annual&group=three_yearly"
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert len(body["items"]) == 1  # two annual rows -> one 3-year bucket
+    row = body["items"][0]
+    assert row["revenue"] == 180.0
+    assert row["net_income"] == 20.0
+    assert row["net_margin"] == pytest.approx(20.0 / 180.0)
+    assert row["aggregated_from"] == 2
+
+
+async def test_financials_history_group_validation(client, session_factory):
+    await _seed_quarters_and_years(session_factory)
+    # half_yearly requires quarterly periods; three_yearly requires annual.
+    r = await client.get("/api/v1/stocks/RELIANCE/financials/history?period_type=annual&group=half_yearly")
+    assert r.status_code == 422
+    r = await client.get("/api/v1/stocks/RELIANCE/financials/history?period_type=quarterly&group=three_yearly")
+    assert r.status_code == 422
+    r = await client.get("/api/v1/stocks/RELIANCE/financials/history?group=decade")
+    assert r.status_code == 422
+
+
 async def test_financials_history_empty_is_insufficient(client, session_factory):
     async with session_factory() as session:
         session.add(Stock(symbol="NEW.NS", name="New", sector="X", industry="Y"))
