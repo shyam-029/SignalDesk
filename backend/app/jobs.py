@@ -582,13 +582,16 @@ async def _backfill_one_alpha(symbol: str) -> int:
 
     For each bar date past indicator warm-up, the technical score is computed
     from the closes UP TO that date (real math on real stored prices, EMA-
-    smoothed exactly like the live score). Fundamental and sentiment are
-    point-in-time metrics with no stored history: their latest known values
-    are held constant across the window so the historical composite is the
-    real 40/30/30 blend instead of collapsing to the technical score alone.
-    Existing snapshots for the symbol are replaced so the whole series is
-    recomputed under the current formula; live /alpha requests rebuild
-    today's snapshot on the next page view.
+    smoothed exactly like the live score). Fundamental and sentiment have NO
+    stored history, so they are NOT written for backfilled dates - a flat
+    carried-forward line would present today's values as if they were daily
+    observations. The historical composite still blends the latest known
+    fundamental + sentiment (documented approximation, PLANNING D71) so the
+    Alpha line remains a real 40/30/30 signal rather than collapsing to the
+    technical score; the per-component history fills in only as genuine live
+    snapshots accumulate from /alpha. Existing snapshots for the symbol are
+    replaced so the whole series is recomputed under the current formula;
+    live /alpha requests rebuild today's snapshot on the next page view.
     """
     from app.repositories import alpha as alpha_repo
     from app.repositories import financials as fin_repo
@@ -641,9 +644,11 @@ async def _backfill_one_alpha(symbol: str) -> int:
                 "symbol": symbol,
                 "date": dates[i],
                 "composite": composite,
-                "fundamental": fundamental,
+                # No stored history for these components: carried-forward
+                # values would render as a flat, fabricated-looking line.
+                "fundamental": None,
                 "technical": scored["score"],
-                "sentiment": sentiment,
+                "sentiment": None,
                 "components_json": scored.get("components") or {},
             }
         )

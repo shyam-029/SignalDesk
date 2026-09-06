@@ -158,9 +158,12 @@ async def test_backfill_blends_components_and_replaces_history(
     # The stale snapshot is gone: every row was recomputed from stored bars.
     assert all(r.date >= date.today() - timedelta(days=79) for r in rows)
 
-    # Fundamental is carried into every snapshot and the composite is a real
-    # blend (never identical to the technical score when fundamental differs).
-    assert all(r.fundamental is not None for r in rows)
+    # Fundamental/sentiment have NO stored history: backfilled rows must not
+    # present carried-forward constants as daily observations.
+    assert all(r.fundamental is None for r in rows)
+    assert all(r.sentiment is None for r in rows)
+    # The composite is still a real blend (never identical to the technical
+    # score when the latest known fundamental differs).
     assert all(
         float(r.composite) != float(r.technical)
         for r in rows

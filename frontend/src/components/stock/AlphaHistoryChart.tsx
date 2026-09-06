@@ -75,7 +75,9 @@ export function AlphaHistoryChart({ symbol }: { symbol: string }) {
               valueFormatter={(v) => String(Math.round(v))}
             />
             <p className="num mt-2 text-xs text-faint">
-              {items.length} snapshots · scale 0 to 100 · valuation is kept separate and is not charted here
+              {items.length} snapshots · scale 0 to 100 · fundamental/sentiment lines appear
+              only as real daily snapshots accumulate (history is not carried back) · valuation
+              is kept separate and is not charted here
             </p>
           </>
         )}

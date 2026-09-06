@@ -3,7 +3,7 @@
 > **Purpose:** The operational counterpart to `PLANNING.md`. This is the file to read FIRST to pick up
 > where we left off. Updated after every phase.
 > **Rules:** What's done → in progress → next. Command cheatsheet. Known gotchas.
-> **Last updated:** 2026-09-06 (Session 20 + follow-up: ask endpoint made live (stale backend restart), chart first-render fix, even grid backgrounds, quarterly-default financials with backend-derived views)
+> **Last updated:** 2026-09-06 (Part I - Phase 6.5 close-out: full regression, 47-check E2E smoke, data-quality audit, header stock search, honest alpha component history)
 > **Roadmap audit completed 2026-08-19 - see PLANNING §18 (4-tier product taxonomy).**
 
 ---
@@ -35,21 +35,68 @@
 | **6.5 - Review round (250 universe, refresh, fixes)** | ✅ **COMPLETE** |
 | **Session 20 - Alpha history recompute + research UX fixes** | ✅ **COMPLETE** |
 | **Part H - Grounded single-shot ask (LLM)** | ✅ **COMPLETE** |
+| **Part I - Phase 6.5 verification + close-out** | ✅ **COMPLETE** |
 
-**One-line status:** Phase 6.5 + Session 20 + Part H COMPLETE. Session 20 recomputed the entire
-alpha history under a corrected, EMA-smoothed formula (119,707 snapshots, all real 40/30/30
-blends; RELIANCE's composite now drifts ~0.25 points/day instead of sawtoothing across 0-100),
-gave every research chart a single date tracker cursor and a legible 1-year indicator series,
-made the peers table sortable with a show-3 / show-all collapse, alternated section backgrounds
-in both themes, and added glass panels. Part H adds `POST /stocks/{symbol}/ask`: a single-shot,
-evidence-only grounded LLM question (allow-listed evidence, untrusted-question sandboxing,
-strict JSON output contract, 15-min TTL cache, shared daily cap, rule-based fallback,
-OpenRouter guardrail integration; verified with ONE real request - `source: "model"`).
-**Backend 259/259; frontend tsc clean, vitest 59/59, build OK.**
+**One-line status:** **Phase 6.5 COMPLETE (Parts A-I)** + Session 20 review round. Part I closed
+6.5 with full regression (backend 262/262, tsc clean, vitest 65/65, build OK), a 47-check E2E
+smoke test over every user flow against real stored data, and a data-quality audit (250/250
+stocks priced to the last trading day, zero malformed/duplicate bars, margins internally exact,
+honest zero-vs-missing handling). Final 6.5 additions: a header stock search matching ticker AND
+company name over the real catalog (D80), and honest alpha history - backfilled rows no longer
+carry forward today's fundamental/sentiment as if they were daily observations (D81). The ask
+endpoint is live (stale-backend restart was the earlier "not working" cause). **Next: Phase 7
+(observability).**
 
 ---
 
 ## 2. Completed Work
+
+### Part I - Phase 6.5 verification and close-out (2026-09-06)
+
+Final checkpoint: regression, E2E smoke, data-quality audit, integration/security audit, two
+last additions, documentation. No redesigns, no speculative features, no fabricated data.
+
+- [x] **Full regression:** backend pytest **262/262**; frontend `tsc -b` clean; vitest **65/65**
+      across 8 files; `vite build` OK. Working tree clean before the Part I commit.
+- [x] **E2E smoke (47/47 checks, live server, real stored data):** catalog list (251 total),
+      stock detail + normalized symbol, valuation (P/E 23.92 vs median 7.87 → overvalued),
+      fundamentals key ratios, technicals (score bounded, 200 closes) + 250-bar series, news
+      (real articles) + sentiment aggregate, alpha composite + renormalized weights + 180-snapshot
+      history, windowed performance + 52w range + volatility, peer comparison (target excluded),
+      financials history incl. half-yearly grouping, ONE real grounded ask (`source: "model"`,
+      answer cites the actual peer median) + /explain, insufficient-data behavior (TATAMOTORS:
+      valuation 422 INSUFFICIENT_DATA, technicals flagged, null scores never zeros, ask answers
+      only from its real sentiment evidence), unknown-symbol 404 envelope, 422 envelopes for
+      empty/over-500 questions and bad metric, SPA deep-link routing through the vite dev server,
+      and the vite proxy preserving the backend error envelope.
+- [x] **Data-quality audit:** 250/250 stocks priced, latest bar 2026-09-04 (the last trading
+      day - fresh, not stale); 5,770 news articles (newest Sep 5); 0 malformed bars
+      (close<=0 / high<low) and 0 duplicate stock-date rows; stored annual net margins match
+      NI/revenue exactly for RELIANCE (drift 0.00000); all 119,707 alpha composites within
+      [0,100]; zero-vs-missing verified - BSE's D/E 0.00 is a genuine zero (debt-free exchange),
+      TATAMOTORS's all-null financial snapshot (provider gap) stays null everywhere; provider
+      disagreements resolved via the MergingProvider merge (see PLANNING D66). No fabricated
+      values found; no carried-forward component history remains (0 rows with fundamental set
+      outside genuine live snapshots).
+- [x] **Integration/security audit:** Upstox exists only as a backend provider (frontend greps
+      clean); MergingProvider behavior pinned by tests; no credentials, model IDs, or API keys
+      anywhere in the frontend (only public `VITE_API_BASE`); `backend/.env` untracked and
+      git-ignored (`git ls-files backend/.env` empty); LLM evidence-grounded (prompt allow-list
+      + strict output contract + tests); ask remains single-shot with no conversation memory;
+      prompt-injection protection = OpenRouter workspace guardrail (provider-side, 403 → safe
+      ASK_BLOCKED) + backend sandboxing (sanitize, scope check, quoted-question embedding,
+      output validation); frontend consumes the backend - no duplicated financial math (unit
+      scaling for display only).
+- [x] **Header stock search (D80):** `StockSearch` in the site header - matches ticker (with or
+      without ".NS") and company name over the cached /stocks catalog, ranked ticker-first,
+      keyboard-navigable, deep-links to the research page; matcher is a pure unit-tested
+      function (`lib/search.ts`, 6 tests).
+- [x] **Honest alpha component history (D81):** backfilled alpha rows store composite + real
+      technical only; fundamental/sentiment are no longer carried forward as flat pseudo-history
+      (dev DB re-backfilled: 0 rows with fabricated fundamentals). Component lines appear only
+      as genuine daily /alpha snapshots accumulate.
+- [x] **Cleanup:** no dead imports or debug artifacts found in the diff; temporary smoke/audit
+      scripts live outside the repo; no stylistic rewrites of working code.
 
 ### Session 20 follow-up - ask made live, chart first-render, financials views (2026-09-06)
 
