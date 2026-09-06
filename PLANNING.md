@@ -446,8 +446,7 @@ StockSummary: { symbol, name, sector, last_price, change_pct }
 | 5 | 10-11 | ✅ LLM explanation narrative + tests (DONE) |
 | 6 | 12-13 | React dashboard + charts |
 | 7 | 14-15 | Observability (structured logging, stale-data flags, /debug/jobs) - Redis and Three.js moved to conditional/stretch, see §18 |
-| 8 | 16 | Deploy (Render/Railway) + polish + README |
-
+| 8 | 16 | Deploy per D79: static frontend + sleep-tolerant API + autosuspend Postgres (Neon/Supabase) + GitHub Actions cron for ingestion (replaces in-process scheduler for production) + polish + README |
 ### Semester 2 - the distributed progression
 1. Split monolith → two services (API server + background worker)
 2. Add message queue (RabbitMQ - beginner-friendly Kafka)
@@ -965,6 +964,37 @@ Chronological record of decisions. Append as time progresses.
   `GET /stocks/BEL/financials/history?period_type=quarterly&group=half_yearly`
   → correct fiscal-half buckets.
 
+### 2026-09-06 - Session 22 (deployment cost strategy)
+- **D79.** **Deployment decouples ingestion from the API process to avoid paying for
+  always-on hosting.** The in-process APScheduler (D29) only advances data while
+  `uvicorn` is alive (D70) - naive deployment would require a paid always-on web
+  service tier (~$5-7/mo) plus a persistent Postgres instance (~$5-10/mo) just to
+  keep that scheduler reliable, roughly $10-15/mo total. Instead:
+  - **Frontend:** static hosting (Vercel/Netlify/Cloudflare Pages) - free tier,
+    no meaningful limits at this scale.
+  - **Backend API:** can run on a free tier that sleeps between requests, because
+    it is no longer responsible for scheduling - a cold start on an occasional
+    user request is an acceptable tradeoff, not a data-freshness problem.
+  - **Database:** an autosuspend/serverless-Postgres free tier (Neon or Supabase)
+    rather than an always-on managed instance - wakes on query, costs nothing idle.
+  - **Ingestion trigger:** a scheduled GitHub Actions workflow (free on public
+    repos) replaces the in-process APScheduler as the thing that fires daily -
+    it calls the existing `python -m app.jobs ingest` entrypoint (or an internal
+    ingestion endpoint) on a cron schedule, independent of whether the API
+    process happens to be awake. This is strictly more reliable than the
+    in-process scheduler, not just cheaper.
+  - **Net cost: $0/month** for hosting; optional ~$10-15/year only if a custom
+    domain is wanted. LLM cost stays $0 on free OpenRouter models, unchanged.
+  - **Relationship to Semester 2:** this is a lightweight preview of the
+    already-planned "split monolith -> API server + background worker" item
+    (§14 Semester 2) - it proves the decoupling concept now, cheaply, without
+    RabbitMQ/Docker; the full distributed version remains the Semester 2 upgrade,
+    not replaced by this.
+  - **Consequence for Phase 7 (Observability):** `stale: true` flag work (already
+    planned, §14) becomes more important under this model, not less - a
+    sleep-tolerant API + externally-triggered ingestion means the frontend must
+    be able to honestly tell the user how old the data is, since "the process
+    has been running" is no longer a safe assumption to make silently.
 ---
 
 *Append new decisions below with date + ID (D21, D22, ...).*
