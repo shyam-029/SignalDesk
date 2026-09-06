@@ -963,7 +963,6 @@ Chronological record of decisions. Append as time progresses.
   advice-refusing model answer after the stale backend was restarted, and
   `GET /stocks/BEL/financials/history?period_type=quarterly&group=half_yearly`
   → correct fiscal-half buckets.
-
 ### 2026-09-06 - Session 22 (deployment cost strategy)
 - **D79.** **Deployment decouples ingestion from the API process to avoid paying for
   always-on hosting.** The in-process APScheduler (D29) only advances data while
@@ -995,6 +994,39 @@ Chronological record of decisions. Append as time progresses.
     sleep-tolerant API + externally-triggered ingestion means the frontend must
     be able to honestly tell the user how old the data is, since "the process
     has been running" is no longer a safe assumption to make silently.
+
+- **D80.** (2026-09-06, Part I) **Header stock search is client-side over
+  the real catalog**: the site header gains a search box that matches ticker
+  (with or without ".NS") AND company name against the cached /stocks
+  response (250 constituents, no separate search endpoint, nothing
+  fabricated). Ranking: symbol-prefix > symbol-substring > name-prefix >
+  name-substring; keyboard navigation (arrows/Enter/Escape) and monogram
+  results, deep-linking to the research page. Pure matcher lives in
+  `lib/search.ts` (unit-tested).
+- **D81.** (2026-09-06, Part I) **No carried-forward component history**:
+  alpha backfill rows store ONLY the composite (latest-known blend, D71) and
+  the real technical score; fundamental/sentiment are NOT written for dates
+  that never had live snapshots - a flat carried-forward line would present
+  today's values as daily observations. Component lines appear in the alpha
+  history chart only as genuine /alpha snapshots accumulate.
+- **Part I verification (2026-09-06, Phase 6.5 close-out):** backend pytest
+  **262/262**; frontend tsc clean, vitest **65/65** (8 files, incl. 6 new
+  search-matcher tests), `vite build` OK; E2E smoke against the live dev
+  server + real stored data **47/47** (catalog, detail, valuation,
+  fundamentals, technicals + series, news/sentiment, alpha + history,
+  performance, peers, financials incl. grouped views, real LLM ask +
+  explain, insufficient-data behavior, unknown-symbol envelope, 422
+  envelopes, SPA deep-link routing, vite proxy with preserved error
+  envelope). Data-quality audit: 250/250 stocks priced to 2026-09-04 (last
+  trading day), 0 malformed/duplicate bars, stored net margins match
+  NI/revenue exactly (drift 0.00000), alpha composites all bounded, the one
+  literal-zero ratio (BSE D/E 0.00) is genuine, the all-null snapshot
+  (TATAMOTORS - provider data gap post-demerger) stays honestly null, no
+  carried-forward component history remains (0 rows). Security: frontend has
+  zero references to Upstox/OpenRouter/LLM model/API keys (only public
+  VITE_API_BASE), backend/.env untracked and ignored, no mock data in
+  production paths.
+
 ---
 
 *Append new decisions below with date + ID (D21, D22, ...).*
