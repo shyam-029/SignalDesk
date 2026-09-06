@@ -17,10 +17,12 @@
 from datetime import date, datetime
 
 from sqlalchemy import (
+    BigInteger,
     ForeignKey,
     Numeric,
     String,
     Table,
+    Text,
     UniqueConstraint,
     Column,
     DateTime,
@@ -132,6 +134,38 @@ class Financials(Base):
     debt_to_equity: Mapped[Numeric | None] = mapped_column(Numeric(12, 2))
     interest_coverage: Mapped[Numeric | None] = mapped_column(Numeric(12, 2))
     current_ratio: Mapped[Numeric | None] = mapped_column(Numeric(12, 2))
+
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+    # Back-reference to the owning stock.
+    stock: Mapped["Stock"] = relationship()
+
+
+class CompanyProfile(Base):
+    """Provider-sourced company background for a stock (one row per stock).
+
+    business_summary is the provider's own description text stored VERBATIM
+    (never generated); ceo/employees/website are nullable because providers
+    do not always supply them. Serves the "About the company" box and the
+    ask endpoint's company evidence.
+    """
+
+    __tablename__ = "company_profiles"
+    __table_args__ = (
+        UniqueConstraint("stock_id", name="uq_company_profiles_stock_id"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    stock_id: Mapped[int] = mapped_column(ForeignKey("stocks.id"), index=True)
+
+    business_summary: Mapped[str | None] = mapped_column(Text)
+    ceo: Mapped[str | None] = mapped_column(String(200))
+    employees: Mapped[int | None] = mapped_column(BigInteger)
+    website: Mapped[str | None] = mapped_column(String(300))
+    # Which provider supplied the row ("yfinance", "upstox", ...).
+    source: Mapped[str | None] = mapped_column(String(32))
 
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()

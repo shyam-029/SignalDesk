@@ -74,6 +74,21 @@ class Fundamentals:
 
 
 @dataclass(frozen=True)
+class CompanyProfile:
+    """Provider-sourced company background (what the business does, who runs it).
+
+    business_summary is the provider's own description text (never generated);
+    ceo/employees/website are None where the source does not supply them.
+    """
+
+    symbol: str
+    business_summary: str | None = None
+    ceo: str | None = None
+    employees: int | None = None
+    website: str | None = None
+
+
+@dataclass(frozen=True)
 class FinancialPeriodDraft:
     """One historical income-statement period as reported by a provider.
 
@@ -138,3 +153,12 @@ class MarketDataProvider(ABC):
         "annual" (default) or "quarterly".
         """
         raise NotImplementedError(f"{type(self).__name__} has no financial history")
+
+    async def get_company_profile(self, symbol: str) -> CompanyProfile:
+        """Return provider-sourced company background for a symbol.
+
+        Optional capability: providers without company background keep the
+        default, which callers treat as "no profile available" (never an
+        error, never generated text).
+        """
+        raise NotImplementedError(f"{type(self).__name__} has no company profile")

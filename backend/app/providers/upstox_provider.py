@@ -141,6 +141,18 @@ def parse_instruments(payload: bytes) -> dict[str, tuple[str, str]]:
     return out
 
 
+# Catalog symbol -> current NSE trading symbol. The catalog keeps the symbol
+# a stock was seeded with; demergers/renames change the NSE trading symbol
+# underneath it and the instruments master only knows the NEW one.
+#   TATAMOTORS -> TMPV: Tata Motors renamed post-demerger; same ISIN
+#   (INE155A01022), so Upstox data under TMPV is the same entity. Verified
+#   against the live instruments master 2026-09-06 (1 of 251 catalog symbols
+#   affected).
+SYMBOL_ALIASES: dict[str, str] = {
+    "TATAMOTORS": "TMPV",
+}
+
+
 class UpstoxProvider(MarketDataProvider):
     """Provider backed by the Upstox v2 REST API (read-only, Bearer token)."""
 
@@ -208,6 +220,8 @@ class UpstoxProvider(MarketDataProvider):
     async def _get_instrument(self, symbol: str) -> tuple[str, str]:
         """Resolve "RELIANCE.NS" -> (instrument_key, isin), loading the map once."""
         bare = symbol.split(".")[0].upper()
+        # Renamed symbols resolve through the alias table (see SYMBOL_ALIASES).
+        bare = SYMBOL_ALIASES.get(bare, bare)
         if not self._instruments_loaded:
             async with self._instruments_lock:
                 if not self._instruments_loaded:

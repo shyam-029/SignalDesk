@@ -11,6 +11,7 @@ import math
 import yfinance as yf
 
 from app.providers.base import (
+    CompanyProfile,
     FinancialPeriodDraft,
     Fundamentals,
     MarketDataError,
@@ -94,6 +95,39 @@ class YFinanceProvider(MarketDataProvider):
                 name=info.get("shortName") or info.get("longName"),
                 sector=info.get("sector"),
                 industry=info.get("industry"),
+            )
+
+        return await asyncio.to_thread(_fetch)
+
+    async def get_company_profile(self, symbol: str) -> CompanyProfile:
+        """Provider-sourced company background from the yfinance info dict.
+
+        business_summary is Yahoo's own longBusinessSummary text (verbatim,
+        never generated). The CEO is read from companyOfficers: the first
+        officer whose title marks them chief executive. Fields the info dict
+        omits stay None.
+        """
+        def _fetch() -> CompanyProfile:
+            try:
+                info = yf.Ticker(symbol).info
+            except Exception as exc:
+                raise MarketDataError(f"yfinance info failed for {symbol}: {exc}") from exc
+
+            ceo = None
+            for officer in info.get("companyOfficers") or []:
+                if not isinstance(officer, dict):
+                    continue
+                title = str(officer.get("title") or "")
+                if "chief executive" in title.lower() or title.strip().upper() == "CEO":
+                    ceo = officer.get("name") or None
+                    break
+
+            return CompanyProfile(
+                symbol=symbol,
+                business_summary=info.get("longBusinessSummary") or None,
+                ceo=ceo,
+                employees=info.get("fullTimeEmployees"),
+                website=info.get("website") or None,
             )
 
         return await asyncio.to_thread(_fetch)

@@ -105,8 +105,25 @@ export interface AlphaResponse {
   components: Record<string, number>;
   weights: Record<string, number>;
   value_signal: ValueSignal | null;
-  explanation: string;
   insufficient_data: boolean;
+}
+
+// Lazy companion to /alpha: the written narrative (Part I split - the score
+// path never waits on the LLM).
+export interface AlphaExplanationResponse {
+  symbol: string;
+  explanation: string;
+}
+
+// Provider-sourced company background ("About the company" box).
+export interface CompanyProfileResponse {
+  symbol: string;
+  business_summary: string | null;
+  ceo: string | null;
+  employees: number | null;
+  website: string | null;
+  source: string | null;
+  updated_at: string | null;
 }
 
 export interface MacdBlock {

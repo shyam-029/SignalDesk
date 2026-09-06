@@ -407,3 +407,40 @@ async def test_instrument_resolution_from_master_file():
     assert bars == []
     assert any("NSE.json.gz" in url for url in calls)
     assert any("historical-candle" in url for url in calls)
+
+
+async def test_renamed_symbol_resolves_through_alias():
+    """Catalog symbols renamed on the NSE resolve via SYMBOL_ALIASES.
+
+    TATAMOTORS was renamed TMPV post-demerger (same ISIN): the provider must
+    look TMPV up in the master while the catalog keeps TATAMOTORS.NS.
+    """
+    master = gzip.compress(
+        json.dumps([
+            {"segment": "NSE_EQ", "instrument_type": "EQ", "trading_symbol": "TMPV",
+             "isin": "INE155A01022", "instrument_key": "NSE_EQ|INE155A01022"},
+        ]).encode()
+    )
+    calls: list[str] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(str(request.url))
+        if "assets.upstox.com" in str(request.url):
+            return httpx.Response(200, content=master)
+        return httpx.Response(
+            200, json={"status": "success", "data": {"candles": []}}
+        )
+
+    client = httpx.AsyncClient(
+        base_url="https://api.upstox.com/v2", transport=httpx.MockTransport(handler)
+    )
+    provider = UpstoxProvider(TOKEN, client=client)
+    await provider.get_price_history("TATAMOTORS.NS", "1mo")
+    # The candle request must use the RENAMED symbol's key, not fail lookup.
+    assert any("INE155A01022" in url for url in calls)
+
+
+async def test_alias_table_only_maps_known_renames():
+    from app.providers.upstox_provider import SYMBOL_ALIASES
+
+    assert SYMBOL_ALIASES == {"TATAMOTORS": "TMPV"}

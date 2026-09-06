@@ -210,6 +210,18 @@ async def test_alpha_endpoint_full(client, session_factory):
     assert 0 <= body["composite"] <= 100
     assert "weights" in body and body["weights"]  # renormalized weights present
     assert body["insufficient_data"] is False
+    # Part I split: the score path is pure computation - no explanation field
+    # and no LLM work happens here.
+    assert "explanation" not in body
+
+
+async def test_alpha_explanation_endpoint(client, session_factory):
+    """The lazy narrative endpoint returns a grounded explanation."""
+    await _seed_for_alpha(session_factory)
+    r = await client.get("/api/v1/stocks/RELIANCE/alpha/explanation")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["symbol"] == "RELIANCE.NS"
     assert isinstance(body["explanation"], str)
     assert len(body["explanation"]) > 0  # rule-based fallback always available
 

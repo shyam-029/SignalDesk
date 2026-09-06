@@ -94,3 +94,42 @@ async def test_bad_resample_422_envelope(client, seeded):
     err = r.json()["error"]
     assert err["code"] == "VALIDATION_ERROR"
     assert err["detail"]["resample"] == "1w"
+
+# --- /stocks/{symbol}/profile (provider-sourced company background) ----------
+
+
+async def test_company_profile_endpoint(client, session_factory, seeded):
+    from sqlalchemy import select
+
+    from app.models import Stock
+    from app.repositories import company_profiles as profile_repo
+
+    async with session_factory() as session:
+        stock = await session.scalar(select(Stock).where(Stock.symbol == "RELIANCE.NS"))
+        await profile_repo.upsert_profile(
+            session,
+            stock_id=stock.id,
+            business_summary="Reliance engages in energy, telecom and retail.",
+            ceo="Mukesh Ambani",
+            employees=389000,
+            website="www.ril.com",
+            source="yfinance",
+        )
+
+    r = await client.get("/api/v1/stocks/RELIANCE/profile")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["symbol"] == "RELIANCE.NS"
+    assert body["business_summary"].startswith("Reliance engages")
+    assert body["ceo"] == "Mukesh Ambani"
+    assert body["employees"] == 389000
+    assert body["website"] == "www.ril.com"
+    assert body["source"] == "yfinance"
+
+
+async def test_company_profile_missing_is_null_not_empty_error(client, seeded):
+    r = await client.get("/api/v1/stocks/RELIANCE/profile")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["business_summary"] is None
+    assert body["ceo"] is None
