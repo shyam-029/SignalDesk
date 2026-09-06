@@ -23,6 +23,7 @@ from app.db import get_session
 from app.errors import ValidationError
 from app.routers.common import resolve_stock
 from app.routers.history import PERFORMANCE_WINDOWS, _annualized_volatility_pct
+from app.repositories import company_profiles as profile_repo
 from app.repositories import financial_periods as fp_repo
 from app.repositories import news as news_repo
 from app.repositories import prices as price_repo
@@ -68,6 +69,16 @@ async def _gather_evidence(session: AsyncSession, stock) -> dict:
         "sector": stock.sector,
         "industry": stock.industry,
     }
+
+    # Provider-sourced company background (verbatim summary, leadership).
+    # Lets the model answer "what does the company do / who is the CEO"
+    # strictly from stored evidence; a summary that is not stored stays out.
+    profile = await profile_repo.get_profile(session, stock.id)
+    if profile is not None:
+        evidence["company"]["business_summary"] = profile.business_summary
+        evidence["company"]["ceo"] = profile.ceo
+        evidence["company"]["employees"] = profile.employees
+        evidence["company"]["website"] = profile.website
 
     # Latest quote (None-safe: a stock without bars carries no price block).
     latest_two = (await price_repo.get_two_latest(session, [stock.id])).get(stock.id, [])

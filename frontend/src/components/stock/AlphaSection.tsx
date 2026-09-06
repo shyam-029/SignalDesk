@@ -1,12 +1,13 @@
 import { motion } from "framer-motion";
 
-import { useAlpha } from "@/lib/hooks";
+import { useAlpha, useAlphaExplanation, useCompanyProfile } from "@/lib/hooks";
 import { DataState } from "@/components/data/DataState";
 import { ScoreBlock } from "@/components/data/ScoreBlock";
 import { SectionHeader } from "@/components/data/SectionHeader";
 import { InfoDot } from "@/components/data/InfoDot";
 import { ExplainAction } from "@/components/explain/ExplainAction";
 import { AlphaHistoryChart } from "@/components/stock/AlphaHistoryChart";
+import { Skeleton } from "@/components/ui/skeleton";
 import { fmtSignedPct } from "@/lib/format";
 import { scoreBand, valuationSemantics } from "@/lib/semantic";
 import { cn } from "@/lib/utils";
@@ -16,10 +17,18 @@ import { cn } from "@/lib/utils";
  * The composite anchors the section; its three weighted components sit beside
  * it and the written explanation reads as a research conclusion. Valuation is
  * shown only as the separate value signal, never visually blended into Alpha.
+ *
+ * Part I split: the score renders the moment /alpha returns (pure DB math);
+ * the written narrative is fetched in parallel from /alpha/explanation and
+ * rendered in its own region — only the sentence shows a loading state, and
+ * the provider-sourced company background ("About the company") sits below.
  */
 export function AlphaSection({ symbol }: { symbol: string }) {
   const query = useAlpha(symbol);
   const alpha = query.data;
+  // Enabled only once the score exists: the explanation never blocks it.
+  const explanation = useAlphaExplanation(symbol, Boolean(alpha));
+  const profile = useCompanyProfile(symbol);
 
   const compositeBand = scoreBand(alpha?.composite);
 
@@ -156,6 +165,8 @@ export function AlphaSection({ symbol }: { symbol: string }) {
                   </div>
                 )}
 
+                {/* Written explanation: lazy companion call, own region.
+                    Only this sentence shows a loading state (cache misses). */}
                 <div className="glass rounded-sm p-5">
                   <div className="flex items-center justify-between gap-3">
                     <p className="label-caps">Written explanation</p>
@@ -166,7 +177,23 @@ export function AlphaSection({ symbol }: { symbol: string }) {
                       triggerLabel={`Why is Alpha ${alpha.composite ?? "-"}?`}
                     />
                   </div>
-                  <p className="mt-3 text-sm leading-relaxed">{alpha.explanation}</p>
+                  <div className="mt-3" aria-live="polite">
+                    {explanation.isPending && (
+                      <div className="space-y-2">
+                        <Skeleton className="h-3.5 w-full" />
+                        <Skeleton className="h-3.5 w-11/12" />
+                        <Skeleton className="h-3.5 w-2/3" />
+                      </div>
+                    )}
+                    {explanation.isError && (
+                      <p className="text-sm leading-relaxed text-faint">
+                        The written explanation is unavailable right now.
+                      </p>
+                    )}
+                    {explanation.data && (
+                      <p className="text-sm leading-relaxed">{explanation.data.explanation}</p>
+                    )}
+                  </div>
                   <p className="mt-3 border-t border-line pt-2 text-xs text-faint">
                     Generated from SignalDesk data. Not investment advice.
                   </p>
@@ -176,12 +203,112 @@ export function AlphaSection({ symbol }: { symbol: string }) {
           )}
         </DataState>
 
+        {/* Provider-sourced company background below the alpha score. */}
+        <div className="mt-8">
+          <CompanyBox
+            loading={profile.isLoading}
+            error={profile.error ?? null}
+            onRetry={profile.refetch}
+            summary={profile.data?.business_summary ?? null}
+            ceo={profile.data?.ceo ?? null}
+            employees={profile.data?.employees ?? null}
+            website={profile.data?.website ?? null}
+            source={profile.data?.source ?? null}
+          />
+        </div>
+
         {/* Score over time: stored snapshots only, never back-filled. */}
         <div className="mt-8">
           <AlphaHistoryChart symbol={symbol} />
         </div>
       </div>
     </section>
+  );
+}
+
+const EMPLOYEE_FMT = new Intl.NumberFormat("en-IN");
+
+/**
+ * CompanyBox: what the company actually does, in the provider's own words.
+ * The summary is stored verbatim from the data provider (never generated);
+ * missing fields are omitted rather than invented.
+ */
+function CompanyBox({
+  loading,
+  error,
+  onRetry,
+  summary,
+  ceo,
+  employees,
+  website,
+  source,
+}: {
+  loading: boolean;
+  error: Error | null;
+  onRetry: () => void;
+  summary: string | null;
+  ceo: string | null;
+  employees: number | null;
+  website: string | null;
+  source: string | null;
+}) {
+  return (
+    <div className="glass rounded-sm">
+      <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-line px-5 py-3">
+        <p className="label-caps">About the company</p>
+        {source && (
+          <p className="num text-xs text-faint">description: {source}</p>
+        )}
+      </div>
+      <DataState
+        loading={loading}
+        error={error}
+        onRetry={onRetry}
+        empty={!summary}
+        emptyTitle="No company profile stored"
+        emptyMessage="The provider has not supplied a business description for this stock yet. Nothing is generated in the meantime."
+        compact
+      >
+        <div className="px-5 py-4">
+          {summary && (
+            <div className="space-y-3">
+              {summary.split(/\n{2,}|\r\n\r\n/).filter(Boolean).map((para, i) => (
+                <p key={i} className="text-sm leading-relaxed text-muted">
+                  {para.trim()}
+                </p>
+              ))}
+            </div>
+          )}
+          {(ceo || employees != null || website) && (
+            <div className="num mt-4 flex flex-wrap gap-x-6 gap-y-1 border-t border-line pt-3 text-xs text-muted">
+              {ceo && (
+                <span>
+                  CEO <span className="text-foreground">{ceo}</span>
+                </span>
+              )}
+              {employees != null && (
+                <span>
+                  Employees <span className="text-foreground">{EMPLOYEE_FMT.format(employees)}</span>
+                </span>
+              )}
+              {website && (
+                <span>
+                  Website{" "}
+                  <a
+                    href={website.startsWith("http") ? website : `https://${website}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-foreground underline decoration-line underline-offset-4 hover:text-cobalt dark:hover:text-cobalt-strong"
+                  >
+                    {website.replace(/^https?:\/\//, "")}
+                  </a>
+                </span>
+              )}
+            </div>
+          )}
+        </div>
+      </DataState>
+    </div>
   );
 }
 

@@ -1,4 +1,11 @@
-# Alpha Score endpoint — composite + separate value signal, fully explainable.
+# Alpha Score endpoint — composite + separate value signal.
+#
+# Part I split: GET /alpha returns ONLY computed data (composite, components,
+# weights, value signal) — zero LLM work, so the score renders the moment the
+# DB math finishes. The narrative moved to GET /alpha/explanation (same rule-
+# based + LLM-with-fallback pipeline, TTL-cached, pre-warmed nightly by the
+# ingestion sweep), which the frontend fetches in parallel and renders in its
+# own region.
 
 from datetime import date
 from typing import Annotated
@@ -35,13 +42,20 @@ class AlphaResponse(BaseModel):
     components: dict[str, float]
     weights: dict[str, float]
     value_signal: ValueSignalResponse | None
-    explanation: str
     insufficient_data: bool
+
+
+class AlphaExplanationResponse(BaseModel):
+    symbol: str
+    explanation: str
 
 
 @router.get("/{symbol}/alpha", response_model=AlphaResponse)
 async def get_alpha(symbol: str, session: SessionDep) -> AlphaResponse:
-    """Alpha Score composite (quality/momentum/tone) + separate value signal."""
+    """Alpha Score composite (quality/momentum/tone) + separate value signal.
+
+    Pure computation: no LLM work happens on this path.
+    """
     stock = await resolve_stock(session, symbol)
     result = await alpha_svc.compute_alpha(session, stock)
 
@@ -56,9 +70,6 @@ async def get_alpha(symbol: str, session: SessionDep) -> AlphaResponse:
         sentiment=result.sentiment,
         components_json=result.components,
     )
-
-    # Grounded LLM explanation (falls back to rule-based internally).
-    explanation = await generate_alpha_explanation(stock, result)
 
     return AlphaResponse(
         symbol=result.symbol,
@@ -79,6 +90,21 @@ async def get_alpha(symbol: str, session: SessionDep) -> AlphaResponse:
             if result.value_signal
             else None
         ),
-        explanation=explanation,
         insufficient_data=result.insufficient_data,
     )
+
+
+@router.get("/{symbol}/alpha/explanation", response_model=AlphaExplanationResponse)
+async def get_alpha_explanation(
+    symbol: str, session: SessionDep
+) -> AlphaExplanationResponse:
+    """Written explanation for the Alpha Score (lazy, cache-first).
+
+    Same grounding pipeline as before: allow-listed facts, LLM if configured,
+    rule-based fallback otherwise, TTL cache shared with the nightly
+    pre-warm sweep. The /alpha compute path never waits on this.
+    """
+    stock = await resolve_stock(session, symbol)
+    result = await alpha_svc.compute_alpha(session, stock)
+    explanation = await generate_alpha_explanation(stock, result)
+    return AlphaExplanationResponse(symbol=stock.symbol, explanation=explanation)

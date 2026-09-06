@@ -24,6 +24,7 @@ import logging
 from collections.abc import Awaitable, Callable
 
 from app.providers.base import (
+    CompanyProfile,
     FinancialPeriodDraft,
     Fundamentals,
     MarketDataProvider,
@@ -290,6 +291,50 @@ class MergingProvider(MarketDataProvider):
         if secondary is None:
             return primary
         return merge_fundamentals(primary, secondary, symbol)
+
+    async def get_company_profile(self, symbol: str) -> CompanyProfile:
+        """Primary's profile, missing fields filled from the secondary.
+
+        Both providers fail → the primary's error propagates (real error, not
+        a silent empty). Only yfinance supplies profiles today; the secondary
+        (Upstox) keeps the ABC default and is skipped via NotImplementedError.
+        """
+        primary_error: Exception | None = None
+        try:
+            profile = await self.primary.get_company_profile(symbol)
+        except NotImplementedError:
+            raise
+        except Exception as exc:
+            profile = None
+            primary_error = exc
+        if profile is None:
+            secondary = await self._safe(
+                "secondary", f"company profile {symbol}",
+                lambda: self.secondary.get_company_profile(symbol),
+            )
+            if secondary is None:
+                raise primary_error  # both providers failed
+            return secondary
+        missing = (
+            profile.business_summary is None,
+            profile.ceo is None,
+            profile.employees is None,
+            profile.website is None,
+        )
+        if any(missing):
+            secondary = await self._safe(
+                "secondary", f"company profile {symbol}",
+                lambda: self.secondary.get_company_profile(symbol),
+            )
+            if secondary is not None:
+                return CompanyProfile(
+                    symbol=profile.symbol,
+                    business_summary=profile.business_summary or secondary.business_summary,
+                    ceo=profile.ceo or secondary.ceo,
+                    employees=profile.employees or secondary.employees,
+                    website=profile.website or secondary.website,
+                )
+        return profile
 
     async def get_financial_history(
         self, symbol: str, period_type: str = "annual"

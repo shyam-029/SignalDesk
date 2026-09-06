@@ -8,7 +8,9 @@
 import type {
   AlphaHistoryResponse,
   AlphaResponse,
+  AlphaExplanationResponse,
   AskResponse,
+  CompanyProfileResponse,
   ExplainQuestionType,
   ExplainResponse,
   FinancialsHistoryResponse,
@@ -130,6 +132,15 @@ export const api = {
     ),
 
   alpha: (symbol: string) => apiGet<AlphaResponse>(`/stocks/${encodeURIComponent(symbol)}/alpha`),
+
+  // Part I split: the narrative is a lazy companion to the score.
+  alphaExplanation: (symbol: string) =>
+    apiGet<AlphaExplanationResponse>(
+      `/stocks/${encodeURIComponent(symbol)}/alpha/explanation`,
+    ),
+
+  companyProfile: (symbol: string) =>
+    apiGet<CompanyProfileResponse>(`/stocks/${encodeURIComponent(symbol)}/profile`),
 
   technicals: (symbol: string) =>
     apiGet<Technicals>(`/stocks/${encodeURIComponent(symbol)}/technicals`),

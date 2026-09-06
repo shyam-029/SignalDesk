@@ -3,7 +3,7 @@
 > **Purpose:** The operational counterpart to `PLANNING.md`. This is the file to read FIRST to pick up
 > where we left off. Updated after every phase.
 > **Rules:** What's done → in progress → next. Command cheatsheet. Known gotchas.
-> **Last updated:** 2026-09-06 (Part I - Phase 6.5 close-out: full regression, 47-check E2E smoke, data-quality audit, header stock search, honest alpha component history)
+> **Last updated:** 2026-09-06 (Post-Part I round: Upstox renamed-symbol fix (TATAMOTORS->TMPV), /alpha split with lazy explanation + nightly pre-warm, provider-sourced company profiles with About box + ask evidence)
 > **Roadmap audit completed 2026-08-19 - see PLANNING §18 (4-tier product taxonomy).**
 
 ---
@@ -50,6 +50,56 @@ endpoint is live (stale-backend restart was the earlier "not working" cause). **
 ---
 
 ## 2. Completed Work
+
+### Post-Part I round - Upstox everywhere, /alpha split, company profiles (2026-09-06)
+
+User-driven round after live usage. See PLANNING D82-D84.
+
+- [x] **Upstox gap-fill diagnosis + renamed-symbol fix (D82):** the token WORKS (live-verified:
+      RELIANCE ratios/prices/statements all fetch) and the MergingProvider field-level coalesce
+      already fills every field Upstox carries. The one systematic failure was symbol resolution:
+      **TATAMOTORS.NS is renamed TMPV on the NSE post-demerger** (same ISIN INE155A01022), so
+      1 of 251 catalog symbols failed Upstox instrument lookup and fell back to an all-null
+      yfinance snapshot. Added a documented `SYMBOL_ALIASES` map (TATAMOTORS -> TMPV) to the
+      Upstox adapter; TMPV verified live (fundamentals, 22 daily bars, 4 annual periods).
+      Honest irreducible gaps (both providers lack them, scores renormalize):
+      interest_coverage 0/251 stocks (no interest-expense line in Upstox's income statement,
+      absent in yfinance), D/E for ~24 banks, EV/EBITDA absolutes for ~41 (Upstox supplies the
+      pre-computed ratio, which the valuation fallback already consumes).
+- [x] **/alpha split (D83):** GET /alpha is now pure DB math (composite, components, weights,
+      value signal) - zero LLM work, no explanation field. The narrative moved to
+      GET /stocks/{symbol}/alpha/explanation (same grounding pipeline + TTL cache + fallback).
+      The frontend fetches it in parallel and renders it in its own skeleton region inside the
+      Alpha card: the score renders instantly; only the sentence can show a loading state.
+- [x] **Nightly explanation pre-warm (D83):** the ingestion sweep now calls
+      generate_alpha_explanation for every catalog symbol right after the alpha backfill
+      (2s pause between calls for free-model rate limits, shared daily cap respected), so the
+      TTL cache is warm before any user visits. `LLM_DAILY_CAP` default 100 -> 300.
+- [x] **Company profiles (D84):** new `company_profiles` table (+ migration 74b2071c0d29) fed by
+      `ingest_company_profiles` (batched, per-symbol isolation): the provider's verbatim
+      business description (yfinance longBusinessSummary), CEO (from companyOfficers),
+      employees, website. Served at GET /stocks/{symbol}/profile; rendered as the
+      "About the company" glass box below the Alpha score (paragraphs + CEO/employees/website
+      row, missing fields omitted); added to the ask endpoint's allow-listed evidence with the
+      system prompt updated: company-background questions (what the company does, who the CEO
+      is) are answered THROUGH the stored profile only - facts it does not contain get an
+      explicit "do not have that information", never invention.
+- [x] **Tests:** alias-resolution unit tests (renamed symbol uses the new key; alias table is
+      exactly the known renames), profile endpoint tests (stored + missing-null), alpha split
+      tests (/alpha has no explanation field; /alpha/explanation returns a grounded narrative),
+      financials coalesce test coverage via existing upsert tests. Verified live after a full
+      re-ingest: TATAMOTORS has 498 price bars (latest 2026-09-04) + Upstox-sourced financials
+      + alpha composite 43 (previously zero data end to end); 250/251 company profiles stored
+      (250 with summaries, 34 with CEOs); /alpha response has NO explanation field; the
+      explanation pre-warm warmed **250/250** symbols. Backend **267/267**, tsc clean,
+      vitest 65/65, build OK.
+- [x] **Data honesty notes:** remaining nulls are genuine both-provider gaps - interest
+      coverage (all 251; no provider supplies an interest-expense input), D/E for ~24 banks,
+      EV/EBITDA absolutes (~41; Upstox supplies the ratio, which valuation consumes), ROE/ROA
+      for ~61 (mostly Financial Services where neither provider reports it). Financials upserts
+      now coalesce per field on write (a throttled night can no longer wipe stored values).
+      A catalog repair pass (`repair_catalog_gaps`, nightly) ingests stocks the universe
+      passes dropped, so no catalog stock is permanently empty.
 
 ### Part I - Phase 6.5 verification and close-out (2026-09-06)
 
@@ -628,7 +678,7 @@ cd C:\Users\shyam\Desktop\Projects\signaldesk\backend
 .\.venv\Scripts\python.exe -c "import asyncio; from app.jobs import ingest_financials; asyncio.run(ingest_financials())"  # run financials ingestion
 .\.venv\Scripts\python.exe -c "import asyncio; from app.jobs import ingest_news; asyncio.run(ingest_news())"  # run news + sentiment (slow: FinBERT)
 .\.venv\Scripts\python.exe -m app.jobs backfill                        # recompute the whole alpha history (replaces snapshots per symbol)
-.\.venv\Scripts\python.exe -m app.jobs ingest                          # run the full daily ingestion pass (prices, financials, periods, backfill, news)
+.\.venv\Scripts\python.exe -m app.jobs ingest                          # run the full daily ingestion pass (prices, financials, periods, profiles, repair, backfill, pre-warm, news)
 
 # --- Tests ---
 cd C:\Users\shyam\Desktop\Projects\signaldesk\backend

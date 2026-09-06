@@ -52,8 +52,10 @@ class Settings(BaseSettings):
     llm_model: str = ""
 
     # Daily budget cap: max LLM calls per process-day. In-process counter only
-    # (Redis stays deferred to a later caching phase).
-    llm_daily_cap: int = 100
+    # (Redis stays deferred to a later caching phase). Sized for the nightly
+    # explanation pre-warm sweep (one call per catalog symbol, ~250) plus
+    # headroom for /ask; free OpenRouter models cost nothing per call.
+    llm_daily_cap: int = 300
 
     # Finnhub key for live prices (deferred).
     finnhub_api_key: str = ""

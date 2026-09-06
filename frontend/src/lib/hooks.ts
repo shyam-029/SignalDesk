@@ -94,6 +94,25 @@ export function useAlpha(symbol: string) {
   });
 }
 
+// Part I split: fetched in parallel with the score and rendered in its own
+// region, so only the sentence waits on the (pre-warmed) narrative.
+export function useAlphaExplanation(symbol: string, enabled: boolean) {
+  return useQuery({
+    queryKey: ["alpha-explanation", symbol],
+    queryFn: () => api.alphaExplanation(symbol),
+    enabled,
+    staleTime: 10 * 60_000,
+  });
+}
+
+export function useCompanyProfile(symbol: string) {
+  return useQuery({
+    queryKey: ["company-profile", symbol],
+    queryFn: () => api.companyProfile(symbol),
+    staleTime: 60 * 60_000,
+  });
+}
+
 export function useTechnicals(symbol: string) {
   return useQuery({
     queryKey: ["technicals", symbol],

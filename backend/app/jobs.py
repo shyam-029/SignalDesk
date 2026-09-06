@@ -16,13 +16,15 @@ import logging
 from collections.abc import Awaitable, Callable
 from typing import TypeVar
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, exists, func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import SessionLocal
+from app.config import settings
 from app.models import (
     AlphaScore,
+    CompanyProfile,
     DailyPrice,
     FinancialPeriod,
     Financials,
@@ -38,6 +40,7 @@ from app.providers.news_base import Article, NewsProvider
 from app.providers.rss_provider import GoogleNewsRSSProvider, NewsProviderError
 from app.providers.sentiment import FinBERTScorer, Sentiment
 from app.providers.yfinance_provider import MarketDataError, YFinanceProvider
+from app.repositories import company_profiles as profile_repo
 
 logger = logging.getLogger(__name__)
 
@@ -242,6 +245,13 @@ async def _fetch_one_financials(
     """Fetch + upsert one symbol's financial snapshot. Returns (symbol, inserted).
 
     Raises MarketDataError upward so callers can isolate failures per symbol.
+
+    Field-level coalesce on write: the new (merged-provider) value wins when
+    present; a field the providers did not supply TONIGHT keeps its stored
+    value. Provider responses are flaky night to night (throttled info dicts
+    return sparse fields without erroring), and a naive full overwrite would
+    destroy previously-good values - the stored snapshot is "latest known
+    value per field", refreshed `updated_at` included.
     """
     fundamentals = await _with_retry(
         lambda: provider.get_fundamentals(symbol),
@@ -255,16 +265,22 @@ async def _fetch_one_financials(
         if stock_id is None:
             raise MarketDataError(f"Symbol {symbol} not in DB catalog")
 
-        stmt = pg_insert(Financials).values(
-            _financials_row(stock_id, fundamentals)
+        row = _financials_row(stock_id, fundamentals)
+        existing = await session.scalar(
+            select(Financials).where(Financials.stock_id == stock_id)
         )
-        # One row per stock: overwrite the snapshot on conflict. Also refresh
-        # updated_at so staleness signals stay truthful across re-ingests.
-        set_ = {
-            k: getattr(stmt.excluded, k)
-            for k in _financials_row(stock_id, fundamentals)
-            if k != "stock_id"
-        }
+        if existing is not None:
+            for field, value in list(row.items()):
+                if field != "stock_id" and value is None:
+                    stored = getattr(existing, field)
+                    if stored is not None:
+                        row[field] = stored
+
+        stmt = pg_insert(Financials).values(row)
+        # One row per stock: overwrite the coalesced snapshot on conflict. The
+        # refresh of updated_at marks the (attempted) refresh, not that every
+        # field changed.
+        set_ = {k: getattr(stmt.excluded, k) for k in row if k != "stock_id"}
         set_["updated_at"] = func.now()
         stmt = stmt.on_conflict_do_update(
             constraint="uq_financials_stock_id",
@@ -695,6 +711,187 @@ async def backfill_alpha_history(batch_size: int = BATCH_SIZE) -> dict:
     return {"snapshots": total, "errors": len(errors)}
 
 
+# --- Company profile ingestion (provider-sourced background) -----------------
+
+
+async def _fetch_one_profile(provider, symbol: str) -> tuple[str, bool]:
+    """Fetch + upsert one symbol's company profile. Returns (symbol, stored).
+
+    Raises MarketDataError upward so callers can isolate failures per symbol.
+    """
+    profile = await _with_retry(
+        lambda: provider.get_company_profile(symbol),
+        what=f"company profile fetch for {symbol}",
+    )
+
+    async with SessionLocal() as session:
+        stock_id = await session.scalar(
+            select(Stock.id).where(Stock.symbol == symbol)
+        )
+        if stock_id is None:
+            raise MarketDataError(f"Symbol {symbol} not in DB catalog")
+        await profile_repo.upsert_profile(
+            session,
+            stock_id=stock_id,
+            business_summary=profile.business_summary,
+            ceo=profile.ceo,
+            employees=profile.employees,
+            website=profile.website,
+            source=getattr(provider, "name", None),
+        )
+    return symbol, True
+
+
+async def ingest_company_profiles(
+    provider=None, batch_size: int = BATCH_SIZE
+) -> dict:
+    """Fetch + store a company background profile for every catalog symbol.
+
+    Same batching + per-symbol isolation as the other ingestions (D19).
+    business_summary is the provider's verbatim description text; fields the
+    provider does not supply stay None (never generated).
+    """
+    provider = provider or build_default_market_provider()
+
+    async with SessionLocal() as session:
+        symbols = await _get_universe_symbols(session)
+
+    if not symbols:
+        logger.warning("No symbols found for universe '%s'.", UNIVERSE_NAME)
+        return {"fetched": 0, "rows": 0, "errors": 0}
+
+    rows = 0
+    errors: list[str] = []
+    for i in range(0, len(symbols), batch_size):
+        batch = symbols[i : i + batch_size]
+        results = await asyncio.gather(
+            *(_fetch_one_profile(provider, s) for s in batch),
+            return_exceptions=True,
+        )
+        for symbol, res in zip(batch, results):
+            if isinstance(res, Exception):
+                logger.error("Failed to ingest company profile for %s: %s", symbol, res)
+                errors.append(symbol)
+            else:
+                rows += 1
+
+    logger.info(
+        "Company profile ingestion done: %d symbols, %d rows, %d errors",
+        len(symbols) - len(errors),
+        rows,
+        len(errors),
+    )
+    return {"fetched": len(symbols) - len(errors), "rows": rows, "errors": len(errors)}
+
+
+# --- Alpha explanation pre-warm (cache warm before any user visits) ----------
+
+# Free OpenRouter models are rate-limited; a small pause between pre-warm
+# calls keeps the nightly sweep inside the per-minute limits.
+PREWARM_DELAY_SECONDS = 2.0
+
+
+async def prewarm_alpha_explanations(delay: float = PREWARM_DELAY_SECONDS) -> dict:
+    """Warm the alpha explanation TTL cache for the whole active universe.
+
+    Runs right after the nightly alpha backfill (D67) inside the API process:
+    the in-process cache is keyed (symbol, date), so a pre-warm at 18:35
+    serves every user the next day with zero LLM latency and zero
+    first-visit cost. Respects the SHARED daily cap (llm_narrative.budget_ok)
+    so the pre-warm can never crowd out /ask beyond its allowance; symbols
+    past the cap are simply left to lazy first-view computation.
+    """
+    from app.services import alpha as alpha_svc
+    from app.services import llm_narrative
+
+    if not settings.llm_api_key or not settings.llm_model:
+        logger.info("explanation pre-warm skipped (LLM not configured)")
+        return {"warmed": 0, "skipped": "llm_not_configured"}
+
+    async with SessionLocal() as session:
+        symbols = await _get_universe_symbols(session)
+
+    warmed = 0
+    for i, symbol in enumerate(symbols):
+        if not llm_narrative.budget_ok():
+            logger.info(
+                "explanation pre-warm stopped at the daily cap after %d symbols", warmed
+            )
+            break
+        try:
+            async with SessionLocal() as session:
+                stock = await session.scalar(
+                    select(Stock).where(Stock.symbol == symbol)
+                )
+                if stock is None:
+                    continue
+                result = await alpha_svc.compute_alpha(session, stock)
+            await llm_narrative.generate_alpha_explanation(stock, result)
+            warmed += 1
+        except Exception as exc:  # one stock must never abort the sweep (D19)
+            logger.warning("explanation pre-warm failed for %s: %s", symbol, exc)
+        if delay and i < len(symbols) - 1:
+            await asyncio.sleep(delay)
+
+    logger.info("explanation pre-warm done: %d/%d symbols warmed", warmed, len(symbols))
+    return {"warmed": warmed, "skipped": None}
+
+
+# --- Catalog repair pass (stocks the universe passes miss) -------------------
+
+
+async def repair_catalog_gaps(provider: MarketDataProvider | None = None) -> dict:
+    """Ingest catalog stocks that the universe-driven passes never touch.
+
+    The universe passes cover index constituents; a catalog stock pruned
+    from the index (e.g. TATAMOTORS after its demerger) would otherwise sit
+    in the catalog forever with no prices, an empty snapshot and no profile.
+    This pass finds stocks with zero stored bars, an all-null financial
+    snapshot, or a missing company profile and runs the same fetches for
+    them, so no catalog stock is permanently empty. Per-symbol isolation
+    (D19) and the idempotent upserts make the pass safe to re-run.
+    """
+    provider = provider or build_default_market_provider()
+
+    price_gap = ~exists(select(DailyPrice.stock_id).where(DailyPrice.stock_id == Stock.id))
+    financials_gap = ~exists(select(Financials.stock_id).where(Financials.stock_id == Stock.id))
+    profile_gap = ~exists(select(CompanyProfile.stock_id).where(CompanyProfile.stock_id == Stock.id))
+
+    async with SessionLocal() as session:
+        stocks = (
+            await session.execute(select(Stock).where(price_gap | financials_gap | profile_gap))
+        ).scalars().all()
+
+    if not stocks:
+        logger.info("Catalog repair pass: no gaps found.")
+        return {"repaired": 0, "errors": 0}
+
+    errors: list[str] = []
+    repaired = 0
+    for stock in stocks:
+        ok = True
+        for fetch in (
+            lambda s=stock.symbol: _fetch_one_symbol(provider, s),
+            lambda s=stock.symbol: _fetch_one_financials(provider, s),
+            lambda s=stock.symbol: _fetch_one_profile(provider, s),
+        ):
+            try:
+                await fetch()
+            except Exception as exc:
+                logger.error("Catalog repair failed for %s: %s", stock.symbol, exc)
+                ok = False
+        if ok:
+            repaired += 1
+        else:
+            errors.append(stock.symbol)
+
+    logger.info(
+        "Catalog repair pass: %d stocks repaired, %d errors (%s)",
+        repaired, len(errors), ",".join(errors) or "none",
+    )
+    return {"repaired": repaired, "errors": len(errors)}
+
+
 def run_daily_ingestion() -> None:
     """Scheduled entrypoint: run price + financials ingestion once.
 
@@ -704,11 +901,17 @@ def run_daily_ingestion() -> None:
 
 
 async def _ingest_all() -> None:
-    """Run all ingestion passes (prices, financials, history, alpha, news)."""
+    """Run all ingestion passes (prices, financials, profiles, history, alpha, news)."""
     await ingest_universe()
     await ingest_financials()
     await ingest_financial_periods()
+    await ingest_company_profiles()
+    # Catch catalog stocks the universe passes dropped (renames/demergers).
+    await repair_catalog_gaps()
     await backfill_alpha_history()
+    # Pre-warm explanations AFTER the alpha pass so each stock's snapshot for
+    # today already exists when its narrative is generated and cached.
+    await prewarm_alpha_explanations()
     await ingest_news()
 
 

@@ -1009,6 +1009,44 @@ Chronological record of decisions. Append as time progresses.
   that never had live snapshots - a flat carried-forward line would present
   today's values as daily observations. Component lines appear in the alpha
   history chart only as genuine /alpha snapshots accumulate.
+- **D82.** (2026-09-06, user decision) **Upstox fills every gap yfinance
+  leaves - including renamed symbols.** Verified live: the Upstox token works
+  (RELIANCE ratios/prices/statements all fetch), and exactly one catalog
+  symbol failed instrument resolution: TATAMOTORS.NS, because the NSE
+  renamed the listing to TMPV post-demerger (same ISIN INE155A01022). Fix:
+  a documented `SYMBOL_ALIASES` map in the Upstox adapter
+  (TATAMOTORS -> TMPV) resolves renamed symbols so prices, fundamentals and
+  income statements flow through the existing MergingProvider field-level
+  coalesce. Honest limits that remain (no provider in the stack supplies
+  them): interest coverage (0/251 stocks have it - no interest-expense
+  category in Upstox's income statement, absent from yfinance), debt/equity
+  for ~24 banks (neither provider reports it for bank balance-sheet
+  formats), and EV/EBITDA absolutes (~41 stocks; Upstox supplies only the
+  pre-computed ratio, which the valuation fallback consumes). Scores stay
+  honest via documented weight renormalization.
+- **D83.** (2026-09-06, user decision) **/alpha is pure computation; the
+  narrative is lazy.** GET /alpha returns composite/components/weights/
+  value_signal with zero LLM work - the score renders the moment DB math
+  finishes. The explanation moved to GET /stocks/{symbol}/alpha/explanation
+  (same grounding pipeline, TTL cache, rule-based fallback), fetched by the
+  frontend in parallel and rendered in its own skeleton region inside the
+  Alpha card: only the sentence shows a loading state, only on cache misses.
+  The nightly ingestion sweep pre-warms the cache (one generate call per
+  catalog symbol right after the alpha backfill, rate-limit pause between
+  calls, shared daily cap respected), so the first live view of the day
+  costs nothing. `LLM_DAILY_CAP` default raised 100 -> 300 to fit the
+  ~250-symbol pre-warm plus /ask headroom.
+- **D84.** (2026-09-06, user decision) **Company background is
+  provider-sourced, stored verbatim, and fed to the ask LLM.** New
+  `company_profiles` table: the provider's own business description
+  (yfinance longBusinessSummary - never generated), plus CEO (from
+  companyOfficers), employees and website; served at
+  GET /stocks/{symbol}/profile, rendered as the "About the company" box
+  below the Alpha score, and added to the ask endpoint's allow-listed
+  evidence. The system prompt now admits company-background questions
+  (what the company does, who leads it) THROUGH that evidence only - if the
+  stored profile does not contain a fact, the model must say so; web
+  browsing and invention remain forbidden.
 - **Part I verification (2026-09-06, Phase 6.5 close-out):** backend pytest
   **262/262**; frontend tsc clean, vitest **65/65** (8 files, incl. 6 new
   search-matcher tests), `vite build` OK; E2E smoke against the live dev
