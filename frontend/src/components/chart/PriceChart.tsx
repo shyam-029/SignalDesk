@@ -59,6 +59,9 @@ export function PriceChart({
         horzLines: { color: css("--line") },
       },
       crosshair: {
+        // Single vertical tracker with the date labeled on the time axis;
+        // values live in the OHLC readout above, so no horizontal price
+        // line/bubble competing with the candles.
         mode: CrosshairMode.Normal,
         vertLine: {
           color: css("--faint"),
@@ -66,12 +69,7 @@ export function PriceChart({
           style: LineStyle.Dashed,
           labelBackgroundColor: css("--cobalt"),
         },
-        horzLine: {
-          color: css("--faint"),
-          width: 1,
-          style: LineStyle.Dashed,
-          labelBackgroundColor: css("--cobalt"),
-        },
+        horzLine: { visible: false, labelVisible: false },
       },
       rightPriceScale: { borderColor: css("--line") },
       timeScale: { borderColor: css("--line"), rightOffset: 3 },

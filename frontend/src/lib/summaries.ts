@@ -46,15 +46,16 @@ export function fundamentalsSummary(scores: ScoreCard | undefined): string | nul
     b ? ["veryweak", "weak", "moderate", "positive", "strong"].indexOf(b.key) : -1;
 
   // Headline the stronger dimension; detail it with its leading raw input.
+  // Component names match the backend's metric table ("ROE", "Debt/Equity").
   if (p != null && (s == null || rank(pBand) >= rank(sBand))) {
-    const roe = scores.profitability_components.find((c) => c.name === "roe");
+    const roe = scores.profitability_components.find((c) => c.name === "ROE");
     const word = strengthWord(p);
     return roe
       ? `${word} profitability · ROE ${trim1(roe.value)}%`
       : `${word} profitability · score ${p}`;
   }
   if (s != null) {
-    const de = scores.solvency_components.find((c) => c.name === "de_ratio");
+    const de = scores.solvency_components.find((c) => c.name === "Debt/Equity");
     const word = strengthWord(s);
     return de
       ? `${word} solvency · D/E ${trim1(de.value)}%`

@@ -7,7 +7,7 @@ import { Reveal } from "@/components/motion/Reveal";
  */
 export function ExplainerSection() {
   return (
-    <section className="relative border-b border-line bg-surface-2/40">
+    <section className="section-alt relative border-b border-line">
       {/* Depth wash: a faint teal pool behind the conclusion card. */}
       <div
         aria-hidden

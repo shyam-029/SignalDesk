@@ -33,6 +33,7 @@ export function FundamentalsSection({ symbol }: { symbol: string }) {
       kicker="Fundamentals"
       title="Business strength"
       summary={summary}
+      className="section-alt"
       defaultOpen
       aside={<ExplainAction symbol={symbol} questionType="fundamental" question="What is driving the fundamental scores?" triggerLabel="What's driving this?" />}
     >

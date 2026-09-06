@@ -88,7 +88,7 @@ export function AlphaSection({ symbol }: { symbol: string }) {
 
                 {/* Technical sub-components (evidence, not conclusions). */}
                 {Object.keys(alpha.components).length > 0 && (
-                  <div className="mt-4 border border-line bg-surface p-4">
+                  <div className="glass mt-4 rounded-sm p-4">
                     <p className="label-caps mb-3">Technical evidence</p>
                     <div className="grid grid-cols-3 gap-4">
                       {[
@@ -156,7 +156,7 @@ export function AlphaSection({ symbol }: { symbol: string }) {
                   </div>
                 )}
 
-                <div className="border border-line bg-surface p-5">
+                <div className="glass rounded-sm p-5">
                   <div className="flex items-center justify-between gap-3">
                     <p className="label-caps">Written explanation</p>
                     <ExplainAction

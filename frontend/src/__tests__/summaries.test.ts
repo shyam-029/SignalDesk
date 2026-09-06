@@ -53,8 +53,8 @@ const scoreCard = (over: Partial<ScoreCard> = {}): ScoreCard => ({
   symbol: "TCS.NS",
   profitability: 97,
   solvency: 100,
-  profitability_components: [{ name: "roe", value: 47.7, score: 100 }],
-  solvency_components: [{ name: "de_ratio", value: 10.2, score: 100 }],
+  profitability_components: [{ name: "ROE", value: 47.7, score: 100 }],
+  solvency_components: [{ name: "Debt/Equity", value: 10.2, score: 100 }],
   explanation: "",
   ...over,
 });
@@ -68,7 +68,7 @@ describe("fundamentalsSummary", () => {
     const card = scoreCard({
       profitability: 40,
       solvency: 92,
-      solvency_components: [{ name: "de_ratio", value: 36.7, score: 88 }],
+      solvency_components: [{ name: "Debt/Equity", value: 36.7, score: 88 }],
     });
     expect(fundamentalsSummary(card)).toBe("Strong solvency · D/E 36.7%");
   });
@@ -77,7 +77,7 @@ describe("fundamentalsSummary", () => {
     const card = scoreCard({
       profitability: 30,
       solvency: null,
-      profitability_components: [{ name: "roe", value: 4.1, score: 20 }],
+      profitability_components: [{ name: "ROE", value: 4.1, score: 20 }],
       solvency_components: [],
     });
     expect(fundamentalsSummary(card)).toBe("Weak profitability · ROE 4.1%");

@@ -31,7 +31,7 @@ export function UniverseStrip() {
     : [];
 
   return (
-    <section className="relative border-b border-line bg-surface-2/30">
+    <section className="section-alt relative border-b border-line">
       <div className="mx-auto max-w-6xl px-4 py-20 md:px-6 md:py-28">
         <Reveal className="flex flex-wrap items-end justify-between gap-4">
           <div>

@@ -16,12 +16,22 @@ import logging
 from collections.abc import Awaitable, Callable
 from typing import TypeVar
 
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import SessionLocal
-from app.models import DailyPrice, FinancialPeriod, Financials, NewsArticle, NewsSentiment, Stock, Universe, stock_universe
+from app.models import (
+    AlphaScore,
+    DailyPrice,
+    FinancialPeriod,
+    Financials,
+    NewsArticle,
+    NewsSentiment,
+    Stock,
+    Universe,
+    stock_universe,
+)
 from app.providers.base import Fundamentals, MarketDataProvider
 from app.providers.factory import build_default_market_provider
 from app.providers.news_base import Article, NewsProvider
@@ -570,57 +580,83 @@ async def ingest_news(
 async def _backfill_one_alpha(symbol: str) -> int:
     """Retroactively compute alpha snapshots for every stored trading day.
 
-    For each bar date with enough closes (>= 26), the technical score is
-    computed from the closes UP TO that date with the existing indicator
-    functions (real math on real stored prices). Fundamental and sentiment
-    are point-in-time metrics with no stored history, so historical
-    composites renormalize the available weights to technical only - the
-    same renormalization rule the live score uses. Live snapshots that carry
-    a fundamental score are never overwritten (see upsert_snapshots_bulk).
+    For each bar date past indicator warm-up, the technical score is computed
+    from the closes UP TO that date (real math on real stored prices, EMA-
+    smoothed exactly like the live score). Fundamental and sentiment are
+    point-in-time metrics with no stored history: their latest known values
+    are held constant across the window so the historical composite is the
+    real 40/30/30 blend instead of collapsing to the technical score alone.
+    Existing snapshots for the symbol are replaced so the whole series is
+    recomputed under the current formula; live /alpha requests rebuild
+    today's snapshot on the next page view.
     """
     from app.repositories import alpha as alpha_repo
-    from app.services import indicators
+    from app.repositories import financials as fin_repo
+    from app.repositories import news as news_repo
+    from app.services import indicators, scores as score_svc
+    from app.services.alpha import _mean_of, _renormalized
 
     async with SessionLocal() as session:
-        stock_id = await session.scalar(
-            select(Stock.id).where(Stock.symbol == symbol)
-        )
-        if stock_id is None:
+        stock = await session.scalar(select(Stock).where(Stock.symbol == symbol))
+        if stock is None:
             return 0
         bars = (
             await session.execute(
                 select(DailyPrice.date, DailyPrice.close)
-                .where(DailyPrice.stock_id == stock_id)
+                .where(DailyPrice.stock_id == stock.id)
                 .order_by(DailyPrice.date.asc())
             )
         ).all()
+
+        # Latest known fundamental score (slow-moving: quarterly snapshot).
+        fundamental: int | None = None
+        fundamentals = await fin_repo.get_financials(session, stock)
+        if fundamentals is not None:
+            profit = score_svc.profitability_score(fundamentals)
+            solvency = score_svc.solvency_score(fundamentals)
+            fundamental = _mean_of(profit.score, solvency.score)
+
+        # Latest known sentiment (slow-moving aggregate of recent headlines).
+        sentiment: int | None = None
+        summary = await news_repo.get_sentiment_summary(session, symbol)
+        if summary and summary["count"]:
+            sentiment = round((summary["score"] + 1.0) / 2.0 * 100.0)
 
     if len(bars) < 26:
         return 0
 
     dates = [b.date for b in bars]
     closes = [float(b.close) for b in bars]
+    scored_series = indicators.score_technicals_series(closes)
 
     rows: list[dict] = []
-    for i in range(25, len(closes)):
-        scored = indicators.score_technicals(closes[: i + 1])
-        if scored.get("score") is None:
+    for i, scored in enumerate(scored_series):
+        if scored is None or scored.get("score") is None:
+            continue
+        composite, _ = _renormalized(fundamental, scored["score"], sentiment)
+        if composite is None:
             continue
         rows.append(
             {
                 "symbol": symbol,
                 "date": dates[i],
-                "composite": scored["score"],
-                "fundamental": None,
+                "composite": composite,
+                "fundamental": fundamental,
                 "technical": scored["score"],
-                "sentiment": None,
+                "sentiment": sentiment,
                 "components_json": scored.get("components") or {},
             }
         )
 
     if not rows:
         return 0
+
+    # Replace the symbol's snapshots: the series is recomputed under the
+    # current formula, so stale rows must not survive the run. Only reached
+    # when there is something to insert.
     async with SessionLocal() as session:
+        await session.execute(delete(AlphaScore).where(AlphaScore.symbol == symbol))
+        await session.commit()
         return await alpha_repo.upsert_snapshots_bulk(session, rows)
 
 
@@ -681,3 +717,17 @@ def start_scheduler() -> None:
     scheduler.start()
     logger.info("Background scheduler started (daily ingestion at 18:30).")
     return scheduler
+
+
+if __name__ == "__main__":
+    import sys
+
+    command = sys.argv[1] if len(sys.argv) > 1 else "backfill"
+    if command == "backfill":
+        # Explicit recompute of every symbol's alpha history under the
+        # current formula (replaces stored snapshots per symbol).
+        asyncio.run(backfill_alpha_history())
+    elif command == "ingest":
+        run_daily_ingestion()
+    else:
+        raise SystemExit(f"Unknown command: {command} (use 'backfill' or 'ingest')")

@@ -58,7 +58,7 @@ export function Framework() {
   const toggle = (i: number) => setActive((cur) => (cur === i ? null : i));
 
   return (
-    <section id="how-it-works" className="relative border-b border-line bg-surface-2/40">
+    <section id="how-it-works" className="section-alt relative border-b border-line">
       {/* Depth wash: a faint cool pool behind the convergence panel. */}
       <div
         aria-hidden

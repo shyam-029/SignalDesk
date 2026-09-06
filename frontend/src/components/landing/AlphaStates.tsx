@@ -10,7 +10,7 @@ import { cn } from "@/lib/utils";
  */
 export function AlphaStates() {
   return (
-    <section className="relative border-b border-line bg-surface-2/30">
+    <section className="relative border-b border-line">
       <div className="mx-auto max-w-6xl px-4 py-20 md:px-6 md:py-28">
         <Reveal>
           <p className="label-caps mb-3">Reading the signal</p>

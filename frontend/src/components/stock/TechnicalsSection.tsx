@@ -25,9 +25,9 @@ import type { TechnicalsSeriesItem } from "@/lib/types";
  */
 export function TechnicalsSection({ symbol }: { symbol: string }) {
   const technicals = useTechnicals(symbol);
-  // Three years of series when the stored history supports it (the backend
-  // caps at what is ingested; shorter histories simply return fewer bars).
-  const series = useTechnicalsSeries(symbol, 750);
+  // One trading year of series: long windows render as illegible dense
+  // lines at research-page size, so the default is 250 bars.
+  const series = useTechnicalsSeries(symbol, 250);
   const t = technicals.data;
   const verdict = technicalVerdict(t?.score);
   const summary = technicalsSummary(t);
