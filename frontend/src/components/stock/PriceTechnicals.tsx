@@ -22,7 +22,7 @@ export function PriceSection({ symbol }: { symbol: string }) {
   const prices = usePrices(symbol, range);
 
   return (
-    <section id="price" className="border-b border-line">
+    <section id="price" className="section-alt border-b border-line">
       <div className="mx-auto max-w-6xl px-4 py-12 md:px-6">
         <SectionHeader
           index="03"

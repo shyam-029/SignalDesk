@@ -35,7 +35,7 @@ export default function LandingPage() {
       <Hero sparkline={sparkline} />
 
       {/* Editorial plate: where the raw numbers come from. */}
-      <section className="border-b border-line">
+      <section className="section-alt border-b border-line">
         <div className="mx-auto max-w-6xl px-4 py-12 md:px-6">
           <figure className="chart-frame">
             <CandleField className="h-auto w-full" />

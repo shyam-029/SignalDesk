@@ -49,7 +49,7 @@ export function AlphaHistoryChart({ symbol }: { symbol: string }) {
   const last = items.at(-1)?.date;
 
   return (
-    <div className="border border-line bg-surface p-5">
+    <div className="glass rounded-sm p-5">
       <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
         <p className="label-caps">Alpha over time</p>
         {first && last && (

@@ -10,6 +10,7 @@ from decimal import Decimal
 import pytest
 from sqlalchemy import select
 
+from app import jobs
 from app.models import AlphaScore, DailyPrice, Financials, Stock
 from app.repositories import alpha as alpha_repo
 from app.repositories import prices as price_repo
@@ -104,6 +105,72 @@ async def test_alpha_repo_upsert_idempotent(session_factory):
         rows = (await session.execute(select(AlphaScore))).scalars().all()
         assert len(rows) == 1  # second upsert overwrote
         assert rows[0].composite == Decimal("60.00")
+
+
+# --- Alpha history backfill ---------------------------------------------------
+
+
+async def test_backfill_blends_components_and_replaces_history(
+    client, session_factory, monkeypatch
+):
+    """The recomputed history is a real blend, smooth, and fully replaced."""
+    async with session_factory() as session:
+        stock = Stock(symbol="BACK.NS", name="Backfill", sector="E", industry="O")
+        session.add(stock)
+        await session.flush()
+        session.add(
+            Financials(
+                stock_id=stock.id,
+                trailing_pe=Decimal("20.00"),
+                return_on_equity=Decimal("0.1800"),
+                operating_margin=Decimal("0.1250"),
+                debt_to_equity=Decimal("50.00"),
+            )
+        )
+        today = date.today()
+        for i in range(80):
+            session.add(
+                DailyPrice(stock_id=stock.id, date=today - timedelta(days=79 - i),
+                           open=100, high=101, low=99,
+                           close=100 + i * 0.1, volume=1000)
+            )
+        # A stale snapshot (old formula) that the recompute must remove.
+        session.add(
+            AlphaScore(symbol="BACK.NS", date=today - timedelta(days=400),
+                       composite=1.0, technical=1.0)
+        )
+        await session.commit()
+
+    monkeypatch.setattr(jobs, "SessionLocal", session_factory)
+    inserted = await jobs._backfill_one_alpha("BACK.NS")
+    assert inserted > 0
+
+    async with session_factory() as session:
+        rows = (
+            await session.execute(
+                select(AlphaScore)
+                .where(AlphaScore.symbol == "BACK.NS")
+                .order_by(AlphaScore.date.asc())
+            )
+        ).scalars().all()
+
+    assert len(rows) == inserted
+    # The stale snapshot is gone: every row was recomputed from stored bars.
+    assert all(r.date >= date.today() - timedelta(days=79) for r in rows)
+
+    # Fundamental is carried into every snapshot and the composite is a real
+    # blend (never identical to the technical score when fundamental differs).
+    assert all(r.fundamental is not None for r in rows)
+    assert all(
+        float(r.composite) != float(r.technical)
+        for r in rows
+        if r.technical is not None
+    )
+
+    # The composite drifts; it does not sawtooth.
+    composites = [float(r.composite) for r in rows]
+    deltas = [abs(b - a) for a, b in zip(composites, composites[1:])]
+    assert max(deltas) <= 12
 
 
 # --- API tests ----------------------------------------------------------------

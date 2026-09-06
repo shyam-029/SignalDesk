@@ -79,10 +79,11 @@ async def upsert_snapshots_bulk(
 ) -> int:
     """Bulk-upsert backfilled snapshots; returns the number of rows offered.
 
-    The conflict update only applies to rows that have no fundamental score
-    yet (i.e. backfilled/technical-only rows). Real snapshots computed by the
-    live /alpha endpoint carry fundamental + sentiment and are never
-    overwritten by the backfill.
+    The backfill wipes the symbol's snapshots before inserting, so conflicts
+    are rare; the guard exists for the concurrent case only — a live /alpha
+    snapshot that lands between the wipe and this insert (it carries a
+    fundamental score and is recomputed on the next page view anyway) is not
+    overwritten mid-flight.
     """
     if not rows:
         return 0

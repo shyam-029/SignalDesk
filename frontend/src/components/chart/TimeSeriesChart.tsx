@@ -4,6 +4,7 @@ import {
   CrosshairMode,
   HistogramSeries,
   LineSeries,
+  LineStyle,
   createChart,
   type IChartApi,
   type ISeriesApi,
@@ -82,9 +83,18 @@ export function TimeSeriesChart({
         horzLines: { color: css("--line") },
       },
       crosshair: {
-        // Hidden: the research readouts above the chart carry the values; a
-        // trailing price bubble on the axis was noise, not information.
-        mode: CrosshairMode.Hidden,
+        // A single vertical tracker: the date under the cursor is labeled on
+        // the time axis and the readout above lists every series value at
+        // that date. No horizontal line/price bubble — the readout carries
+        // the values without cluttering the price scale.
+        mode: CrosshairMode.Normal,
+        vertLine: {
+          color: css("--faint"),
+          width: 1,
+          style: LineStyle.Dashed,
+          labelBackgroundColor: css("--cobalt"),
+        },
+        horzLine: { visible: false, labelVisible: false },
       },
       rightPriceScale: { borderColor: css("--line") },
       timeScale: { borderColor: css("--line"), rightOffset: 3 },

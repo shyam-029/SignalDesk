@@ -8,6 +8,7 @@ from app.services.indicators import (
     macd,
     rsi,
     score_technicals,
+    score_technicals_series,
     sma,
 )
 
@@ -126,3 +127,46 @@ def test_technical_score_renormalizes_when_component_missing():
     closes = _seq(1, 60, 1.0)
     out = score_technicals(closes)
     assert 0 <= out["score"] <= 100
+
+
+# --- Score series (smoothed) --------------------------------------------------
+
+
+def test_score_series_matches_scalar():
+    closes = _seq(1, 80, 0.7)
+    series = score_technicals_series(closes)
+    assert series[-1] == score_technicals(closes)
+
+
+def test_score_series_warmup_is_none_then_present():
+    closes = _seq(1, 80, 0.7)
+    series = score_technicals_series(closes)
+    # No score before the RSI 14 warm-up (the earliest indicator); scores are
+    # bounded once present, and partial components renormalize (reversion-only
+    # between index 14 and the SMA 20 warm-up).
+    assert all(day is None for day in series[:14])
+    assert series[14] is not None
+    for day in series:
+        if day is None:
+            continue
+        assert 0 <= day["score"] <= 100
+
+
+def test_score_series_components_carry_all_three():
+    closes = _seq(1, 80, 0.7)
+    series = score_technicals_series(closes)
+    last = series[-1]
+    assert set(last["components"]) == {"trend", "momentum", "reversion"}
+
+
+def test_score_series_is_smoothed_not_sawtooth():
+    # A violently oscillating series: raw component scores would swing tens
+    # of points per day; the EMA-smoothed composite must not.
+    closes = [100.0]
+    for i in range(120):
+        closes.append(closes[-1] * (1.04 if i % 2 == 0 else 0.96))
+    series = score_technicals_series(closes)
+    scores = [day["score"] for day in series if day is not None]
+    deltas = [abs(b - a) for a, b in zip(scores, scores[1:])]
+    assert max(deltas) <= 12  # single-day jumps stay small
+    assert max(scores) - min(scores) > 0  # ...while the trend still moves

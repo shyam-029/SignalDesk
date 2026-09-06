@@ -99,40 +99,97 @@ def _ema_series(closes: list[float], period: int) -> list[float] | None:
     return series
 
 
+# Score scaling: how far the underlying indicator must move to span the full
+# 0-100 sub-score range. Calibrated so a normal trading day (±1-2% around the
+# SMA, ±0.5% MACD histogram) moves a sub-score by a few points, not tens —
+# the research signal should drift, not sawtooth.
+TREND_SCALE = 250.0  # ±20% vs SMA 20 spans 0-100
+MOMENTUM_SCALE = 2500.0  # ±2% MACD-histogram/price spans 0-100
+REVERSION_SCALE = 0.5  # RSI distance from 50, halved (±25 points max)
+
+# The composite is an EMA of the daily raw scores: single-day indicator noise
+# (one gap, one earnings pop) should not swing the research signal.
+SCORE_EMA_SPAN = 5
+
+
+def _raw_score_series(closes: list[float]) -> list[dict | None]:
+    """Per-day RAW component scores + weighted composite (None before warm-up).
+
+    One rolling pass over the series variants (O(n) total). The weights and
+    renormalization are exactly the scalar score_technicals contract.
+    """
+    sma_vals = sma_series(closes, 20)
+    rsi_vals = rsi_series(closes, 14)
+    macd_vals = macd_series(closes)
+
+    out: list[dict | None] = [None] * len(closes)
+    for i, close in enumerate(closes):
+        components: dict[str, float] = {}
+        weights: dict[str, float] = {}
+
+        s20 = sma_vals[i]
+        if s20 is not None and s20 != 0:
+            components["trend"] = _clamp(50 + (close / s20 - 1.0) * TREND_SCALE)
+            weights["trend"] = 0.5
+
+        hist = macd_vals["histogram"][i]
+        if hist is not None and close != 0:
+            components["momentum"] = _clamp(50 + (hist / close) * MOMENTUM_SCALE)
+            weights["momentum"] = 0.3
+
+        rsi_val = rsi_vals[i]
+        if rsi_val is not None:
+            components["reversion"] = _clamp(50 + (50.0 - rsi_val) * REVERSION_SCALE)
+            weights["reversion"] = 0.2
+
+        if not components:
+            continue
+        total_w = sum(weights.values())
+        score = sum(components[k] * weights[k] for k in components) / total_w
+        out[i] = {"components": components, "score": score}
+    return out
+
+
+def score_technicals_series(closes: list[float]) -> list[dict | None]:
+    """Smoothed per-day technical scores (score_technicals over time).
+
+    Each day's returned score is the EMA (span SCORE_EMA_SPAN) of the raw
+    weighted composites up to that day, so the score drifts with the trend
+    instead of jumping with every bar. `components` stay the day's raw values
+    (the evidence). Days before indicator warm-up are None; the scalar
+    score_technicals is literally the last entry of this series.
+    """
+    raw = _raw_score_series(closes)
+    out: list[dict | None] = [None] * len(closes)
+    alpha = 2.0 / (SCORE_EMA_SPAN + 1.0)
+    smoothed: float | None = None
+    for i, day in enumerate(raw):
+        if day is None:
+            continue
+        score = day["score"]
+        smoothed = score if smoothed is None else alpha * score + (1.0 - alpha) * smoothed
+        out[i] = {
+            "components": {k: round(v, 1) for k, v in day["components"].items()},
+            "score": round(smoothed),
+        }
+    return out
+
+
 def score_technicals(closes: list[float]) -> dict:
     """Combine indicators into a 0-100 technical score (heuristic).
 
     Weights: trend 50% (price vs SMA20), momentum 30% (MACD histogram),
     reversion 20% (RSI oversold/overbought). Returns per-component scores plus
     the weighted total; any component with insufficient data is omitted and the
-    remaining weights are renormalized.
+    remaining weights are renormalized. The composite is EMA-smoothed
+    (SCORE_EMA_SPAN days) exactly as score_technicals_series computes it, so
+    the live score and the backfilled history are one math.
     """
-    components: dict[str, float] = {}
-    weights: dict[str, float] = {}
-
-    sma20 = sma(closes, 20)
-    if sma20 is not None and sma20 != 0:
-        close = closes[-1]
-        components["trend"] = _clamp(50 + (close / sma20 - 1.0) * 500.0)
-        weights["trend"] = 0.5
-
-    hist = macd(closes)["histogram"]
-    if hist is not None and closes[-1] != 0:
-        components["momentum"] = _clamp(50 + (hist / closes[-1]) * 5000.0)
-        weights["momentum"] = 0.3
-
-    rsi_val = rsi(closes, 14)
-    if rsi_val is not None:
-        components["reversion"] = _clamp(50 + (50.0 - rsi_val) * 0.5)
-        weights["reversion"] = 0.2
-
-    if not components:
-        return {"components": {}, "score": None}
-
-    total_w = sum(weights.values())
-    score = sum(v * weights[k] for k, v in components.items()) / total_w
-    return {"components": {k: round(v, 1) for k, v in components.items()},
-            "score": round(score)}
+    series = score_technicals_series(closes)
+    for day in reversed(series):
+        if day is not None:
+            return day
+    return {"components": {}, "score": None}
 
 
 def _clamp(value: float, low: float = 0.0, high: float = 100.0) -> float:

@@ -51,6 +51,7 @@
   --bg: #f8f9ff;
   --surface: #ffffff;
   --surface-2: #eff4ff;
+  --section-alt: #eef2fb;
   --ink: #0b1c30;
   --muted: #47536b;
   --faint: #7d8698;
@@ -79,6 +80,7 @@
   --bg: #131110;
   --surface: #1a1814;
   --surface-2: #221e18;
+  --section-alt: #1b1815;
   --ink: #f2ede0;
   --muted: #b6ad9d;
   --faint: #8a8172;
@@ -111,6 +113,13 @@
 }
 
 @layer components {
+  /* Alternating section wash: every other section sits on a slightly darker
+     shade of the page background so consecutive sections separate visually
+     without hard rules everywhere. Theme-aware via --section-alt. */
+  .section-alt {
+    background: var(--section-alt);
+  }
+
   /* Background grid lines: faint square ruling behind the landing page.
      Drawn with the theme's --rule color so both themes get a line that is
      visible but quiet; pure CSS (no images), static, no motion cost. */

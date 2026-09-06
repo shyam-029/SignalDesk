@@ -40,7 +40,7 @@ const ITEMS = [
 
 export function MethodologyTeaser() {
   return (
-    <section className="relative border-b border-line bg-surface-2/30">
+    <section className="section-alt relative border-b border-line">
       <div className="mx-auto max-w-6xl px-4 py-20 md:px-6 md:py-28">
         <div className="grid gap-12 lg:grid-cols-12">
           <Reveal className="lg:col-span-5">

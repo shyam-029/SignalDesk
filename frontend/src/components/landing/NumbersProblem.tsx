@@ -26,7 +26,7 @@ const RAW_METRICS: Array<{ k: string; v: string }> = [
 
 export function NumbersProblem() {
   return (
-    <section className="relative border-b border-line bg-surface-2/30">
+    <section className="relative border-b border-line">
       {/* Depth wash: a faint jade pool behind the raw-number cloud. */}
       <div
         aria-hidden

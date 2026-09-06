@@ -36,6 +36,7 @@ export function NewsSection({ symbol }: { symbol: string }) {
       kicker="News & sentiment"
       title="What the news is saying"
       summary={summary}
+      className="section-alt"
     >
 
         <div className="grid gap-8 lg:grid-cols-12">

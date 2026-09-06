@@ -11,7 +11,7 @@ import { UniverseGrid } from "@/components/landing/UniverseGrid";
  */
 export function Coverage() {
   return (
-    <section className="border-b border-line bg-surface-2/40">
+    <section className="border-b border-line">
       <div className="mx-auto max-w-6xl px-4 py-20 md:px-6 md:py-28">
         <Reveal>
           <p className="label-caps mb-3">Coverage</p>
