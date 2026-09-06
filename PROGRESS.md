@@ -3,7 +3,7 @@
 > **Purpose:** The operational counterpart to `PLANNING.md`. This is the file to read FIRST to pick up
 > where we left off. Updated after every phase.
 > **Rules:** What's done → in progress → next. Command cheatsheet. Known gotchas.
-> **Last updated:** 2026-09-06 (Session 20 - alpha-history recompute, chart legibility + date tracker, peers table sort/collapse, section alternation + glass panels, Part H grounded single-shot ask)
+> **Last updated:** 2026-09-06 (Session 20 + follow-up: ask endpoint made live (stale backend restart), chart first-render fix, even grid backgrounds, quarterly-default financials with backend-derived views)
 > **Roadmap audit completed 2026-08-19 - see PLANNING §18 (4-tier product taxonomy).**
 
 ---
@@ -50,6 +50,37 @@ OpenRouter guardrail integration; verified with ONE real request - `source: "mod
 ---
 
 ## 2. Completed Work
+
+### Session 20 follow-up - ask made live, chart first-render, financials views (2026-09-06)
+
+Post-review fixes from the first Session 20 usage round.
+
+- [x] **"The ask service could not be reached" - root cause: stale backend process.** The
+      uvicorn server on :8000 was started before Part H existed, so `POST /stocks/{symbol}/ask`
+      returned a bare 404 (no envelope) and the panel reported a network failure. The server was
+      restarted with current code; the exact failing case ("should i buy it" on BEL) now returns
+      200 with a grounded, advice-refusing `source: "model"` answer. The panel's error states now
+      distinguish a missing route (HTTP 404 without the standard envelope → "restart the backend"),
+      5xx/network (retry affordance), guardrail blocks, and backend-provided messages.
+- [x] **Chart first-render squish fixed:** collapsible sections keep content mounted with
+      `hidden` (width 0), so TimeSeriesChart/PriceChart built themselves at zero width and came
+      out compressed/offset until an unrelated rebuild (theme toggle). Both charts now defer
+      creation until the container has a real width (ResizeObserver gate) and rebuild on
+      visibility changes.
+- [x] **Even grid backgrounds:** vertical grid lines disabled on all research charts - the time
+      scale's calendar ticks sit at uneven trading-day distances and made the background look
+      irregular. Horizontal reference lines are perfectly even; the hover date tracker stays.
+- [x] **Quarterly-default financials with derived views:** `GET
+      /stocks/{symbol}/financials/history` gains `group=half_yearly` (sums two consecutive fiscal
+      quarters) and `group=three_yearly` (sums three consecutive fiscal years). Aggregation is
+      backend-owned: revenue/net income summed over periods that carry them, net margin
+      recomputed from the sums, operating margin revenue-weighted, EPS never summed, and every
+      grouped row carries `aggregated_from` (periods summed). The chart defaults to Quarterly
+      with a Quarterly / Half-yearly / Yearly / 3-yearly toggle (yearly = stored annual rows);
+      missing granularities show an honest insufficient state with a hint to switch views.
+      Verified live: BEL half-yearly buckets sum correctly (e.g. H1 FY2026 revenue ₹9,149.59 Cr
+      from 1 quarter + ... per stored data). Tests: 3 new grouping tests (sums, recomputed
+      margins, validation) - backend 262/262.
 
 ### Session 20 - alpha-history recompute, research UX fixes, Part H ask (2026-09-06)
 
@@ -598,6 +629,14 @@ git push
 - **Never rewrite repo .md files with PowerShell text processing** - PS 5.1 `Get-Content`/`Set-Content`
   mangles UTF-8 (→ mojibake + BOM). Use the editor/edit tool for .md files; if corrupted,
   `git checkout -- <file>` restores.
+- **A long-running uvicorn process serves OLD code** - new endpoints return a bare 404 (no error
+  envelope) until the server is restarted; the frontend then misreports it as a network failure.
+  After pulling changes, restart the backend (`python -m uvicorn app.main:app --port 8000`). Hit
+  in Session 20: the ask panel showed "could not be reached" because the running server predated
+  Part H.
+- **Charts must not be built at zero width** - collapsible sections keep content mounted with
+  `hidden`, so chart components gate creation on `el.clientWidth > 0` (ResizeObserver) and
+  rebuild on visibility. A chart created at width 0 renders squished/offset until a rebuild.
 - **Alpha backfill replaces a symbol's snapshots** (Session 20): `_backfill_one_alpha` deletes the
   symbol's rows before inserting the recomputed series - that is what makes formula changes propagate.
   Live /alpha requests rebuild today's snapshot on the next page view, so the daily job stays safe.

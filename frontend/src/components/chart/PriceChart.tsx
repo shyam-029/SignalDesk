@@ -34,11 +34,23 @@ export function PriceChart({
   const containerRef = React.useRef<HTMLDivElement>(null);  const chartRef = React.useRef<IChartApi | null>(null);
   const seriesRef = React.useRef<ISeriesApi<"Candlestick"> | null>(null);
   const [hover, setHover] = React.useState<PriceBar | null>(null);
+  // Bumped when a previously zero-width (hidden) container becomes measurable.
+  const [mountTick, setMountTick] = React.useState(0);
   const { theme } = useTheme();
 
   React.useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
+
+    // Hidden right now (e.g. inside a collapsed section): wait for a real
+    // width instead of building a broken zero-width chart.
+    if (el.clientWidth === 0) {
+      const gate = new ResizeObserver(() => {
+        if (el.clientWidth > 0) setMountTick((t) => t + 1);
+      });
+      gate.observe(el);
+      return () => gate.disconnect();
+    }
 
     const styles = getComputedStyle(document.documentElement);
     const css = (name: string) => styles.getPropertyValue(name).trim();
@@ -55,7 +67,9 @@ export function PriceChart({
         fontSize: 12,
       },
       grid: {
-        vertLines: { color: css("--line") },
+        // Horizontal reference lines only: calendar tick spacing is uneven
+        // in trading days, so vertical lines made the grid look irregular.
+        vertLines: { visible: false },
         horzLines: { color: css("--line") },
       },
       crosshair: {
@@ -135,7 +149,7 @@ export function PriceChart({
       chartRef.current = null;
       seriesRef.current = null;
     };
-  }, [bars, height, theme]);
+  }, [bars, height, theme, mountTick]);
 
   const shown = hover ?? bars.at(-1) ?? null;
   const upCandle =

@@ -275,6 +275,8 @@ export interface FinancialPeriodItem {
   eps: number | null;
   source: string;
   ingested_at: string;
+  /** Number of stored periods summed into this row (grouped views only). */
+  aggregated_from?: number | null;
 }
 
 export interface FinancialsHistoryResponse {

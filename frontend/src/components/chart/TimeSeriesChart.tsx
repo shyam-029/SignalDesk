@@ -42,6 +42,10 @@ export interface TimeSeriesLine {
  * hovered date, and the chart is theme-aware and container-resizing like
  * PriceChart. Values arrive pre-scaled from the backend; this component only
  * renders.
+ *
+ * Creation is deferred until the container has a real width: collapsible
+ * sections keep their content mounted with `hidden` (width 0), and a chart
+ * built at zero width comes out squished/offset until an unrelated rebuild.
  */
 export function TimeSeriesChart({
   lines,
@@ -58,11 +62,23 @@ export function TimeSeriesChart({
   const chartRef = React.useRef<IChartApi | null>(null);
   const seriesRefs = React.useRef<Map<string, ISeriesApi<"Line" | "Histogram">>>(new Map());
   const [hoverTime, setHoverTime] = React.useState<string | null>(null);
+  // Bumped when a previously zero-width (hidden) container becomes measurable.
+  const [mountTick, setMountTick] = React.useState(0);
   const { theme } = useTheme();
 
   React.useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
+
+    // Hidden right now (collapsed section): wait for visibility instead of
+    // building a broken zero-width chart.
+    if (el.clientWidth === 0) {
+      const gate = new ResizeObserver(() => {
+        if (el.clientWidth > 0) setMountTick((t) => t + 1);
+      });
+      gate.observe(el);
+      return () => gate.disconnect();
+    }
 
     const styles = getComputedStyle(document.documentElement);
     const css = (name: string) => styles.getPropertyValue(name).trim();
@@ -79,7 +95,10 @@ export function TimeSeriesChart({
         fontSize: 12,
       },
       grid: {
-        vertLines: { color: css("--line") },
+        // Horizontal reference lines only: the time scale's calendar ticks
+        // sit at uneven trading-day distances, so vertical lines made the
+        // background look irregular. The hover crosshair stays.
+        vertLines: { visible: false },
         horzLines: { color: css("--line") },
       },
       crosshair: {
@@ -141,8 +160,9 @@ export function TimeSeriesChart({
       chartRef.current = null;
       seriesRefs.current = new Map();
     };
-    // Rebuild when the data shape or theme changes; parents memoize `lines`.
-  }, [lines, height, theme]);
+    // Rebuild when the data shape, theme, or container visibility changes;
+    // parents memoize `lines`.
+  }, [lines, height, theme, mountTick]);
 
   const rows = lines.map((line) => {
     const byTime = hoverTime
