@@ -142,6 +142,15 @@ export function useExplain(symbol: string) {
   });
 }
 
+// Part H: grounded single-shot ask. One question at a time, no history —
+// never retried automatically (a rate-limit/cap answer should surface as-is).
+export function useAsk(symbol: string) {
+  return useMutation({
+    mutationFn: (question: string) => api.ask(symbol, question),
+    retry: false,
+  });
+}
+
 // --- Historical research (Phase 6.5 Part E endpoints) ------------------------
 
 /** Never retry 404s (unknown symbol resolves instantly). */

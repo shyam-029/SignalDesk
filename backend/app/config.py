@@ -7,6 +7,7 @@
 
 from pathlib import Path
 
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Absolute path to the backend/ directory (parent of app/).
@@ -31,10 +32,15 @@ class Settings(BaseSettings):
     openai_api_key: str = ""
     anthropic_api_key: str = ""
 
-    # --- LLM provider (Phase 5: grounded explanation narrative) ---
+    # --- LLM provider (Phase 5: grounded explanation narrative; Part H: ask) ---
     # API key for the LLM gateway. Empty string => LLM disabled; the app falls
-    # back to the rule-based explanation.
-    llm_api_key: str = ""
+    # back to the rule-based explanation. LLM_API_KEY is the primary variable;
+    # OPENROUTER_API_KEY is accepted as an alias so an OpenRouter-only setup
+    # works without duplicating the key under two names.
+    llm_api_key: str = Field(
+        default="",
+        validation_alias=AliasChoices("LLM_API_KEY", "OPENROUTER_API_KEY"),
+    )
 
     # Base URL for an OpenAI-compatible chat-completions endpoint.
     # Defaults to OpenRouter's API (no SDK required; we call it with httpx).
@@ -59,9 +65,10 @@ class Settings(BaseSettings):
     # is server-side only: never logged, never sent to the frontend.
     upstox_analytics_token: str = ""
 
-    # --- OpenRouter (reserved for the later LLM part; not wired anywhere yet) ---
-    # Recognized so the environment variable is consumed cleanly instead of
-    # being ignored. The LLM call path still uses llm_api_key below.
+    # --- OpenRouter (alternative name for the LLM gateway key) ---
+    # Consumed via the AliasChoices above: OPENROUTER_API_KEY fills
+    # llm_api_key when LLM_API_KEY is not set. Declared so the variable is
+    # recognized cleanly; no code reads it directly.
     openrouter_api_key: str = ""
 
     # --- CORS (Phase 6: browser frontend) ---

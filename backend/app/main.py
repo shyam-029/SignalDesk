@@ -27,7 +27,7 @@ from app.errors import (
 )
 from app.jobs import start_scheduler
 from app.logging_utils import request_id_middleware
-from app.routers import alpha, explain, fundamentals, history, news, scores, screener, stocks, technicals, valuation
+from app.routers import alpha, ask, explain, fundamentals, history, news, scores, screener, stocks, technicals, valuation
 from app.services.valuation import InsufficientDataError, NoPeersError
 
 
@@ -92,6 +92,7 @@ app.include_router(news.router, prefix="/api/v1")
 app.include_router(alpha.router, prefix="/api/v1")
 app.include_router(technicals.router, prefix="/api/v1")
 app.include_router(history.router, prefix="/api/v1")
+app.include_router(ask.router, prefix="/api/v1")
 app.include_router(explain.router, prefix="/api/v1")
 
 
