@@ -87,7 +87,11 @@ export function UniverseStrip() {
                     <span
                       className={cn(
                         "num text-xs",
-                        s.change_pct >= 0 ? "text-band-positive" : "text-band-weak",
+                        s.change_pct == null
+                          ? "text-faint"
+                          : s.change_pct >= 0
+                            ? "text-band-positive"
+                            : "text-band-weak",
                       )}
                     >
                       {fmtSignedPct(s.change_pct)}

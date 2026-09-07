@@ -60,7 +60,7 @@ export function AskPanel({ symbol, displayName }: { symbol: string; displayName:
   };
 
   const blocked =
-    ask.error instanceof ApiError && ask.error.detail?.code === "ASK_BLOCKED";
+    ask.error instanceof ApiError && ask.error.code === "ASK_BLOCKED";
   const trimmed = question.trim();
 
   return (

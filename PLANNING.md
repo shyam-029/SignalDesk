@@ -3,9 +3,10 @@
 > **Purpose:** Living document. Records every product, technical, and scope decision for the project.
 > **Owner:** Shyam (3rd-year CS student)
 > **Timeline:** 2 semesters (~8 months) before recruiter season.
-> **Status:** **Phase 6.5 COMPLETE** (experience overhaul + parts E/F/G + Part D + review round:
-> Nifty 250 universe, refreshed data, valuation fallback, retroactive alpha, research UX fixes).
-> Phase 7 (observability) next.
+> **Status:** **Phase 7 COMPLETE** (observability: root structured logging, durable
+> `job_runs` history + `/debug/jobs`, `/health` vs `/status` semantics, freshness
+> classification + stale flags, uniform error envelope incl. FastAPI-native errors,
+> honest nulls in /stocks, explanation provenance `source`). **Phase 8 (deployment) next.**
 >
 > **Companion file:** `PROGRESS.md` - operational status, what's done/in-progress/next, command
 > cheatsheet, and gotchas. **Read PROGRESS.md first to pick up where we left off.**
@@ -82,7 +83,7 @@ For each stock, produce:
 ## 2. Current Scope (feature tiers)
 
 ### Core (P0)
-- Stock universe: **Nifty 50** for Phase 1, designed to scale to **Nifty 500** (see §3)
+- Stock universe: **Nifty 50** for Phase 1, scaled to **Nifty 250** in Phase 6.5 (current); designed to reach **Nifty 500** (see §3)
 - Price ingestion (OHLCV) + PostgreSQL storage
 - **Relative valuation** (price vs peer multiples)
 - **Fundamental analysis** (profitability + solvency scores)
@@ -315,8 +316,11 @@ Base path: `/api/v1`. All responses JSON. Swagger docs auto-generated at `/docs`
 ### Alpha Score (composite)
 | Method | Path | Request | Response |
 |---|---|---|---|
-| GET | `/api/v1/stocks/{symbol}/alpha` | - | `Alpha` (composite, fundamental, technical, sentiment, components, weights, value_signal, explanation, insufficient_data) |
+| GET | `/api/v1/stocks/{symbol}/alpha` | - | `Alpha` (composite, fundamental, technical, sentiment, components, weights, value_signal, insufficient_data) — pure compute, no LLM |
+| GET | `/api/v1/stocks/{symbol}/alpha/explanation` | - | `{ symbol, explanation, source }` — `source` is `llm` or `rule_based` (fallback observable, D89) |
 | POST | `/api/v1/stocks/{symbol}/explain` | `{question_type}` | `Explanation` (grounded contextual explanation; types: alpha/technical/valuation/fundamental/sentiment; rule-based fallback; TTL cache; shared daily cap) |
+| POST | `/api/v1/stocks/{symbol}/ask` | `{question}` | `{ symbol, answer, evidence, confidence, source }` (grounded single-shot Q&A; safety-blocked questions return 422 with top-level code `ASK_BLOCKED`) |
+| GET | `/api/v1/stocks/{symbol}/profile` | - | `{ symbol, business_summary, ceo, employees, website, source, updated_at }` (provider-sourced, verbatim) |
 
 ### Historical research (Phase 6.5 Part E)
 | Method | Path | Request | Response |
@@ -330,7 +334,9 @@ Base path: `/api/v1`. All responses JSON. Swagger docs auto-generated at `/docs`
 ### Health / Meta
 | Method | Path | Response |
 |---|---|---|
-| GET | `/health` | `{ status: "ok" }` |
+| GET | `/health` | `{ "status": "ok" }` — pure liveness (D88) |
+| GET | `/status` | Readiness: `{ status: "ok"|"degraded", db, scheduler, ingestion: {last_success_at, stale, stale_after_seconds}, llm_configured }` (D88, D91) |
+| GET | `/debug/jobs` | Per-job last run (status/duration/counts/truncated error) + scheduler liveness + next run (D90). Local-only; restrict before public deployment |
 
 **CORS:** browser origins come from `CORS_ORIGINS` (comma-separated; default `http://localhost:5173`; empty disables). The Vite dev server also proxies `/api` → the API, so CORS is only exercised on direct/production access.
 
@@ -352,6 +358,9 @@ ScoreCard: {
 }
 OHLCV: { date, open, high, low, close, volume }
 StockSummary: { symbol, name, sector, last_price, change_pct }
+//  last_price/change_pct are NULL when the stock has no price bars (D89:
+//  the API never fabricates 0.0 for missing data)
+QuoteBlock adds: date (latest bar) + stale (bool|null, freshness TTL 3 days)
 ```
 
 ---
@@ -439,13 +448,13 @@ StockSummary: { symbol, name, sector, last_price, change_pct }
 ### Semester 1 (16 weeks) - ship the complete product
 | Phase | Weeks | Deliverable |
 |---|---|---|
-| 1 | 1-3 | FastAPI + Postgres + schema + yfinance provider + Nifty 50 ingestion (universe seeded from DB, not hardcoded) |
-| 2 | 4-5 | **Relative valuation + fundamental scores (profitability/solvency) + rule-based explanation** |
-| 3 | 6-7 | News RSS ingestion + FinBERT sentiment |
-| 4 | 8-9 | Technical indicators + Alpha Score composite |
-| 5 | 10-11 | ✅ LLM explanation narrative + tests (DONE) |
-| 6 | 12-13 | React dashboard + charts |
-| 7 | 14-15 | Observability (structured logging, stale-data flags, /debug/jobs) - Redis and Three.js moved to conditional/stretch, see §18 |
+| 1 | 1-3 | ✅ DONE. FastAPI + Postgres + schema + yfinance provider + Nifty 250 ingestion (universe seeded from DB, not hardcoded) |
+| 2 | 4-5 | ✅ **Relative valuation + fundamental scores (profitability/solvency) + rule-based explanation** |
+| 3 | 6-7 | ✅ News RSS ingestion + FinBERT sentiment |
+| 4 | 8-9 | ✅ Technical indicators + Alpha Score composite |
+| 5 | 10-11 | ✅ LLM explanation narrative + tests |
+| 6 | 12-13 | ✅ React dashboard + charts (+ 6.5 experience overhaul, Parts A-I) |
+| 7 | 14-15 | ✅ Observability (root structured logging, durable job status `job_runs`, /debug/jobs, /status vs /health, freshness flags, error-envelope consistency) — DONE 2026-09-07; Redis and Three.js stay conditional/stretch, see §18 |
 | 8 | 16 | Deploy per D79: static frontend + sleep-tolerant API + autosuspend Postgres (Neon/Supabase) + GitHub Actions cron for ingestion (replaces in-process scheduler for production) + polish + README |
 ### Semester 2 - the distributed progression
 1. Split monolith → two services (API server + background worker)
@@ -1065,9 +1074,74 @@ Chronological record of decisions. Append as time progresses.
   VITE_API_BASE), backend/.env untracked and ignored, no mock data in
   production paths.
 
+- **D85.** (2026-09-07, Phase 7) **Durable job history in `job_runs`.** One row per
+  ingestion pass per run: `job_name, status (running|success|partial|failed),
+  started_at, finished_at, duration_ms, items_processed, items_failed,
+  error_summary` (truncated to 500 chars, never secrets). A pass that raises is
+  recorded `failed` and does NOT stop the remaining passes; a pass with isolated
+  per-symbol failures is `partial`. Recording is best-effort: if the job_runs
+  write itself fails (DB down), the pass still runs and the failure is logged
+  (`job_status_unavailable`). No workflow engine, no JSONB state blob.
+- **D86.** (2026-09-07, Phase 7) **Scheduler reliability settings.** APScheduler
+  pinned to `Asia/Kolkata` (18:30 IST run independent of host TZ),
+  `max_instances=1` (no overlapping nightly runs), `coalesce=True`,
+  `misfire_grace_time=2h` (a process that was down at 18:30 still runs the
+  day's ingestion if it comes back within two hours instead of silently
+  waiting a full day).
+- **D87.** (2026-09-07, Phase 7) **No silent exception paths.** Previously
+  dropped logs are now real: the root logger is configured at startup
+  (structured `key=value` lines with timestamp/level/logger/request_id; the
+  request id is stamped onto EVERY record via a LogRecord factory, default
+  `-`), the 500 catch-all logs the traceback (`unhandled_exception`), and
+  Upstox's best-effort enrichment `except` blocks log `provider_failure`
+  instead of `pass`. Event vocabulary: `ingest_pass/job_start/job_end,
+  job_fail, provider_failure, merge_gap_fill, provider_disagreement,
+  llm_usage, llm_fallback`. Credentials, tokens, Authorization headers and
+  raw env values are never logged (test-enforced).
+- **D88.** (2026-09-07, Phase 7) **`/health` = liveness, `/status` =
+  readiness.** `/health` stays `{status:"ok"}` (process alive). `/status`
+  reports `db` (SELECT 1), `scheduler` (APScheduler running),
+  `ingestion.last_success_at` + `stale` from job_runs (stale when the last
+  successful `ingest_prices` is older than 48h; `null` when never run),
+  and `llm_configured` (boolean only — never key/model/URL). Any failed
+  check degrades the status; the endpoint never 500s on an unavailable
+  optional component.
+- **D89.** (2026-09-07, Phase 7) **Freshness + honesty in the API contract.**
+  `services/freshness.py` classifies timestamps as current/stale/unavailable
+  with per-domain TTLs (prices 3d to tolerate weekends/holidays, fundamentals
+  30d, news the existing 60d window, alpha daily). A missing timestamp is
+  `unavailable`, never fabricated. `/stocks` now returns
+  `last_price/change_pct: null` (was fake `0.0`) for stocks with no bars;
+  `StockDetail.quote` gains `stale` (bool|null). `/alpha/explanation` gains
+  `source: "llm"|"rule_based"` so the LLM fallback is observable.
+- **D90.** (2026-09-07, Phase 7) **Operational endpoints are curated and
+  local-only.** `/debug/jobs` exposes only the summarized job_runs fields +
+  scheduler liveness/next-run — no env vars, credentials, request payloads or
+  arbitrary DB content. It (like the LLM-consuming POST endpoints) is
+  unauthenticated because the deployment is local-only; Phase 8 must restrict
+  or remove these before public exposure.
+- **D91.** (2026-09-07, Phase 7) **One error envelope for EVERY error path.**
+  FastAPI's own `RequestValidationError` (bad query types) and Starlette
+  `HTTPException` (unknown route 404, wrong method 405) are wrapped in the
+  same `{error:{code,message,detail,request_id}}` envelope. `ASK_BLOCKED`
+  moved from `detail.code` to the top-level `code` (still 422).
+- **D92.** (2026-09-07, Phase 7) **Future-roadmap taxonomy expanded (no new
+  implementation).** Multi-stock comparison, historical signal
+  validation/backtesting, mutual funds (research/screener/comparison/NAV/
+  holdings/overlap/SIP/lumpsum/SWP), ETFs (research/screener/constituents/
+  tracking), DCF, PDF reports, bull/base/bear scenarios, portfolio simulation/
+  paper trading, watchlists/auth, and the data infrastructure they need
+  (corporate actions, MF monthly disclosures, fund-house holdings, ETF
+  constituents, extra providers) are recorded as the forward roadmap in §18.
+  Classification: equities research = implemented; comparison MVP + reports
+  = Semester 2 start; MF/ETF/backtesting/DCF = Semester 2; scenarios =
+  exploratory (needs defined methodology/training data); auth/watchlists/
+  paper trading = deferred pending deployment. Principle unchanged:
+  **stable interfaces now, future domains later, no speculative schemas.**
+
 ---
 
-*Append new decisions below with date + ID (D21, D22, ...).*
+*Append new decisions below with date + ID (D22, D23, ...).*
 
 ---
 
@@ -1114,8 +1188,30 @@ Chronological record of decisions. Append as time progresses.
   industry indexes (S2, before Nifty-500).
 
 ### Deltas from this audit
-- §14 Phase 7 becomes **Observability** (Redis deferred to S2 conditional;
+- A§14 Phase 7 becomes **Observability** (Redis deferred to S2 conditional;
   Three.js gated on MF).
-- §2 reframes the MF tracker as CORE PRODUCT VISION deferred (not "demoted").
+- A2 reframes the MF tracker as CORE PRODUCT VISION deferred (not "demoted").
 - Overlooked items tracked: aggregate `/overview` endpoint (P6), per-period
   financials, stale-data flags (P7), 429 rate-limit, screener precompute job.
+
+### Full future-product taxonomy (Phase 7 audit, D92; 2026-09-07)
+
+| Capability | Classification | Notes |
+|---|---|---|
+| Equity research (fundamentals, valuation, technicals, alpha, news, LLM explanations, ask, profiles) | **IMPLEMENTED** | Phases 1-6.5 + Phase 7 observability |
+| Multi-stock comparison (up to 5; valuation/fundamental/technical/alpha where comparable) | Semester 2 | Read-heavy; reuse existing services; methodology-aware, cross-category only where metrics are comparable |
+| Historical signal validation / backtesting (forward returns 3/6/12mo vs peers + Nifty; Alpha hit-rate; research report page) | Semester 2 | `alpha_scores` history is the seed data; needs stored valuation/signal history to mature |
+| Mutual funds (research, screener, comparison, NAV history, holdings, stock→fund holders, overlap, SIP/lumpsum/SWP) | Semester 2 (CORE VISION) | Needs MF data infra: AMFI NAV feed + fund-house monthly disclosures |
+| ETFs (research, screener, comparison, NAV/price, constituents, tracking) | Semester 2 (CORE VISION) | Reuses OHLCV pipeline; needs constituents/TER/AUM sources |
+| DCF / intrinsic valuation | Semester 2 | Complements relative valuation (§8) |
+| Reports (generated PDF research reports) | Semester 2 | Report generation rate-limited per future infra/deploy limits |
+| Scenario analysis (bull/base/bear; ML-assisted later) | Exploratory/stretch | Not started until methodology and training data are defined |
+| Portfolio / simulation (paper trading, watchlists) | Deferred | Requires auth; comes after Phase 8 deployment |
+| Authentication | Deferred | None today; adds attack surface — introduce with portfolio features |
+| Data infrastructure (corporate actions/dividends, MF disclosures, fund-house holdings, ETF constituents, extra providers) | Semester 2, incremental | Added per-domain as each feature lands; providers plug into the existing MarketDataProvider/MergingProvider boundary |
+
+Architectural boundary audit (Phase 7): provider abstraction (`MarketDataProvider`
++ `MergingProvider`), LLM boundary (`LLMProvider` + allow-list narratives),
+ingestion isolation (`jobs.py` passes + `job_runs`), and router/service/
+repository layering are stable and asset-agnostic enough for future domains.
+No speculative schemas or routes are created for any deferred feature.

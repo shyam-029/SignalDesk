@@ -133,3 +133,72 @@ async def test_company_profile_missing_is_null_not_empty_error(client, seeded):
     body = r.json()
     assert body["business_summary"] is None
     assert body["ceo"] is None
+
+# --- Phase 7: honest nulls, staleness flags, explanation provenance ----------
+
+
+async def test_list_stocks_no_prices_returns_nulls_not_zeros(client, session_factory, seeded):
+    """A stock with no price bars gets last_price/change_pct null (was 0.0)."""
+    from app.models import Stock
+
+    async with session_factory() as session:
+        session.add(Stock(symbol="EMPTY.NS", name="Empty Co", sector="IT"))
+        await session.commit()
+
+    r = await client.get("/api/v1/stocks")
+    assert r.status_code == 200
+    items = {i["symbol"]: i for i in r.json()["items"]}
+    empty = items["EMPTY.NS"]
+    assert empty["last_price"] is None
+    assert empty["change_pct"] is None
+    # Stocks WITH data are unaffected.
+    assert items["RELIANCE.NS"]["last_price"] == 105.0
+
+
+async def test_quote_stale_flag(client, session_factory):
+    """quote.stale: fresh data -> False, old data -> True, no data -> None."""
+    from sqlalchemy import select
+
+    from app.models import DailyPrice, Stock
+
+    old = date.today() - timedelta(days=9)  # older than the 3-day price TTL
+    async with session_factory() as session:
+        old_stock = Stock(symbol="OLD.NS", name="Old Co")
+        bare = Stock(symbol="BARE.NS", name="Bare Co")
+        session.add_all([old_stock, bare])
+        await session.flush()
+        session.add(
+            DailyPrice(stock_id=old_stock.id, date=old,
+                       open=10, high=11, low=9, close=10.5, volume=1)
+        )
+        await session.commit()
+
+    r_old = await client.get("/api/v1/stocks/OLD")
+    assert r_old.status_code == 200
+    assert r_old.json()["quote"]["stale"] is True
+
+    r_bare = await client.get("/api/v1/stocks/BARE")
+    assert r_bare.status_code == 200
+    assert r_bare.json()["quote"]["stale"] is None
+    assert r_bare.json()["quote"]["last_price"] is None
+
+
+async def test_quote_stale_flag_fresh(client, seeded):
+    r = await client.get("/api/v1/stocks/RELIANCE")
+    assert r.status_code == 200
+    assert r.json()["quote"]["stale"] is False
+
+
+async def test_alpha_explanation_exposes_source(client, seeded, monkeypatch):
+    """Fallback provenance is observable on /alpha/explanation."""
+    from app.services import llm_narrative as narr
+
+    narr._cache.clear()
+    monkeypatch.setattr(narr.settings, "llm_api_key", "")
+    monkeypatch.setattr(narr.settings, "llm_model", "")
+
+    r = await client.get("/api/v1/stocks/RELIANCE/alpha/explanation")
+    assert r.status_code == 200
+    body = r.json()
+    assert set(body) == {"symbol", "explanation", "source"}
+    assert body["source"] == "rule_based"

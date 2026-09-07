@@ -41,9 +41,10 @@ _OUTPUT_CONTRACT = (
     "and do not speculate. End with a brief note that this is not investment advice."
 )
 
-# In-process TTL cache: key = (symbol, snapshot_date) -> (expires_at, narrative).
+# In-process TTL cache: key = (symbol, snapshot_date) ->
+# (expires_at, narrative, source) where source is "llm" or "rule_based".
 _TTL_SECONDS = 24 * 60 * 60  # cache within a day; Redis stays deferred.
-_cache: dict[tuple[str, date], tuple[float, str]] = {}
+_cache: dict[tuple[str, date], tuple[float, str, str]] = {}
 
 # In-process daily budget counter.
 _calls_today = 0
@@ -146,15 +147,22 @@ def _log_usage(llm_result: LLMResult) -> None:
     )
 
 
-async def generate_alpha_explanation(
+# Narrative provenance: "llm" when a provider call produced the text,
+# "rule_based" for every deterministic-fallback path. Exposed on
+# GET /alpha/explanation so fallback is observable (Phase 7).
+SOURCE_LLM = "llm"
+SOURCE_RULE = "rule_based"
+
+
+async def generate_alpha_explanation_result(
     stock: Stock,
     result: AlphaResult,
     provider: LLMProvider | None = None,
-) -> str:
-    """Return an LLM narrative, falling back to the rule-based one.
+) -> tuple[str, str]:
+    """Return (narrative, source), falling back to the rule-based narrative.
 
     Fallback triggers (in order): no key or no model configured, budget
-    exhausted, provider raises LLMError. Never raises; always returns a string.
+    exhausted, provider raises LLMError. Never raises; always returns.
 
     `provider` is injectable for tests; when None, one is built from settings.
     """
@@ -163,21 +171,21 @@ async def generate_alpha_explanation(
     hit = _cache.get(cache_key)
     if hit and hit[0] > time.monotonic():
         logger.info("llm_cache hit symbol=%s", stock.symbol)
-        return hit[1]
+        return hit[1], hit[2]
 
     # 2. Short-circuit if LLM is disabled (no key/model) or budget exhausted.
     if not settings.llm_api_key or not settings.llm_model:
         reason = "no_key" if not settings.llm_api_key else "no_model"
         logger.info("llm_disabled reason=%s symbol=%s", reason, stock.symbol)
         narrative = _alpha_narrative(result)
-        _cache[cache_key] = (time.monotonic() + _TTL_SECONDS, narrative)
-        return narrative
+        _cache[cache_key] = (time.monotonic() + _TTL_SECONDS, narrative, SOURCE_RULE)
+        return narrative, SOURCE_RULE
 
     if not _budget_ok():
         logger.info("llm_skipped reason=budget_cap symbol=%s", stock.symbol)
         narrative = _alpha_narrative(result)
-        _cache[cache_key] = (time.monotonic() + _TTL_SECONDS, narrative)
-        return narrative
+        _cache[cache_key] = (time.monotonic() + _TTL_SECONDS, narrative, SOURCE_RULE)
+        return narrative, SOURCE_RULE
 
     # 3. Call the provider; on failure fall back to the rule-based narrative.
     if provider is None:
@@ -187,16 +195,37 @@ async def generate_alpha_explanation(
             model=settings.llm_model,
         )
     system, user = build_alpha_prompt(result)
+    t0 = time.perf_counter()
     try:
         llm_result = await provider.generate(system, user)
     except LLMError as exc:
-        logger.warning("llm_fallback reason=provider_error error=%s", exc)
+        duration_ms = round((time.perf_counter() - t0) * 1000)
+        logger.warning(
+            "llm_fallback reason=provider_error symbol=%s duration_ms=%d error=%s",
+            stock.symbol, duration_ms, exc,
+        )
         narrative = _alpha_narrative(result)
-        _cache[cache_key] = (time.monotonic() + _TTL_SECONDS, narrative)
-        return narrative
+        _cache[cache_key] = (time.monotonic() + _TTL_SECONDS, narrative, SOURCE_RULE)
+        return narrative, SOURCE_RULE
 
     register_llm_call()
+    duration_ms = round((time.perf_counter() - t0) * 1000)
     _log_usage(llm_result)
+    logger.info(
+        "llm_success symbol=%s duration_ms=%d", stock.symbol, duration_ms
+    )
     narrative = llm_result.text
-    _cache[cache_key] = (time.monotonic() + _TTL_SECONDS, narrative)
+    _cache[cache_key] = (time.monotonic() + _TTL_SECONDS, narrative, SOURCE_LLM)
+    return narrative, SOURCE_LLM
+
+
+async def generate_alpha_explanation(
+    stock: Stock,
+    result: AlphaResult,
+    provider: LLMProvider | None = None,
+) -> str:
+    """Text-only wrapper (kept for the nightly pre-warm and older callers)."""
+    narrative, _source = await generate_alpha_explanation_result(
+        stock, result, provider
+    )
     return narrative

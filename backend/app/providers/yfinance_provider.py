@@ -6,9 +6,12 @@
 # the ingestion job catches per-symbol (D19: one bad symbol never aborts a run).
 
 import asyncio
+import logging
 import math
 
 import yfinance as yf
+
+logger = logging.getLogger(__name__)
 
 from app.providers.base import (
     CompanyProfile,
@@ -60,6 +63,10 @@ class YFinanceProvider(MarketDataProvider):
                 ticker = yf.Ticker(symbol)
                 hist = ticker.history(period=period)
             except Exception as exc:  # network/parse errors from yfinance
+                logger.warning(
+                    "provider_failure provider=yfinance op=price_history symbol=%s error=%s",
+                    symbol, exc,
+                )
                 raise MarketDataError(f"yfinance history failed for {symbol}: {exc}") from exc
 
             if hist is None or hist.empty:
@@ -88,6 +95,10 @@ class YFinanceProvider(MarketDataProvider):
             try:
                 info = yf.Ticker(symbol).info
             except Exception as exc:
+                logger.warning(
+                    "provider_failure provider=yfinance op=info symbol=%s error=%s",
+                    symbol, exc,
+                )
                 raise MarketDataError(f"yfinance info failed for {symbol}: {exc}") from exc
 
             return StockProfile(
@@ -111,6 +122,10 @@ class YFinanceProvider(MarketDataProvider):
             try:
                 info = yf.Ticker(symbol).info
             except Exception as exc:
+                logger.warning(
+                    "provider_failure provider=yfinance op=info symbol=%s error=%s",
+                    symbol, exc,
+                )
                 raise MarketDataError(f"yfinance info failed for {symbol}: {exc}") from exc
 
             ceo = None
@@ -137,6 +152,10 @@ class YFinanceProvider(MarketDataProvider):
             try:
                 info = yf.Ticker(symbol).info
             except Exception as exc:
+                logger.warning(
+                    "provider_failure provider=yfinance op=info symbol=%s error=%s",
+                    symbol, exc,
+                )
                 raise MarketDataError(f"yfinance info failed for {symbol}: {exc}") from exc
 
             return Fundamentals(
@@ -178,6 +197,10 @@ class YFinanceProvider(MarketDataProvider):
                     else ticker.quarterly_income_stmt
                 )
             except Exception as exc:
+                logger.warning(
+                    "provider_failure provider=yfinance op=financial_history symbol=%s error=%s",
+                    symbol, exc,
+                )
                 raise MarketDataError(
                     f"yfinance income_stmt failed for {symbol}: {exc}"
                 ) from exc

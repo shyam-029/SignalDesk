@@ -235,7 +235,7 @@ async def test_ask_guardrail_block_returns_safe_error(client, session_factory, m
     r = await client.post("/api/v1/stocks/ASK/ask", json={"question": "Why is the alpha score 61?"})
     assert r.status_code == 422
     body = r.json()
-    assert body["error"]["detail"]["code"] == "ASK_BLOCKED"
+    assert body["error"]["code"] == "ASK_BLOCKED"
     # The provider's internal failure text is never surfaced.
     assert internal not in body["error"]["message"]
 

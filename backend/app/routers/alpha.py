@@ -18,7 +18,7 @@ from app.db import get_session
 from app.repositories import alpha as alpha_repo
 from app.routers.common import resolve_stock
 from app.services import alpha as alpha_svc
-from app.services.llm_narrative import generate_alpha_explanation
+from app.services.llm_narrative import generate_alpha_explanation_result
 
 router = APIRouter(prefix="/stocks", tags=["alpha"])
 
@@ -48,6 +48,8 @@ class AlphaResponse(BaseModel):
 class AlphaExplanationResponse(BaseModel):
     symbol: str
     explanation: str
+    # Provenance of the text: "llm" or "rule_based" (fallback is observable).
+    source: str
 
 
 @router.get("/{symbol}/alpha", response_model=AlphaResponse)
@@ -106,5 +108,7 @@ async def get_alpha_explanation(
     """
     stock = await resolve_stock(session, symbol)
     result = await alpha_svc.compute_alpha(session, stock)
-    explanation = await generate_alpha_explanation(stock, result)
-    return AlphaExplanationResponse(symbol=stock.symbol, explanation=explanation)
+    explanation, source = await generate_alpha_explanation_result(stock, result)
+    return AlphaExplanationResponse(
+        symbol=stock.symbol, explanation=explanation, source=source
+    )

@@ -6,8 +6,9 @@ export interface StockSummary {
   name: string;
   sector: string | null;
   industry: string | null;
-  last_price: number;
-  change_pct: number;
+  // null when the stock has no stored price bars - the API never fabricates.
+  last_price: number | null;
+  change_pct: number | null;
   market_cap: number | null;
 }
 
@@ -29,6 +30,8 @@ export interface QuoteBlock {
   prev_close: number | null;
   volume: number | null;
   date: string | null;
+  // true when the latest bar is older than the price freshness window.
+  stale: boolean | null;
 }
 
 export interface StockDetail {
@@ -113,6 +116,8 @@ export interface AlphaResponse {
 export interface AlphaExplanationResponse {
   symbol: string;
   explanation: string;
+  // Provenance of the text: LLM narrative vs deterministic rule fallback.
+  source: "llm" | "rule_based";
 }
 
 // Provider-sourced company background ("About the company" box).

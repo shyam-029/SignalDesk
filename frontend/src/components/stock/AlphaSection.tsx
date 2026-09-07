@@ -191,7 +191,14 @@ export function AlphaSection({ symbol }: { symbol: string }) {
                       </p>
                     )}
                     {explanation.data && (
-                      <p className="text-sm leading-relaxed">{explanation.data.explanation}</p>
+                      <>
+                        <p className="text-sm leading-relaxed">{explanation.data.explanation}</p>
+                        <p className="mt-2 text-xs text-faint">
+                          {explanation.data.source === "llm"
+                            ? "Written by the configured language model, grounded in the data above."
+                            : "Generated deterministically from the data above (language model unavailable)."}
+                        </p>
+                      </>
                     )}
                   </div>
                   <p className="mt-3 border-t border-line pt-2 text-xs text-faint">
