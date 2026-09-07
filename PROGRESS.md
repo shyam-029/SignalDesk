@@ -116,7 +116,8 @@ Decisions: **D85-D92** in PLANNING.md.
       error summary). Every nightly pass is wrapped by `jobs._record_pass`; a failing pass
       never blocks the others; recording failures never break ingestion.
 - [x] Scheduler pinned to Asia/Kolkata with `max_instances=1`, `coalesce=True`,
-      `misfire_grace_time=2h` (a 2-hour missed-run window instead of skipping a whole day).
+      `misfire_grace_time=2h` (covers a LIVE scheduler delayed up to 2h; a cold
+      restart recomputes next_run and skips to the next day's slot — see D86).
 - [x] `GET /debug/jobs`: per-job last run + scheduler liveness + next run. Curated fields
       only; unauthenticated (local-only deploy) — restrict before public exposure.
 
