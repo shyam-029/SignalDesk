@@ -97,8 +97,8 @@ Operational (root, unauthenticated — **restrict before public deployment**):
 ## Testing
 
 ```powershell
-cd backend;  .venv\Scripts\python -m pytest          # 315 tests, no network, uses signaldesk_test
-cd frontend; npm test                                # vitest (65)
+cd backend;  .venv\Scripts\python -m pytest          # 322 tests, no network, uses signaldesk_test
+cd frontend; npm test                                # vitest (69)
              npm run typecheck                       # tsc -b
              npm run build                           # production build
 ```

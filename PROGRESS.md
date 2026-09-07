@@ -38,16 +38,60 @@
 | **Part I - Phase 6.5 verification + close-out** | ✅ **COMPLETE** |
 | **7 - Observability & reliability (logging, job status, health, freshness, errors)** | ✅ **COMPLETE** |
 
-**One-line status:** **Phase 7 COMPLETE.** Backend pytest **315/315** (was 262; +53 new Phase 7
-tests), frontend tsc clean, vitest **65/65**, `vite build` OK. Live smoke verified: `/health`,
-`/status` (ok; ingestion `stale: null` = never-run), `/debug/jobs` (scheduler alive, next run
-18:30 IST), stock endpoints with honest nulls, `quote.stale` behaving, 404/422/405 all in the
-uniform error envelope with request_id, `/alpha/explanation` exposing `source`. Migration
-`c1d2e3f4a5b6` adds `job_runs` (applied to the dev DB). **Next: Phase 8 (deployment per D79).**
+**One-line status:** **Phase 7 COMPLETE (incl. the 7C audit round).** Backend pytest
+**322/322**, frontend tsc clean, vitest **69/69**, `vite build` OK. Live smoke verified:
+`/health`, `/status` (ok; ingestion `stale: null` = never-run), `/debug/jobs` (scheduler
+alive, next run 18:30 IST), stock endpoints with honest nulls, `quote.stale` rendered,
+404/422/405/500 all in the uniform error envelope with request_id (500 also carries the
+X-Request-ID header), `/alpha/explanation` exposing `source`. Nightly ingestion runs on a
+dedicated engine; every pass is durably recorded and the wrapper aggregates failures.
+Migration `c1d2e3f4a5b6` adds `job_runs` (applied to the dev DB). **Next: Phase 8
+(deployment per D79).**
 
 ---
 
 ## 2. Completed Work
+
+### Phase 7C - post-implementation audit round (2026-09-07)
+
+Adversarial re-audit of the Phase 7 code; every genuine finding fixed (details in
+PLANNING **D93**):
+
+- [x] **F1 (high, pre-existing):** nightly ingestion no longer reuses the API's
+      event-loop-bound asyncpg pool from the scheduler thread — `run_daily_ingestion`
+      builds a job-scoped engine (NullPool) and disposes of it (regression test asserts
+      swap + restore).
+- [x] **F2:** `nightly_ingestion` aggregates child-pass statuses (failed/partial pass
+      -> wrapper `partial`; all failed -> `failed`) — it can no longer record blanket
+      success over failed passes.
+- [x] **F3 (data honesty):** `/sentiment` with no scored articles returns
+      `score: null, label: null, count: 0` (was fabricated `0.0 "neutral"`); frontend
+      `Sentiment` type nullable (render path already guarded).
+- [x] **F4:** nightly alpha backfill deletes only technical-only rows — genuine live
+      snapshots (fundamental score set) are preserved; regression test added.
+- [x] **F5:** `quote.stale` is now rendered (stale marker in the stock header) — the
+      flag was computed but invisible before.
+- [x] **F6:** UTF-8 mojibake (`Â·` -> `·`) fixed in MarketPulse/Coverage/SiteFooter;
+      Nifty-50-era `|| 50` fallback removed from MarketPulse.
+- [x] **F7:** tests strengthened: enrichment-failure test now REQUIRES the
+      `provider_failure` lines (income + balance); 405 test asserts exact code; new
+      frontend tests (stale chip, null-price header, ASK_BLOCKED panel state).
+- [x] **F8:** pre-warm sweep reports per-symbol failures (`errors`) instead of
+      blanket success.
+- [x] **F9:** 500 responses now carry the `X-Request-ID` header (matches envelope).
+- [x] **F10:** `running` rows older than 6h surface as `stuck` on /debug/jobs.
+- [x] **F11:** merging-provider secondary-failure logs truncated (defense-in-depth).
+- [x] **F12:** CLI `python -m app.jobs backfill` recorded into job_runs.
+- [x] **F13 (docs):** PLANNING §9 stale rows corrected (`sectors`, fundamentals,
+      valuation keys, screener params, sentiment shape); TTL prose fixed
+      (alpha 2d; only the price TTL is endpoint-wired); news window docstring
+      corrected (60d); `.env.example` LLM_DAILY_CAP aligned to 300; cheatsheet
+      test count updated.
+
+**Verification after the round:** backend pytest **322/322** (was 315), frontend
+vitest **69/69** (was 65; +4 honesty tests), tsc clean, `vite build` OK, live smoke
+re-run (incl. DB-failure path). Known accepted limitations unchanged: see the Phase 7
+limitations list below (unauthenticated ops/LLM endpoints etc.).
 
 ### Phase 7 - Observability & reliability (2026-09-07)
 
@@ -81,7 +125,8 @@ Decisions: **D85-D92** in PLANNING.md.
       running, last successful `ingest_prices` + `stale` beyond 48h, `llm_configured`
       boolean; always 200, degrades instead of erroring).
 - [x] `services/freshness.py`: current/stale/unavailable classifier with per-domain TTLs
-      (prices 3d, fundamentals 30d, news 60d, alpha daily); missing timestamps are
+      (prices 3d, fundamentals 30d, news 60d, alpha 2d — only the price TTL is
+wired into `quote.stale` so far); missing timestamps are
       unavailable, never fabricated.
 - [x] `/stocks` list no longer fabricates `last_price=0.0/change_pct=0.0` for stocks without
       bars — now nulls (frontend renders "-").
@@ -760,7 +805,7 @@ cd C:\Users\shyam\Desktop\Projects\signaldesk\frontend
 npm install                                                         # install deps
 npm run dev                                                         # Vite dev server (:5173, proxies /api -> :8000)
 npm run typecheck                                                   # tsc -b (strict, zero errors expected)
-npm run test                                                        # vitest run (38 tests, jsdom)
+npm run test                                                        # vitest run (65 tests, jsdom)
 npm run build                                                       # tsc -b && vite build (per-page chunks)
 npm run preview                                                     # serve the production build
 

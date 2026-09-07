@@ -67,6 +67,9 @@ async def test_unexpected_500_is_logged_and_safe(client, session_factory, monkey
     assert r.status_code == 500
     body = r.json()
     _assert_envelope(body, "INTERNAL_ERROR")
+    # Even on a 500 (raised past the middleware), the response carries the
+    # X-Request-ID header, matching the envelope body.
+    assert r.headers["X-Request-ID"] == body["error"]["request_id"]
     # Nothing internal leaks to the client.
     assert "boom" not in body["error"]["message"]
     assert "sk-internal-secret-value" not in r.text
@@ -82,8 +85,7 @@ async def test_unexpected_500_is_logged_and_safe(client, session_factory, monkey
 
 
 async def test_http_exception_preserves_status_code(client):
-    """A 405 keeps its 405, not a blanket 500."""
+    """A 405 keeps its status and METHOD_NOT_ALLOWED code, not a blanket 500."""
     r = await client.put("/api/v1/stocks")
-    assert r.status_code in (405, 422)
-    body = r.json()
-    assert "error" in body and "code" in body["error"]
+    assert r.status_code == 405
+    _assert_envelope(r.json(), "METHOD_NOT_ALLOWED")

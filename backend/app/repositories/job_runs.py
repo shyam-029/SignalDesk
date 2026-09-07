@@ -3,12 +3,16 @@
 # The scheduler records one row per pass execution; these helpers read that
 # history for /debug/jobs and /status without exposing raw table access.
 
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import JobRun
+
+# A run still marked 'running' this long after start means the process died
+# mid-run; surface it as 'stuck' instead of a lie about being in progress.
+STUCK_AFTER = timedelta(hours=6)
 
 
 async def latest_runs(session: AsyncSession) -> dict[str, JobRun]:
@@ -50,10 +54,21 @@ async def last_successful_run(
 
 
 def summarize(run: JobRun) -> dict:
-    """Serialize a JobRun for API responses (safe fields only)."""
+    """Serialize a JobRun for API responses (safe fields only).
+
+    An old 'running' row means the process died mid-run (crash/restart); it
+    is reported as 'stuck' so it can never masquerade as live work.
+    """
+    status = run.status
+    if (
+        status == "running"
+        and run.started_at is not None
+        and datetime.now(timezone.utc) - run.started_at > STUCK_AFTER
+    ):
+        status = "stuck"
     return {
         "job_name": run.job_name,
-        "status": run.status,
+        "status": status,
         "started_at": run.started_at.isoformat() if run.started_at else None,
         "finished_at": run.finished_at.isoformat() if run.finished_at else None,
         "duration_ms": run.duration_ms,

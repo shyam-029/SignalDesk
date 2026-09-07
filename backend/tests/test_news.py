@@ -181,6 +181,7 @@ async def test_sentiment_endpoint(client, session_factory):
 
 
 async def test_sentiment_endpoint_no_news(client, session_factory):
+    """No scored articles -> honest nulls, never a fabricated 0.0 'neutral'."""
     async with session_factory() as session:
         session.add(Stock(symbol="NEW.NS", name="New", sector="X", industry="Y"))
         await session.commit()
@@ -188,4 +189,5 @@ async def test_sentiment_endpoint_no_news(client, session_factory):
     assert r.status_code == 200
     body = r.json()
     assert body["count"] == 0
-    assert body["label"] == "neutral"
+    assert body["score"] is None
+    assert body["label"] is None

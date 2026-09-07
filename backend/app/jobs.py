@@ -675,11 +675,17 @@ async def _backfill_one_alpha(symbol: str) -> int:
     if not rows:
         return 0
 
-    # Replace the symbol's snapshots: the series is recomputed under the
-    # current formula, so stale rows must not survive the run. Only reached
-    # when there is something to insert.
+    # Replace the symbol's TECHNICAL-ONLY snapshots: the series is recomputed
+    # under the current formula, so stale rows must not survive the run. Rows
+    # that carry a genuine live fundamental score (written by /alpha page
+    # views) are PRESERVED — wiping them every night would make per-component
+    # history impossible. Only reached when there is something to insert.
     async with SessionLocal() as session:
-        await session.execute(delete(AlphaScore).where(AlphaScore.symbol == symbol))
+        await session.execute(
+            delete(AlphaScore).where(
+                AlphaScore.symbol == symbol, AlphaScore.fundamental.is_(None)
+            )
+        )
         await session.commit()
         return await alpha_repo.upsert_snapshots_bulk(session, rows)
 
@@ -809,12 +815,13 @@ async def prewarm_alpha_explanations(delay: float = PREWARM_DELAY_SECONDS) -> di
 
     if not settings.llm_api_key or not settings.llm_model:
         logger.info("explanation pre-warm skipped (LLM not configured)")
-        return {"warmed": 0, "skipped": "llm_not_configured"}
+        return {"warmed": 0, "errors": 0, "skipped": "llm_not_configured"}
 
     async with SessionLocal() as session:
         symbols = await _get_universe_symbols(session)
 
     warmed = 0
+    failed = 0
     for i, symbol in enumerate(symbols):
         if not llm_narrative.budget_ok():
             logger.info(
@@ -832,12 +839,16 @@ async def prewarm_alpha_explanations(delay: float = PREWARM_DELAY_SECONDS) -> di
             await llm_narrative.generate_alpha_explanation(stock, result)
             warmed += 1
         except Exception as exc:  # one stock must never abort the sweep (D19)
+            failed += 1
             logger.warning("explanation pre-warm failed for %s: %s", symbol, exc)
         if delay and i < len(symbols) - 1:
             await asyncio.sleep(delay)
 
-    logger.info("explanation pre-warm done: %d/%d symbols warmed", warmed, len(symbols))
-    return {"warmed": warmed, "skipped": None}
+    logger.info(
+        "explanation pre-warm done: %d/%d symbols warmed, %d failed",
+        warmed, len(symbols), failed,
+    )
+    return {"warmed": warmed, "errors": failed, "skipped": None}
 
 
 # --- Catalog repair pass (stocks the universe passes miss) -------------------
@@ -898,9 +909,31 @@ async def repair_catalog_gaps(provider: MarketDataProvider | None = None) -> dic
 def run_daily_ingestion() -> None:
     """Scheduled entrypoint: run all ingestion passes once.
 
-    Runs asyncio.run here because APScheduler calls this synchronously.
+    Runs asyncio.run here because APScheduler calls this synchronously in a
+    background thread. A dedicated engine is created for the job (Phase 7 fix):
+    the API process's module-global engine is bound to the uvicorn event loop,
+    and reusing its asyncpg pool from this thread's fresh loop fails once the
+    API has served traffic.
     """
-    asyncio.run(_ingest_all())
+    asyncio.run(_ingest_all_with_job_engine())
+
+
+async def _ingest_all_with_job_engine() -> None:
+    """Run the nightly passes on a job-scoped engine, then dispose of it."""
+    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+    from sqlalchemy.pool import NullPool
+
+    global SessionLocal
+    engine = create_async_engine(settings.database_url, poolclass=NullPool)
+    original = SessionLocal
+    SessionLocal = async_sessionmaker(
+        bind=engine, class_=AsyncSession, expire_on_commit=False
+    )
+    try:
+        await _ingest_all()
+    finally:
+        SessionLocal = original
+        await engine.dispose()
 
 
 # --- Job-run recording (Phase 7) ---------------------------------------------
@@ -913,16 +946,18 @@ ERROR_SUMMARY_MAX = 500
 _PROCESSED_KEYS = ("fetched", "repaired", "warmed", "snapshots")
 
 
-async def _record_pass(name: str, run, *args, **kwargs) -> None:
+async def _record_pass(name: str, run, *args, **kwargs) -> str:
     """Execute one ingestion pass inside a durable job_runs record.
 
-    Guarantees (PLANNING D85):
+    Guaranteed (PLANNING D85):
       - a pass that raises is recorded as 'failed' and does NOT stop the
         remaining passes (phase-level isolation on top of per-symbol D19);
       - per-item failures inside the pass mark the run 'partial';
       - status recording itself must never break ingestion: if the job_runs
         write fails (e.g. DB down), the pass still runs and the failure to
         record is logged as a warning.
+
+    Returns the final status so aggregating passes can report accurately.
     """
     started = datetime.now(timezone.utc)
     t0 = time.perf_counter()
@@ -975,7 +1010,7 @@ async def _record_pass(name: str, run, *args, **kwargs) -> None:
     except Exception as exc:
         summary = f"{type(exc).__name__}: {exc}"[:ERROR_SUMMARY_MAX]
         await _finish("failed", None, None, summary)
-        return
+        return "failed"
 
     result = result or {}
     errors = int(result.get("errors", 0) or 0)
@@ -986,25 +1021,52 @@ async def _record_pass(name: str, run, *args, **kwargs) -> None:
         status = "partial"
         summary = f"{errors} item(s) failed"
     await _finish(status, processed, errors, summary)
+    return status
 
 
-async def _ingest_passes() -> None:
-    """All ingestion passes, each recorded and isolated (one row per pass)."""
-    await _record_pass("ingest_prices", ingest_universe)
-    await _record_pass("ingest_financials", ingest_financials)
-    await _record_pass("ingest_financial_periods", ingest_financial_periods)
-    await _record_pass("ingest_company_profiles", ingest_company_profiles)
-    # Catch catalog stocks the universe passes dropped (renames/demergers).
-    await _record_pass("repair_catalog_gaps", repair_catalog_gaps)
-    await _record_pass("backfill_alpha_history", backfill_alpha_history)
-    # Pre-warm explanations AFTER the alpha pass so each stock's snapshot for
-    # today already exists when its narrative is generated and cached.
-    await _record_pass("prewarm_alpha_explanations", prewarm_alpha_explanations)
-    await _record_pass("ingest_news", ingest_news)
+async def _ingest_passes() -> dict:
+    """All ingestion passes, each recorded and isolated (one row per pass).
+
+    Returns child-pass failure/success counts so the top-level
+    nightly_ingestion row never masks a failed pass as overall success.
+    """
+    passes = (
+        ("ingest_prices", ingest_universe),
+        ("ingest_financials", ingest_financials),
+        ("ingest_financial_periods", ingest_financial_periods),
+        ("ingest_company_profiles", ingest_company_profiles),
+        # Catch catalog stocks the universe passes dropped (renames/demergers).
+        ("repair_catalog_gaps", repair_catalog_gaps),
+        ("backfill_alpha_history", backfill_alpha_history),
+        # Pre-warm explanations AFTER the alpha pass so each stock's snapshot
+        # for today already exists when its narrative is generated and cached.
+        ("prewarm_alpha_explanations", prewarm_alpha_explanations),
+        ("ingest_news", ingest_news),
+    )
+    statuses = []
+    for name, run in passes:
+        statuses.append(await _record_pass(name, run))
+    failed = statuses.count("failed")
+    partial = statuses.count("partial")
+    if failed == len(statuses):
+        # Every pass failed: the night genuinely failed; report it as such
+        # rather than as a meaningless "partial".
+        raise RuntimeError(f"all {failed} ingestion passes failed")
+    return {
+        "fetched": statuses.count("success"),
+        # Non-success child passes (failed or partial) make the wrapper
+        # 'partial' via the recorder's errors>0 rule.
+        "errors": failed + partial,
+        "partial_passes": partial,
+    }
 
 
 async def _ingest_all() -> None:
-    """Full nightly run; the top-level row catches failures outside any pass."""
+    """Full nightly run.
+
+    'failed' when every child pass failed or something outside the passes
+    raised; 'partial' when any pass was partial/failed; else 'success'.
+    """
     await _record_pass("nightly_ingestion", _ingest_passes)
 
 
@@ -1044,8 +1106,10 @@ if __name__ == "__main__":
     command = sys.argv[1] if len(sys.argv) > 1 else "backfill"
     if command == "backfill":
         # Explicit recompute of every symbol's alpha history under the
-        # current formula (replaces stored snapshots per symbol).
-        asyncio.run(backfill_alpha_history())
+        # current formula (replaces stored technical-only snapshots per
+        # symbol; live snapshots carrying a fundamental score are kept).
+        # Recorded like the scheduled passes so /debug/jobs reflects it.
+        asyncio.run(_record_pass("backfill_alpha_history", backfill_alpha_history))
     elif command == "ingest":
         run_daily_ingestion()
     else:

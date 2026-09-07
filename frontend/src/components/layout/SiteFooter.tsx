@@ -26,7 +26,7 @@ export function SiteFooter() {
           </nav>
         </div>
         <p className="label-caps mt-8">
-          Nifty 250 universe Â· prices via Yahoo Finance Â· sentiment via FinBERT
+          Nifty 250 universe · prices via Yahoo Finance · sentiment via FinBERT
         </p>
       </div>
     </footer>
