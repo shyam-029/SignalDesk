@@ -227,7 +227,10 @@ async def generate_explanation(
         )
     system, user = build_prompt(question_type, facts)
     try:
-        llm_result = await provider.generate(system, user)
+        from app.llm_semaphore import get_semaphore
+
+        async with get_semaphore():
+            llm_result = await provider.generate(system, user)
     except LLMError as exc:
         logger.warning("llm_fallback reason=provider_error question=%s error=%s", question_type, exc)
         _cache[cache_key] = (time.monotonic() + _TTL_SECONDS, fallback)

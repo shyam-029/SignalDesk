@@ -53,6 +53,19 @@ export class ApiError extends Error {
   get isNoPeers(): boolean {
     return this.code === "NO_PEERS";
   }
+
+  get isRateLimited(): boolean {
+    return this.status === 429 || this.code === "RATE_LIMITED";
+  }
+
+  /** Seconds until the caller should retry (from the backend envelope detail). */
+  get retryAfterSeconds(): number | null {
+    const raw = this.detail["retry_after"];
+    if (typeof raw === "number" && Number.isFinite(raw) && raw > 0) {
+      return Math.floor(raw);
+    }
+    return null;
+  }
 }
 
 // Default is same-origin ("/api/v1"): the Vite dev server proxies /api to

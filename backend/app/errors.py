@@ -20,6 +20,11 @@ from app.services.valuation import InsufficientDataError, NoPeersError
 
 logger = logging.getLogger(__name__)
 
+# Access-style logger for middleware short-circuits that bypass the normal
+# request_id_middleware access line (production docs guard, rate limiter).
+# Reuses the same "access" logger name so operator tooling sees one stream.
+access_logger = logging.getLogger("access")
+
 # --- Custom exceptions (map to HTTP status codes) ---
 
 
@@ -49,6 +54,15 @@ class ValidationError(Exception):
         self.message = message
         self.detail = detail or {}
         self.code = code
+
+
+class OpsNotConfigured(Exception):
+    """Production has no operational secret configured (fail-closed signal).
+
+    Raised by auth dependencies when APP_ENV=production but OPS_API_KEY is
+    empty. Mapped to a 404 envelope so callers cannot distinguish
+    "unconfigured" from "nonexistent".
+    """
 
 
 # --- Helpers to build the envelope ---
@@ -88,6 +102,34 @@ def _json_response(
 
 
 # --- Exception handlers (registered in main.py) ---
+
+
+class RateLimitError(Exception):
+    """Per-IP rate limit exceeded. Maps to 429.
+
+    `retry_after` (seconds) is surfaced as the Retry-After response header
+    and echoed in the envelope detail. Never carries limiter internals
+    (bucket counts, window state, client fingerprints beyond IP bucketing).
+    """
+
+    def __init__(self, message: str = "Rate limit exceeded.", retry_after: int = 60):
+        super().__init__(message)
+        self.message = message
+        self.retry_after = max(1, int(retry_after))
+
+
+async def rate_limit_handler(request: Request, exc: RateLimitError) -> JSONResponse:
+    """Convert RateLimitError into a 429 with the standard envelope."""
+    response = _json_response(
+        429, "RATE_LIMITED", exc.message, {"retry_after": exc.retry_after}, request
+    )
+    response.headers["Retry-After"] = str(exc.retry_after)
+    return response
+
+
+async def ops_not_configured_handler(request: Request, exc: OpsNotConfigured) -> JSONResponse:
+    """Fail closed: production without an ops key looks like a missing route."""
+    return _json_response(404, "RESOURCE_NOT_FOUND", "Not found.", {}, request)
 
 
 async def not_found_handler(request: Request, exc: NotFoundError) -> JSONResponse:
@@ -136,7 +178,18 @@ async def http_exception_handler(request: Request, exc: HTTPException) -> JSONRe
     }
     code = code_by_status.get(exc.status_code, f"HTTP_{exc.status_code}")
     message = str(exc.detail) if exc.detail else "Request failed."
-    return _json_response(exc.status_code, code, message, {})
+    response = _json_response(exc.status_code, code, message, {})
+    if exc.status_code == 429:
+        # Plain HTTPException(429) from any layer still carries Retry-After
+        # when the detail carries it; default to 60s otherwise.
+        retry_after = 60
+        if isinstance(exc.detail, dict) and "retry_after" in exc.detail:
+            try:
+                retry_after = max(1, int(exc.detail["retry_after"]))
+            except (TypeError, ValueError):
+                pass
+        response.headers["Retry-After"] = str(retry_after)
+    return response
 
 
 async def generic_handler(request: Request, exc: Exception) -> JSONResponse:

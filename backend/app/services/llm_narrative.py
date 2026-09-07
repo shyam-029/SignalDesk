@@ -197,7 +197,14 @@ async def generate_alpha_explanation_result(
     system, user = build_alpha_prompt(result)
     t0 = time.perf_counter()
     try:
-        llm_result = await provider.generate(system, user)
+        # Concurrency gate (Phase 8): only actual provider calls hold a
+        # semaphore slot; cache hits, disabled-LLM and budget paths above
+        # never touch it. The import is local so service unit tests that
+        # stub providers stay dependency-light.
+        from app.llm_semaphore import get_semaphore
+
+        async with get_semaphore():
+            llm_result = await provider.generate(system, user)
     except LLMError as exc:
         duration_ms = round((time.perf_counter() - t0) * 1000)
         logger.warning(

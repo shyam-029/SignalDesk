@@ -1174,6 +1174,55 @@ Chronological record of decisions. Append as time progresses.
 
 *Append new decisions below with date + ID (D22, D23, ...).*
 
+- **D94.** (2026-09-08, Phase 8) **No user authentication in Phase 8.**
+  SignalDesk stays a public read-only research app: no accounts, JWT, OAuth,
+  sessions, passwords, RBAC, watchlists, or portfolios. The only credentials
+  are OPERATIONAL shared secrets (`OPS_API_KEY` / `CRON_API_KEY`, Bearer) that
+  gate `/debug/jobs`, full `/status`, and any future cron trigger. Proportionate
+  because the surface holds no user PII or money movement — only ops detail
+  and ingestion. Bearer-over-HTTPS + server-side-only storage + identical
+  404 on missing/wrong (no oracle) + `secrets.compare_digest` is the whole
+  mechanism. Full user auth arrives with portfolio features (Semester 2).
+- **D95.** (2026-09-08, Phase 8) **Ops detail and docs are hidden in production.**
+  `/status` is public only as a minimal liveness-equivalent (`{"status":"ok"}`);
+  the full readiness body (db/scheduler/ingestion timestamps/llm_configured)
+  moved to `/status/full` behind `OPS_API_KEY`. `/debug/jobs` requires the key
+  (404 otherwise — never 401, so scanners cannot confirm the path). `/docs`,
+  `/redoc`, `/openapi.json` are disabled at the FastAPI constructor in
+  production, plus a per-request guard so the invariant holds regardless of
+  import order. Dev/test keep everything open when no key is configured;
+  setting a key in dev immediately enforces it. Production without
+  `OPS_API_KEY` fails closed (404 on every ops route).
+- **D96.** (2026-09-08, Phase 8) **GET /alpha is pure read.**
+  The request-time `upsert_snapshot` was removed: a GET must never write
+  (crawlers, prefetch, and caches could otherwise write the DB). Snapshot
+  writes belong to ingestion — new `record_live_alpha_snapshot(s)` helpers run
+  as a nightly pass (`record_live_alpha_snapshots`) right after the backfill,
+  so per-component history keeps accumulating without request-time writes.
+  The backfill's technical-only-row replacement is unchanged; the comment
+  that said live views rebuild today now points at ingestion instead.
+- **D97.** (2026-09-08, Phase 8) **Per-IP rate limiting; strictest on LLM.**
+  In-process fixed-window counters per (IP, bucket): `llm` 20/min
+  (ask/explain/alpha-explanation), `expensive` 60/min (screener + heavy
+  series/history), `default` 300/min (plain reads). 429s use the standard
+  error envelope + `request_id` + `Retry-After` header and body detail. A
+  process-wide `asyncio.Semaphore` (`LLM_MAX_CONCURRENT=3`) caps simultaneous
+  provider calls; cache hits, scope/insufficient paths, and the model-catalog
+  probe never hold a slot. TTL caches + the shared daily cap are unchanged.
+  The limiter and semaphore are IN-PROCESS (correct for the single-process
+  Phase 8 deploy; counters reset on restart). Multi-replica or frequent
+  sleep/wake hosting needs shared storage (Redis) — Semester 2, not Phase 8.
+- **D98.** (2026-09-08, Phase 8) **One secret, optional second.**
+  `OPS_API_KEY` is the single required operational secret. `CRON_API_KEY`
+  is optional and defaults to `OPS_API_KEY` (`effective_cron_key()`), so the
+  operator configures one secret today and can split cron from human ops
+  later without code changes. No HTTP ingestion endpoint was created: the
+  deploy uses the existing `python -m app.jobs ingest` path (no HTTP secret
+  needed), and `require_cron_key` exists only for a future trigger. Related
+  guards: production refuses startup on non-https `LLM_BASE_URL` (prompts
+  never travel cleartext) and on `CORS_ORIGINS=*`; CORS headers narrowed to
+  `Content-Type` + `Authorization`; methods stay GET+POST.
+
 ---
 
 ## 18. Long-Term Product Vision + Future Roadmap

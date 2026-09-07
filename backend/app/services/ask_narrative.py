@@ -444,6 +444,9 @@ async def generate_ask_response(
         return _fallback_result()
 
     # 5. Model availability (verified once per TTL before the first request).
+    # Availability probes are cheap catalog GETs (no completion spend) and
+    # are NOT concurrency-gated — only the completion call below holds a
+    # semaphore slot.
     global _model_check
     now = time.monotonic()
     if provider is None:
@@ -470,7 +473,10 @@ async def generate_ask_response(
         )
     system, user = build_prompt(question, evidence)
     try:
-        llm_result = await provider.generate(system, user)
+        from app.llm_semaphore import get_semaphore
+
+        async with get_semaphore():
+            llm_result = await provider.generate(system, user)
     except LLMError as exc:
         if exc.status_code == 403:
             # Provider-side guardrail rejection (e.g. prompt-injection block).

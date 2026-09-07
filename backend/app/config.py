@@ -79,6 +79,28 @@ class Settings(BaseSettings):
     # server; production origins are added via .env, never hard-coded.
     cors_origins: str = "http://localhost:5173"
 
+    # --- Operational auth (Phase 8: public-deployment hardening) ---
+    # Shared secrets gating operational endpoints (/debug/jobs, full /status).
+    # Server-side only: never logged, never sent to the frontend, never
+    # committed. Empty in development (local-only deploy stays frictionless);
+    # production FAILS CLOSED when OPS_API_KEY is not configured.
+    ops_api_key: str = ""
+    # Optional separate cron credential. Empty means "use OPS_API_KEY".
+    # Only needed if an HTTP ingestion trigger exists; the current deployment
+    # uses `python -m app.jobs ingest` (no HTTP secret required).
+    cron_api_key: str = ""
+
+    # --- Rate limiting (Phase 8, per-IP, in-process) ---
+    # Requests per 60s window per client IP. LLM routes are strictest.
+    rate_limit_llm_per_min: int = 20
+    rate_limit_expensive_per_min: int = 60
+    rate_limit_default_per_min: int = 300
+
+    # --- LLM provider concurrency (Phase 8) ---
+    # Max simultaneous provider calls per process. Small: free-model
+    # rate limits + cost control. Queued callers await a slot.
+    llm_max_concurrent: int = 3
+
     model_config = SettingsConfigDict(
         # Read values from `.env` in the backend/ directory.
         env_file=BACKEND_DIR / ".env",
@@ -87,6 +109,34 @@ class Settings(BaseSettings):
         # Treat empty-string values as "not set" so optional keys default cleanly.
         env_ignore_empty=True,
     )
+
+
+    def effective_cron_key(self) -> str:
+        """Cron credential: CRON_API_KEY when set, else OPS_API_KEY."""
+        return self.cron_api_key or self.ops_api_key
+
+    def is_production(self) -> bool:
+        """True when APP_ENV is production (case-insensitive)."""
+        return self.app_env.strip().lower() == "production"
+
+    def ops_auth_configured(self) -> bool:
+        """True when an operational secret is configured (fail-closed check)."""
+        return bool(self.ops_api_key)
+
+    def public_llm_base_url_ok(self) -> bool:
+        """Validate the LLM gateway URL for production use.
+
+        Production requires an https:// gateway so prompts never travel
+        over cleartext. The OpenRouter default always passes. Local dev
+        (localhost http, e.g. a stub server in tests) is allowed outside
+        production. Returns True when the URL is acceptable.
+        """
+        url = (self.llm_base_url or "").strip().lower()
+        if url.startswith("https://"):
+            return True
+        if self.is_production():
+            return False
+        return url.startswith("http://localhost") or url.startswith("http://127.0.0.1")
 
 
 # Module-level singleton: import as `from app.config import settings`.

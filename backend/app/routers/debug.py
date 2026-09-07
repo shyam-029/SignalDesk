@@ -6,9 +6,9 @@
 # Security boundary: this endpoint returns ONLY the curated job_runs fields
 # (name/status/timestamps/counts/truncated error_summary) plus scheduler
 # liveness. It never exposes environment variables, credentials, request
-# payloads, or arbitrary database contents. It is currently unauthenticated
-# because the deployment is local-only; it MUST be restricted (or removed
-# from the public surface) when the app is deployed (Phase 8 hardening).
+# payloads, or arbitrary database contents. Phase 8: requires OPS_API_KEY
+# (404 otherwise — unauthenticated callers cannot confirm the path exists).
+# In non-production without a configured key, local access stays open.
 
 from typing import Annotated
 
@@ -16,6 +16,7 @@ from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.auth import require_ops_key
 from app.db import get_session
 from app.repositories import job_runs as job_repo
 
@@ -47,7 +48,9 @@ class DebugJobsResponse(BaseModel):
 
 
 @router.get("/debug/jobs", response_model=DebugJobsResponse)
-async def debug_jobs(request: Request, session: SessionDep) -> DebugJobsResponse:
+async def debug_jobs(
+    request: Request, session: SessionDep, _authed: None = Depends(require_ops_key)
+) -> DebugJobsResponse:
     """Latest recorded run per job + scheduler liveness/next run times."""
     latest = await job_repo.latest_runs(session)
 

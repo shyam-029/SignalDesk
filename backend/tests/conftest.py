@@ -29,6 +29,24 @@ from app.db import Base, get_session
 from app.main import app
 from app.models import DailyPrice, Stock
 
+
+@pytest.fixture(autouse=True)
+def _reset_phase8_global_state():
+    """Reset Phase 8 in-process state between tests.
+
+    The per-IP rate limiter and LLM semaphore are module-level singletons
+    (like the LLM TTL caches the older fixtures reset). Without this, one
+    test's ask/explain POSTs consume the shared per-minute budget and later
+    tests see spurious 429s. Each test starts with a clean window.
+    """
+    from app import llm_semaphore, rate_limit
+
+    rate_limit.reset_state()
+    llm_semaphore.reset_state()
+    yield
+    rate_limit.reset_state()
+    llm_semaphore.reset_state()
+
 # Dedicated test database (separate from production `signaldesk`).
 TEST_DATABASE_URL = (
     "postgresql+asyncpg://postgres:postgres@localhost:5432/signaldesk_test"

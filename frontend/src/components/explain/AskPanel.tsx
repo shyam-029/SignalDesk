@@ -158,6 +158,21 @@ export function AskPanel({ symbol, displayName }: { symbol: string; displayName:
                     );
                   }
                   const err = ask.error as ApiError | undefined;
+                  if (err && err.isRateLimited) {
+                    const wait = err.retryAfterSeconds;
+                    return (
+                      <p className="text-xs leading-relaxed text-band-weak">
+                        Too many requests{wait != null ? ` — retry in about ${wait}s` : ""}.
+                        <button
+                          type="button"
+                          className="ml-1 cursor-pointer underline underline-offset-2"
+                          onClick={() => trimmed && ask.mutate(trimmed, { onSuccess: (d) => setResult(d) })}
+                        >
+                          Try again
+                        </button>
+                      </p>
+                    );
+                  }
                   if (err && err.code !== "NETWORK_ERROR" && err.code === "HTTP_404") {
                     // A 404 without the standard envelope means the route is
                     // missing: the backend process predates the ask endpoint.
