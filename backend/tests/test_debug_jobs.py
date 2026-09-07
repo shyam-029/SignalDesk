@@ -132,3 +132,26 @@ async def test_scheduler_state_defaults_when_not_started(client, session_factory
     assert r.json()["scheduler_running"] is False
     for job in r.json()["jobs"]:
         assert job["next_run_at"] is None
+
+
+async def test_stale_running_row_is_reported_as_stuck(client, session_factory):
+    """A 'running' row older than the stuck threshold means the process died
+    mid-run; /debug/jobs must never present it as live progress."""
+    from datetime import timedelta
+
+    from app.repositories.job_runs import STUCK_AFTER
+
+    just_started = datetime.now(timezone.utc) - timedelta(minutes=1)
+    ancient = datetime.now(timezone.utc) - STUCK_AFTER - timedelta(hours=1)
+    async with session_factory() as session:
+        session.add_all(
+            [
+                JobRun(job_name="fresh_job", status="running", started_at=just_started),
+                JobRun(job_name="dead_job", status="running", started_at=ancient),
+            ]
+        )
+        await session.commit()
+
+    by_name = {j["job_name"]: j for j in (await client.get("/debug/jobs")).json()["jobs"]}
+    assert by_name["fresh_job"]["last_run"]["status"] == "running"
+    assert by_name["dead_job"]["last_run"]["status"] == "stuck"

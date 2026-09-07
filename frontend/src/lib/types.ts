@@ -166,8 +166,9 @@ export interface NewsListResponse {
 
 export interface Sentiment {
   symbol: string;
-  score: number;
-  label: string;
+  // null when the stock has no scored articles (never a fabricated 0/neutral).
+  score: number | null;
+  label: string | null;
   count: number;
 }
 

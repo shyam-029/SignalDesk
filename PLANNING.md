@@ -292,7 +292,7 @@ Base path: `/api/v1`. All responses JSON. Swagger docs auto-generated at `/docs`
 ### Stocks
 | Method | Path | Request | Response |
 |---|---|---|---|
-| GET | `/api/v1/stocks` | `?sector=&page=1&limit=50` | `{ items: [StockSummary], total, page, limit }` |
+| GET | `/api/v1/stocks` | `?sector=&page=1&limit=50&sort=&direction=` | `{ items: [StockSummary], total, page, limit, sectors }` — `last_price`/`change_pct` null when no bars (D89) |
 | GET | `/api/v1/stocks/{symbol}` | - | `StockDetail` (profile + quote block + market_cap; fields null when absent) |
 | GET | `/api/v1/stocks/{symbol}/quote` | - | *(subsumed by StockDetail.quote - not a separate endpoint)* |
 | GET | `/api/v1/stocks/{symbol}/prices` | `?range=1y&resample=1d` | `{ symbol, range, items: [OHLCV] }` |
@@ -301,17 +301,17 @@ Base path: `/api/v1`. All responses JSON. Swagger docs auto-generated at `/docs`
 ### Fundamentals & Valuation (core)
 | Method | Path | Request | Response |
 |---|---|---|---|
-| GET | `/api/v1/stocks/{symbol}/fundamentals` | `?periods=4` | `{ symbol, key_ratios, income, balance_sheet, cash_flow }` |
+| GET | `/api/v1/stocks/{symbol}/fundamentals` | - | `{ symbol, key_ratios, updated_at }` (per-period income/balance/cash-flow statements deferred; history at `/financials/history`) |
 | GET | `/api/v1/stocks/{symbol}/scores` | - | `ScoreCard` (profitability, solvency + per-component breakdown) |
-| GET | `/api/v1/stocks/{symbol}/valuation` | - | `Valuation` (method, peers, current_multiple, peer_avg, margin, status) |
+| GET | `/api/v1/stocks/{symbol}/valuation` | - | `Valuation` (method, peers, current, peer_median, margin_pct, status, computed_at) |
 | GET | `/api/v1/stocks/{symbol}/valuation/explanation` | - | `Explanation` (rule-based text) |
-| GET | `/api/v1/screener` | `?undervalued=true&min_roic=&page=` | `{ items: [ScreenResult], total }` |
+| GET | `/api/v1/screener` | `?status=&min_profitability=&min_solvency=&sort=&direction=&sector=&page=` | `{ items: [ScreenResult], total }` |
 
 ### News & Sentiment (secondary)
 | Method | Path | Request | Response |
 |---|---|---|---|
 | GET | `/api/v1/stocks/{symbol}/news` | `?limit=20` | `{ items: [NewsArticle] }` |
-| GET | `/api/v1/stocks/{symbol}/sentiment` | - | `Sentiment` (score, label, window) |
+| GET | `/api/v1/stocks/{symbol}/sentiment` | - | `Sentiment` (score/label null when no scored articles; count always real — never a fabricated 0.0 "neutral") |
 
 ### Alpha Score (composite)
 | Method | Path | Request | Response |
@@ -1109,8 +1109,10 @@ Chronological record of decisions. Append as time progresses.
 - **D89.** (2026-09-07, Phase 7) **Freshness + honesty in the API contract.**
   `services/freshness.py` classifies timestamps as current/stale/unavailable
   with per-domain TTLs (prices 3d to tolerate weekends/holidays, fundamentals
-  30d, news the existing 60d window, alpha daily). A missing timestamp is
-  `unavailable`, never fabricated. `/stocks` now returns
+  30d, news the existing 60d window, alpha 2d). A missing timestamp is
+  `unavailable`, never fabricated. Only the price TTL is wired into an
+  endpoint today (`quote.stale`); the other TTLs are classifier constants
+  for the next consumers. `/stocks` now returns
   `last_price/change_pct: null` (was fake `0.0`) for stocks with no bars;
   `StockDetail.quote` gains `stale` (bool|null). `/alpha/explanation` gains
   `source: "llm"|"rule_based"` so the LLM fallback is observable.
@@ -1138,6 +1140,32 @@ Chronological record of decisions. Append as time progresses.
   exploratory (needs defined methodology/training data); auth/watchlists/
   paper trading = deferred pending deployment. Principle unchanged:
   **stable interfaces now, future domains later, no speculative schemas.**
+
+- **D93.** (2026-09-07, Phase 7C audit) **Reliability gaps found by the post-
+  implementation audit, all fixed and tested:**
+  * **Nightly runs use a dedicated engine.** The API's module-global asyncpg
+    pool is bound to the uvicorn event loop; reusing it from the APScheduler
+    thread's own `asyncio.run` loop fails once the API has served traffic
+    (verified empirically). `run_daily_ingestion` now builds a job-scoped
+    engine (NullPool) for the run and disposes of it.
+  * **The nightly wrapper can no longer mask failures:** child-pass statuses
+    aggregate — any failed/partial pass makes `nightly_ingestion` `partial`;
+    every pass failing makes it `failed`. The pre-warm sweep also reports
+    per-symbol failures (`errors`) instead of a blanket success.
+  * **Backfill preserves live snapshots:** the nightly alpha recompute deletes
+    only rows WITHOUT a fundamental score (technical-only); genuine /alpha
+    snapshots survive, making per-component history actually accumulate.
+  * **`/sentiment` never fabricates:** no scored articles -> `score: null,
+    label: null, count: 0` (was a fake `0.0 "neutral"`).
+  * **Stale visibility end-to-end:** the frontend renders the `stale` marker
+    in the stock header (the flag existed backend-only before).
+  * **Crashed runs are distinguishable:** a `running` row older than 6h is
+    reported as `stuck` by /debug/jobs (a dead process can't finish a row).
+  * **500 responses carry `X-Request-ID`** (header matches the envelope body).
+  * The CLI `python -m app.jobs backfill` is recorded into job_runs like the
+    scheduled passes; secondary-provider failure logs are truncated;
+    `LLM_DAILY_CAP` example aligned with the code default (300); the
+    `/sentiment`-window docstring corrected (60 days, not 30).
 
 ---
 

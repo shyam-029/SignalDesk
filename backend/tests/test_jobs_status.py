@@ -196,3 +196,122 @@ async def test_latest_runs_and_last_success(session_factory, monkeypatch):
             datetime.now(timezone.utc) - last_ok.finished_at
         ).total_seconds()
         assert age < INGESTION_STALE_AFTER_SECONDS
+
+
+# --- Nightly aggregation: the wrapper row must never mask child failures ----
+
+
+async def test_nightly_is_partial_when_a_pass_fails(session_factory, monkeypatch):
+    """One failing child pass -> nightly_ingestion recorded 'partial'."""
+    monkeypatch.setattr(jobs_module, "SessionLocal", session_factory)
+
+    async def ok():
+        return {"fetched": 1, "errors": 0}
+
+    async def boom():
+        raise MarketDataError("provider down")
+
+    async def nightly():
+        await jobs_module._record_pass("c_ok", ok)
+        await jobs_module._record_pass("c_boom", boom)
+        return {"fetched": 1, "errors": 1, "partial_passes": 0}
+
+    await jobs_module._record_pass("nightly_ingestion", nightly)
+    [row] = await _runs(session_factory, "nightly_ingestion")
+    assert row.status == "partial"
+    assert row.items_failed == 1
+
+
+async def test_nightly_is_failed_when_all_passes_fail(session_factory, monkeypatch):
+    """Every child pass failing raises inside the wrapper -> 'failed' row."""
+    monkeypatch.setattr(jobs_module, "SessionLocal", session_factory)
+
+    async def boom():
+        raise MarketDataError("provider down")
+
+    async def nightly():
+        await jobs_module._record_pass("c1", boom)
+        await jobs_module._record_pass("c2", boom)
+        raise RuntimeError("all 2 ingestion passes failed")
+
+    await jobs_module._record_pass("nightly_ingestion", nightly)
+    [row] = await _runs(session_factory, "nightly_ingestion")
+    assert row.status == "failed"
+    assert "all 2 ingestion passes failed" in row.error_summary
+
+
+async def test_ingest_passes_aggregates_statuses(session_factory, monkeypatch):
+    """_ingest_passes itself returns per-pass failure counts."""
+    monkeypatch.setattr(jobs_module, "SessionLocal", session_factory)
+
+    async def ok():
+        return {"fetched": 1, "errors": 0}
+
+    async def partial():
+        return {"fetched": 9, "errors": 1}
+
+    async def boom():
+        raise MarketDataError("down")
+
+    async def mixed():
+        await jobs_module._record_pass("p_ok", ok)
+        await jobs_module._record_pass("p_partial", partial)
+        await jobs_module._record_pass("p_boom", boom)
+        return {"fetched": 1, "errors": 2, "partial_passes": 1}
+
+    result = await mixed()
+    assert result["errors"] == 2
+    assert result["partial_passes"] == 1
+
+
+async def test_run_daily_ingestion_uses_and_restores_job_engine(
+    session_factory, monkeypatch
+):
+    """The nightly run swaps in a dedicated engine (F1: asyncpg pools are
+    event-loop-bound) and restores the original session factory afterwards."""
+    import app.db as db_module
+
+    monkeypatch.setattr(jobs_module, "SessionLocal", session_factory)
+    original = session_factory
+    seen = {}
+
+    async def fake_ingest_all():
+        seen["factory"] = jobs_module.SessionLocal
+        seen["is_original"] = jobs_module.SessionLocal is original
+
+    monkeypatch.setattr(jobs_module, "_ingest_all", fake_ingest_all)
+    await jobs_module._ingest_all_with_job_engine()
+
+    assert seen["is_original"] is False, "nightly run must NOT use the API engine"
+    assert seen["factory"] is not None
+    # Restored for API use after the run.
+    assert jobs_module.SessionLocal is original
+
+
+async def test_prewarm_counts_failures(session_factory, monkeypatch):
+    """Per-symbol pre-warm failures surface in the returned counts."""
+    monkeypatch.setattr(jobs_module, "SessionLocal", session_factory)
+    from app.services import llm_narrative as narr
+
+    async with session_factory() as session:
+        session.add(Stock(symbol="PW.NS", name="PW"))
+        await session.commit()
+
+    monkeypatch.setattr(jobs_module.settings, "llm_api_key", "fake")
+    monkeypatch.setattr(jobs_module.settings, "llm_model", "fake-model")
+
+    class BoomAlpha:
+        async def compute_alpha(self, session, stock):
+            raise RuntimeError("no bars")
+
+    import app.services.alpha as alpha_svc
+
+    monkeypatch.setattr(alpha_svc, "compute_alpha", BoomAlpha().compute_alpha)
+
+    async def fake_symbols(session):
+        return ["PW.NS"]
+
+    monkeypatch.setattr(jobs_module, "_get_universe_symbols", fake_symbols)
+    result = await jobs_module.prewarm_alpha_explanations(delay=0)
+    assert result["errors"] == 1
+    assert result["warmed"] == 0

@@ -121,7 +121,7 @@ export function MarketPulse() {
             </div>
           )}
           <span className="num hidden shrink-0 pl-1 text-xs text-faint lg:inline">
-            all {stocks.length || 50} constituents Â· latest close
+            {stocks.length} constituents · latest close
           </span>
         </DataState>
       </div>

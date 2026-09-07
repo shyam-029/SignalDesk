@@ -62,6 +62,11 @@ async def test_upstox_enrichment_failure_is_visible_not_silent(caplog):
         fundamentals = await provider.get_fundamentals("AAA.NS")
 
     assert fundamentals.trailing_pe == 20.0  # enrichment skipped, not fatal
+    # The previously-silent except blocks MUST be visible now: one
+    # provider_failure line per skipped enrichment (income + balance).
+    assert "provider_failure" in caplog.text
+    assert "income_statement" in caplog.text
+    assert "balance_sheet" in caplog.text
     assert UPSTOX_TOKEN not in caplog.text
 
 

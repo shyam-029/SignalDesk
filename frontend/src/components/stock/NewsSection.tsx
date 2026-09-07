@@ -50,7 +50,7 @@ export function NewsSection({ symbol }: { symbol: string }) {
               insufficientMessage="No FinBERT-scored articles stored for this symbol yet."
               compact
             >
-              {sentiment.data && sentiment.data.count > 0 && (
+              {sentiment.data && sentiment.data.count > 0 && sentiment.data.score != null && (
                 <div className={cn("border bg-surface p-5", sem.band.border, `${sem.band.bg.replace("/10", "/6")}`)}>
                   <p className="label-caps flex items-center gap-1.5">
                     Net sentiment
@@ -70,8 +70,7 @@ export function NewsSection({ symbol }: { symbol: string }) {
                   </p>
                   <p className="mt-3 border-t border-line pt-2 text-xs leading-relaxed text-faint">
                     Feeds the sentiment component (30%) of the Alpha Score.
-                  </p>
-                </div>
+                  </p>                </div>
               )}
             </DataState>
           </div>

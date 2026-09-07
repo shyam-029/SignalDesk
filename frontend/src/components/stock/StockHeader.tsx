@@ -109,6 +109,14 @@ export function StockHeader({ symbol }: { symbol: string }) {
                 </div>
                 <p className="num text-xs text-faint">
                   {detail.quote.date ? `Close ${fmtDate(detail.quote.date)}` : "No price data"}
+                  {detail.quote.stale === true && (
+                    <span
+                      className="ml-2 border border-line bg-surface-2 px-1 py-0.5 text-[10px] font-medium uppercase tracking-[0.08em] text-faint"
+                      title="The latest stored close is older than the usual market day — ingestion may be behind."
+                    >
+                      stale
+                    </span>
+                  )}
                 </p>
               </div>
             </div>

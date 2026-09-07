@@ -32,8 +32,10 @@ class NewsListResponse(BaseModel):
 
 class SentimentResponse(BaseModel):
     symbol: str
-    score: float
-    label: str
+    # score/label are null when the stock has no scored articles — absence is
+    # reported, never presented as a measured "neutral 0.0" reading.
+    score: float | None
+    label: str | None
     count: int
 
 
@@ -45,8 +47,8 @@ async def get_news(
 ) -> NewsListResponse:
     """Return recent news articles for a stock, newest first.
 
-    The approximately 30-day freshness window is applied to what is
-    displayed here (and at ingestion); sentiment processing is unchanged.
+    The approximately 60-day freshness window (NEWS_FRESHNESS_DAYS) is
+    applied to what is displayed here; sentiment processing is unchanged.
     """
     stock = await resolve_stock(session, symbol)
     articles = await news_repo.get_articles(
@@ -74,7 +76,7 @@ async def get_sentiment(symbol: str, session: SessionDep) -> SentimentResponse:
     stock = await resolve_stock(session, symbol)
     summary = await news_repo.get_sentiment_summary(session, stock.symbol)
     if summary is None:
-        return SentimentResponse(symbol=stock.symbol, score=0.0, label="neutral", count=0)
+        return SentimentResponse(symbol=stock.symbol, score=None, label=None, count=0)
     return SentimentResponse(
         symbol=stock.symbol,
         score=summary["score"],

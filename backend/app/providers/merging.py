@@ -212,9 +212,12 @@ class MergingProvider(MarketDataProvider):
             raise
         except Exception as exc:
             if role == "secondary":
+                # Truncate: a provider error message must stay greppable and
+                # can never balloon a log line (providers sanitize errors of
+                # credentials themselves; the cap is defense-in-depth).
                 logger.warning(
                     "provider_failure provider=%s op=%s degraded=secondary_only error=%s",
-                    getattr(self.secondary, "name", "secondary"), what, exc,
+                    getattr(self.secondary, "name", "secondary"), what, str(exc)[:300],
                 )
                 return None
             raise

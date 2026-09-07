@@ -155,6 +155,10 @@ async def generic_handler(request: Request, exc: Exception) -> JSONResponse:
         )
     finally:
         request_id_var.reset(token)
-    return _json_response(
+    response = _json_response(
         500, "INTERNAL_ERROR", "An unexpected error occurred.", {}, request
     )
+    # The catch-all runs outside the request-id middleware, so the middleware
+    # never got to stamp the header; do it here (body + header stay in sync).
+    response.headers["X-Request-ID"] = request_id
+    return response

@@ -169,11 +169,51 @@ async def test_backfill_blends_components_and_replaces_history(
         for r in rows
         if r.technical is not None
     )
-
     # The composite drifts; it does not sawtooth.
     composites = [float(r.composite) for r in rows]
     deltas = [abs(b - a) for a, b in zip(composites, composites[1:])]
     assert max(deltas) <= 12
+
+
+async def test_backfill_preserves_live_snapshots(
+    client, session_factory, monkeypatch
+):
+    """A genuine live snapshot (with a fundamental score) survives the backfill.
+
+    Nightly recomputes replace TECHNICAL-ONLY rows; wiping live /alpha rows
+    every night would make per-component history impossible.
+    """
+    async with session_factory() as session:
+        stock = Stock(symbol="LIVE.NS", name="Live Snap", sector="E", industry="O")
+        session.add(stock)
+        await session.flush()
+        today = date.today()
+        for i in range(40):
+            session.add(
+                DailyPrice(stock_id=stock.id, date=today - timedelta(days=39 - i),
+                           open=100, high=101, low=99,
+                           close=100 + i * 0.1, volume=1000)
+            )
+        # A genuine live snapshot: fundamental score recorded by /alpha.
+        session.add(
+            AlphaScore(symbol="LIVE.NS", date=today, composite=80.0,
+                       fundamental=90.0, technical=70.0, sentiment=80.0)
+        )
+        await session.commit()
+
+    monkeypatch.setattr(jobs, "SessionLocal", session_factory)
+    await jobs._backfill_one_alpha("LIVE.NS")
+
+    async with session_factory() as session:
+        live = await session.scalar(
+            select(AlphaScore).where(
+                AlphaScore.symbol == "LIVE.NS", AlphaScore.date == today
+            )
+        )
+    assert live is not None
+    assert live.fundamental is not None  # NOT overwritten to null
+    assert float(live.fundamental) == 90.0
+    assert float(live.composite) == 80.0
 
 
 # --- API tests ----------------------------------------------------------------
