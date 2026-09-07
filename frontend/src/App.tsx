@@ -1,16 +1,15 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Route, Routes, useLocation } from "react-router-dom";
-import { useEffect } from "react";
-import { lazy, Suspense } from "react";
+import { useEffect, lazy, Suspense } from "react";
 
 import { ThemeProvider } from "@/components/layout/ThemeProvider";
 import { SiteHeader } from "@/components/layout/SiteHeader";
 import { SiteFooter } from "@/components/layout/SiteFooter";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { PageLoader } from "@/components/data/PageLoader";
+import { SkipLink } from "@/components/layout/SkipLink";
+import LegalPage from "@/pages/LegalPage";
 
-// Pages are lazy-loaded so each route ships as its own chunk. The landing
-// page never pays for the stock research experience up front.
 const LandingPage = lazy(() => import("@/pages/LandingPage"));
 const MarketsPage = lazy(() => import("@/pages/MarketsPage"));
 const ScreenerPage = lazy(() => import("@/pages/ScreenerPage"));
@@ -21,8 +20,6 @@ const NotFoundPage = lazy(() => import("@/pages/NotFoundPage"));
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      // Data is daily; a missed request should not blank the UI. Retries are
-      // configured per-hook (404s never retry).
       refetchOnWindowFocus: false,
       retry: 1,
     },
@@ -43,10 +40,11 @@ export default function App() {
       <ThemeProvider>
         <TooltipProvider delayDuration={250}>
           <BrowserRouter>
+            <SkipLink />
             <ScrollToTop />
             <div className="flex min-h-svh flex-col">
               <SiteHeader />
-              <main className="flex-1">
+              <main id="main-content" tabIndex={-1} className="flex-1 outline-none">
                 <Suspense fallback={<PageLoader />}>
                   <Routes>
                     <Route path="/" element={<LandingPage />} />
@@ -54,6 +52,11 @@ export default function App() {
                     <Route path="/screener" element={<ScreenerPage />} />
                     <Route path="/stocks/:symbol" element={<StockDetailPage />} />
                     <Route path="/methodology" element={<MethodologyPage />} />
+                    <Route path="/privacy" element={<LegalPage kind="privacy" />} />
+                    <Route path="/terms" element={<LegalPage kind="terms" />} />
+                    <Route path="/cookies" element={<LegalPage kind="cookies" />} />
+                    <Route path="/refunds" element={<LegalPage kind="refund" />} />
+                    <Route path="/legal" element={<LegalPage kind="legal" />} />
                     <Route path="*" element={<NotFoundPage />} />
                   </Routes>
                 </Suspense>
