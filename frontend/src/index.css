@@ -2,20 +2,7 @@
 
 @custom-variant dark (&:where(.dark, .dark *));
 
-/*
- * SignalDesk design tokens ("Institutional Editorial").
- *
- * Light: "Cloud White + Petrol", graded from the approved reference concept:
- * cool blue-tinted whites (#f8f9ff family), deep navy ink (#0b1c30),
- * petroleum-teal identity (#006781), soft periwinkle containers, thin cool
- * borders. White and blue, green/red for the market.
- * Dark:  "Warm Ink + Gold", the approved warm near-black surfaces with a gold
- * identity accent. Unchanged by the light regrade.
- *
- * Semantic band colors (strong → very weak) are consumed only by analytical
- * conclusions (scores, verdicts, valuation state), never raw metrics.
- */
-
+/* SignalDesk design tokens. Light and dark themes share the same semantic system. */
 @theme inline {
   --color-background: var(--bg);
   --color-foreground: var(--ink);
@@ -27,20 +14,14 @@
   --color-rule: var(--rule);
   --color-cobalt: var(--cobalt);
   --color-cobalt-strong: var(--cobalt-strong);
-
   --color-band-strong: var(--band-strong);
   --color-band-positive: var(--band-positive);
   --color-band-moderate: var(--band-moderate);
   --color-band-weak: var(--band-weak);
   --color-band-veryweak: var(--band-veryweak);
-
   --font-display: "Libre Caslon Text", Georgia, "Times New Roman", serif;
   --font-sans: "Instrument Sans", system-ui, -apple-system, sans-serif;
   --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
-
-  /* Section-dimension accents: jade=fundamentals, amber=valuation,
-     coral=technicals, teal=sentiment. Cobalt stays the identity color.
-     Accents mark WHICH dimension is speaking; they never color raw metrics. */
   --color-accent-jade: var(--accent-jade);
   --color-accent-amber: var(--accent-amber);
   --color-accent-coral: var(--accent-coral);
@@ -54,29 +35,25 @@
   --section-alt: #eef2fb;
   --ink: #0b1c30;
   --muted: #47536b;
-  --faint: #7d8698;
+  /* >= 4.5:1 against the light background for small label text. */
+  --faint: #647087;
   --line: #ccd5e6;
   --rule: #b7c5de;
-
   --cobalt: #006781;
   --cobalt-strong: #004f63;
-
   --accent-jade: #167a4e;
   --accent-amber: #9a6a10;
   --accent-coral: #b8491f;
-  --accent-teal: #0891b2;
-
+  /* Darkened so white text on stock marks remains readable. */
+  --accent-teal: #087d99;
   --band-strong: #17724a;
-  --band-positive: #2d8a68;
-  --band-moderate: #a9761d;
-  --band-weak: #bd5327;
+  --band-positive: #267657;
+  --band-moderate: #8a5f0d;
+  --band-weak: #a84b22;
   --band-veryweak: #a02b21;
 }
 
 .dark {
-  /* "Warm Ink + Gold": unchanged from the approved dark theme. Warm near-black
-     surfaces, off-white ink, gold identity. The --cobalt token carries the
-     identity accent in both themes (petrol in light, gold in dark). */
   --bg: #131110;
   --surface: #1a1814;
   --surface-2: #221e18;
@@ -86,15 +63,12 @@
   --faint: #8a8172;
   --line: #2c2820;
   --rule: #3b362b;
-
   --cobalt: #e3b34c;
   --cobalt-strong: #f0c768;
-
   --accent-jade: #3ecf9e;
   --accent-amber: #cf9a3a;
   --accent-coral: #ec7f60;
   --accent-teal: #43c3c0;
-
   --band-strong: #2fbe8f;
   --band-positive: #37a583;
   --band-moderate: #d2a04a;
@@ -102,44 +76,21 @@
   --band-veryweak: #d0574c;
 }
 
-/* Continuous market marquee: pauses on hover, disabled under reduced motion. */
 @keyframes pulse-marquee {
-  from {
-    transform: translateX(0);
-  }
-  to {
-    transform: translateX(-50%);
-  }
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
 }
 
 @layer components {
-  /* Alternating section wash: every other section sits on a slightly darker
-     shade of the page background so consecutive sections separate visually
-     without hard rules everywhere. Theme-aware via --section-alt. */
-  .section-alt {
-    background: var(--section-alt);
-  }
+  .section-alt { background: var(--section-alt); }
 
-  /* Background grid lines: faint square ruling behind the landing page.
-     Drawn with the theme's --rule color so both themes get a line that is
-     visible but quiet; pure CSS (no images), static, no motion cost. */
   .grid-lines {
     background-image:
-      linear-gradient(
-        to right,
-        color-mix(in srgb, var(--rule) 42%, transparent) 1px,
-        transparent 1px
-      ),
-      linear-gradient(
-        to bottom,
-        color-mix(in srgb, var(--rule) 42%, transparent) 1px,
-        transparent 1px
-      );
+      linear-gradient(to right, color-mix(in srgb, var(--rule) 42%, transparent) 1px, transparent 1px),
+      linear-gradient(to bottom, color-mix(in srgb, var(--rule) 42%, transparent) 1px, transparent 1px);
     background-size: 80px 80px;
   }
 
-  /* Elevated panel: translucent surface, blur, soft depth. Use on small cards,
-     never on full-width strips (blur cost scales with area). */
   .glass {
     background: color-mix(in srgb, var(--surface) 74%, transparent);
     backdrop-filter: blur(14px) saturate(1.15);
@@ -148,15 +99,9 @@
     box-shadow: 0 24px 48px -28px color-mix(in srgb, black 65%, transparent);
   }
 
-  .marquee-track {
-    animation: pulse-marquee 80s linear infinite;
-  }
+  .marquee-track { animation: pulse-marquee 80s linear infinite; }
+  .marquee:hover .marquee-track { animation-play-state: paused; }
 
-  .marquee:hover .marquee-track {
-    animation-play-state: paused;
-  }
-
-  /* Keyword highlight: pulls the eye without shouting. */
   .hi {
     color: var(--ink);
     font-weight: 500;
@@ -166,8 +111,6 @@
     text-underline-offset: 4px;
   }
 
-  /* Framed chart plate: a distinctly bordered box so charts never merge
-     into the page background. */
   .chart-frame {
     border: 1px solid color-mix(in srgb, var(--cobalt) 18%, transparent);
     background: var(--surface);
@@ -175,46 +118,22 @@
   }
 
   @media (prefers-reduced-motion: reduce) {
-    .marquee-track {
-      animation: none;
-    }
+    .marquee-track { animation: none; }
   }
 }
 
 @layer base {
-  html {
-    scroll-behavior: smooth;
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    html {
-      scroll-behavior: auto;
-    }
-  }
-
-  body {
-    @apply bg-background text-foreground font-sans antialiased;
-  }
-
-  ::selection {
-    background: color-mix(in srgb, var(--cobalt) 22%, transparent);
-  }
-
-  /* Financial numerals: tabular so columns of figures align, weight 500
-     floor so data never renders thin. */
+  html { scroll-behavior: smooth; }
+  @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+  body { @apply bg-background text-foreground font-sans antialiased; }
+  ::selection { background: color-mix(in srgb, var(--cobalt) 22%, transparent); }
   .num {
     font-family: var(--font-mono);
     font-weight: 500;
     font-variant-numeric: tabular-nums;
     letter-spacing: -0.01em;
   }
-
-  /* Editorial caps label used for section eyebrows and data labels. */
-  .label-caps {
-    @apply text-xs font-semibold uppercase tracking-[0.14em];
-    color: var(--faint);
-  }
-
+  .label-caps { @apply text-xs font-semibold uppercase tracking-[0.14em]; color: var(--faint); }
   *:focus-visible {
     outline: 2px solid color-mix(in srgb, var(--cobalt) 60%, transparent);
     outline-offset: 2px;
