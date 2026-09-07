@@ -1,5 +1,6 @@
 import * as React from "react";
 import { MessageSquareText, X, CornerDownLeft } from "lucide-react";
+import { Link } from "react-router-dom";
 
 import type { AskResponse } from "@/lib/types";
 import { useAsk } from "@/lib/hooks";
@@ -7,7 +8,6 @@ import { ApiError } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
-import { Link } from "react-router-dom";
 
 const QUESTION_MAX = 500;
 
@@ -36,7 +36,6 @@ export function AskPanel({ symbol, displayName }: { symbol: string; displayName:
   const [result, setResult] = React.useState<AskResponse | null>(null);
   const ask = useAsk(symbol);
   const inputRef = React.useRef<HTMLTextAreaElement>(null);
-  const triggerRef = React.useRef<HTMLButtonElement>(null);
 
   React.useEffect(() => {
     if (!open) return;
@@ -60,7 +59,6 @@ export function AskPanel({ symbol, displayName }: { symbol: string; displayName:
     setAcknowledged(false);
     setResult(null);
     ask.reset();
-    window.setTimeout(() => triggerRef.current?.focus(), 0);
   };
 
   const blocked = ask.error instanceof ApiError && ask.error.code === "ASK_BLOCKED";
@@ -69,7 +67,6 @@ export function AskPanel({ symbol, displayName }: { symbol: string; displayName:
   return (
     <>
       <Button
-        ref={triggerRef}
         type="button"
         variant="outline"
         size="sm"
