@@ -1103,6 +1103,12 @@ def start_scheduler():
 if __name__ == "__main__":
     import sys
 
+    # CLI runs don't go through app.main, so configure root logging here:
+    # job_start/job_end lines must be visible to an operator on the terminal.
+    from app.logging_utils import configure_logging
+
+    configure_logging()
+
     command = sys.argv[1] if len(sys.argv) > 1 else "backfill"
     if command == "backfill":
         # Explicit recompute of every symbol's alpha history under the

@@ -1085,9 +1085,12 @@ Chronological record of decisions. Append as time progresses.
 - **D86.** (2026-09-07, Phase 7) **Scheduler reliability settings.** APScheduler
   pinned to `Asia/Kolkata` (18:30 IST run independent of host TZ),
   `max_instances=1` (no overlapping nightly runs), `coalesce=True`,
-  `misfire_grace_time=2h` (a process that was down at 18:30 still runs the
-  day's ingestion if it comes back within two hours instead of silently
-  waiting a full day).
+  `misfire_grace_time=2h`. Scope of the grace (verified live during Phase 7D):
+  it covers a LIVE scheduler whose firing was delayed (event-loop stall, host
+  sleep) — a run up to 2h late still executes. A cold process (re)start does
+  NOT replay a missed 18:30 slot: the in-memory job store recomputes
+  next_run_time and simply waits for the next day. Catch-up after downtime is
+  a Phase 8 concern (CI-cron ingestion per D79).
 - **D87.** (2026-09-07, Phase 7) **No silent exception paths.** Previously
   dropped logs are now real: the root logger is configured at startup
   (structured `key=value` lines with timestamp/level/logger/request_id; the
