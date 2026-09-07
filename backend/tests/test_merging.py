@@ -146,7 +146,8 @@ def test_fundamentals_disagreement_keeps_primary_and_logs(caplog):
         merged = merge_fundamentals(p, s, "X")
     assert merged.trailing_pe == 20.0
     assert any(
-        "fundamentals disagreement" in rec.message and "trailing_pe" in rec.message
+        "provider_disagreement kind=fundamentals" in rec.message
+        and "trailing_pe" in rec.message
         for rec in caplog.records
     )
 
@@ -157,7 +158,9 @@ def test_fundamentals_small_differences_not_flagged(caplog):
     with caplog.at_level(logging.INFO):
         merged = merge_fundamentals(p, s, "X")
     assert merged.trailing_pe == 20.0
-    assert not any("fundamentals disagreement" in rec.message for rec in caplog.records)
+    assert not any(
+        "provider_disagreement" in rec.message for rec in caplog.records
+    )
 
 
 async def test_merging_provider_fundamentals_merge():
@@ -200,7 +203,10 @@ def test_financial_history_disagreement_keeps_primary(caplog):
     with caplog.at_level(logging.INFO):
         merged = merge_financial_history(p, s, "X")
     assert merged[0].revenue == 100.0
-    assert any("financial history disagreement" in rec.message for rec in caplog.records)
+    assert any(
+        "provider_disagreement kind=financial_history" in rec.message
+        for rec in caplog.records
+    )
 
 
 def test_financial_history_source_attribution():

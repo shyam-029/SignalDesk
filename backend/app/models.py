@@ -26,6 +26,7 @@ from sqlalchemy import (
     UniqueConstraint,
     Column,
     DateTime,
+    Index,
     Integer,
     func,
 )
@@ -300,3 +301,32 @@ class AlphaScore(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
+
+
+class JobRun(Base):
+    """One execution of a scheduled/background job pass (Phase 7).
+
+    Durable job-history so the app can answer: what ran, when, did it
+    succeed, how long did it take, what failed. Status semantics:
+      running  - started, not yet finished (crashed runs stay 'running')
+      success  - finished with zero per-item failures
+      partial  - finished but some items failed (isolated per D19)
+      failed   - the whole pass raised and aborted
+    error_summary is TRUNCATED and never contains secrets (job code logs
+    and stores exception messages that deliberately exclude credentials).
+    """
+
+    __tablename__ = "job_runs"
+    __table_args__ = (
+        Index("ix_job_runs_job_started", "job_name", "started_at"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    job_name: Mapped[str] = mapped_column(String(64), index=True)
+    status: Mapped[str] = mapped_column(String(16))  # running|success|partial|failed
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    duration_ms: Mapped[int | None]
+    items_processed: Mapped[int | None]
+    items_failed: Mapped[int | None]
+    error_summary: Mapped[str | None] = mapped_column(Text)

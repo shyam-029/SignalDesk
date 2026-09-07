@@ -24,6 +24,7 @@ from app.models import DailyPrice, Stock
 from app.repositories import financials as fin_repo
 from app.repositories import prices as price_repo
 from app.routers.common import resolve_stock
+from app.services import freshness
 
 router = APIRouter(prefix="/stocks", tags=["stocks"])
 
@@ -58,7 +59,11 @@ def normalize_symbol(symbol: str) -> str:
 
 
 class StockSummary(BaseModel):
-    """One row in the stock list."""
+    """One row in the stock list.
+
+    last_price/change_pct are None when the stock has no stored price bars —
+    the list never fabricates zeros for missing data.
+    """
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -66,8 +71,8 @@ class StockSummary(BaseModel):
     name: str
     sector: str | None
     industry: str | None
-    last_price: float
-    change_pct: float
+    last_price: float | None
+    change_pct: float | None
     market_cap: float | None
 
 
@@ -112,6 +117,9 @@ class QuoteBlock(BaseModel):
     prev_close: float | None
     volume: int | None
     date: date | None  # date of the latest bar (data freshness anchor)
+    # True when the latest bar is older than the price freshness TTL
+    # (services/freshness.py); None when there is no bar date at all.
+    stale: bool | None = None
 
 
 class StockDetailResponse(BaseModel):
@@ -183,8 +191,8 @@ async def list_stocks(
     rows: list[StockSummary] = []
     for st in stocks:
         last_two = latest_two.get(st.id, [])
-        last_price = 0.0
-        change_pct = 0.0
+        last_price: float | None = None
+        change_pct: float | None = None
         if last_two:
             latest = last_two[0]
             prev = last_two[1] if len(last_two) > 1 else latest
@@ -285,6 +293,7 @@ async def get_stock_detail(symbol: str, session: SessionDep) -> StockDetailRespo
             prev_close=prev_close,
             volume=volume,
             date=bar_date,
+            stale=freshness.is_stale(bar_date, freshness.PRICE_TTL),
         ),
     )
 

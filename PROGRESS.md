@@ -3,8 +3,8 @@
 > **Purpose:** The operational counterpart to `PLANNING.md`. This is the file to read FIRST to pick up
 > where we left off. Updated after every phase.
 > **Rules:** What's done → in progress → next. Command cheatsheet. Known gotchas.
-> **Last updated:** 2026-09-06 (Post-Part I round: Upstox renamed-symbol fix (TATAMOTORS->TMPV), /alpha split with lazy explanation + nightly pre-warm, provider-sourced company profiles with About box + ask evidence)
-> **Roadmap audit completed 2026-08-19 - see PLANNING §18 (4-tier product taxonomy).**
+> **Last updated:** 2026-09-07 (Phase 7 COMPLETE: observability — root structured logging, durable job_runs history, /debug/jobs, /status vs /health, freshness/stale flags, uniform error envelope, honest nulls in /stocks, LLM fallback provenance)
+> **Roadmap audit completed 2026-08-19 - see PLANNING §18 (4-tier product taxonomy; expanded 2026-09-07 in D92).**
 
 ---
 
@@ -36,20 +36,87 @@
 | **Session 20 - Alpha history recompute + research UX fixes** | ✅ **COMPLETE** |
 | **Part H - Grounded single-shot ask (LLM)** | ✅ **COMPLETE** |
 | **Part I - Phase 6.5 verification + close-out** | ✅ **COMPLETE** |
+| **7 - Observability & reliability (logging, job status, health, freshness, errors)** | ✅ **COMPLETE** |
 
-**One-line status:** **Phase 6.5 COMPLETE (Parts A-I)** + Session 20 review round. Part I closed
-6.5 with full regression (backend 262/262, tsc clean, vitest 65/65, build OK), a 47-check E2E
-smoke test over every user flow against real stored data, and a data-quality audit (250/250
-stocks priced to the last trading day, zero malformed/duplicate bars, margins internally exact,
-honest zero-vs-missing handling). Final 6.5 additions: a header stock search matching ticker AND
-company name over the real catalog (D80), and honest alpha history - backfilled rows no longer
-carry forward today's fundamental/sentiment as if they were daily observations (D81). The ask
-endpoint is live (stale-backend restart was the earlier "not working" cause). **Next: Phase 7
-(observability).**
+**One-line status:** **Phase 7 COMPLETE.** Backend pytest **315/315** (was 262; +53 new Phase 7
+tests), frontend tsc clean, vitest **65/65**, `vite build` OK. Live smoke verified: `/health`,
+`/status` (ok; ingestion `stale: null` = never-run), `/debug/jobs` (scheduler alive, next run
+18:30 IST), stock endpoints with honest nulls, `quote.stale` behaving, 404/422/405 all in the
+uniform error envelope with request_id, `/alpha/explanation` exposing `source`. Migration
+`c1d2e3f4a5b6` adds `job_runs` (applied to the dev DB). **Next: Phase 8 (deployment per D79).**
 
 ---
 
 ## 2. Completed Work
+
+### Phase 7 - Observability & reliability (2026-09-07)
+
+Decisions: **D85-D92** in PLANNING.md.
+
+**Logging (D87)**
+- [x] Root logger configured at startup (`app/logging_utils.configure_logging`): structured
+      `key=value` lines with timestamp/level/logger/`request_id` on every record (LogRecord
+      factory; `-` outside requests). Previously only the access logger was configured, so
+      every `logger.info` in jobs/providers/services was silently dropped.
+- [x] 500 catch-all now logs `unhandled_exception` with traceback + request_id; client
+      response stays detail-free.
+- [x] Silent Upstox `except MarketDataError: pass` blocks now log `provider_failure`
+      (still non-fatal; enrichment stays best-effort).
+- [x] Provider failure observability on yfinance + Upstox (provider/op/symbol/duration),
+      structured `provider_disagreement` / `merge_gap_fill` events in the merging provider,
+      `llm_fallback`/`llm_usage` with symbol + duration.
+
+**Jobs (D85, D86, D90)**
+- [x] New `job_runs` table (migration `c1d2e3f4a5b6`, applied to dev DB): one row per pass
+      (running/success/partial/failed, started/finished/duration/processed/failed/truncated
+      error summary). Every nightly pass is wrapped by `jobs._record_pass`; a failing pass
+      never blocks the others; recording failures never break ingestion.
+- [x] Scheduler pinned to Asia/Kolkata with `max_instances=1`, `coalesce=True`,
+      `misfire_grace_time=2h` (a 2-hour missed-run window instead of skipping a whole day).
+- [x] `GET /debug/jobs`: per-job last run + scheduler liveness + next run. Curated fields
+      only; unauthenticated (local-only deploy) — restrict before public exposure.
+
+**Health / freshness / honesty (D88, D89)**
+- [x] `/health` unchanged pure liveness; new `/status` = readiness (db SELECT 1, scheduler
+      running, last successful `ingest_prices` + `stale` beyond 48h, `llm_configured`
+      boolean; always 200, degrades instead of erroring).
+- [x] `services/freshness.py`: current/stale/unavailable classifier with per-domain TTLs
+      (prices 3d, fundamentals 30d, news 60d, alpha daily); missing timestamps are
+      unavailable, never fabricated.
+- [x] `/stocks` list no longer fabricates `last_price=0.0/change_pct=0.0` for stocks without
+      bars — now nulls (frontend renders "-").
+- [x] `StockDetail.quote.stale` (bool|null) from the 3-day price TTL.
+- [x] `/alpha/explanation` returns `source: "llm"|"rule_based"`; the frontend shows a one-line
+      provenance note under the narrative.
+
+**Errors (D91)**
+- [x] FastAPI `RequestValidationError` (bad query params) and Starlette `HTTPException`
+      (unknown route 404, wrong method 405) now return the same error envelope with
+      `request_id`.
+- [x] `ASK_BLOCKED` promoted from `detail.code` to the top-level envelope `code` (still 422).
+
+**Tests:** 315 backend (from 262) + frontend 65/65 + tsc + build. New files:
+`test_jobs_status.py`, `test_debug_jobs.py`, `test_health_status.py`,
+`test_error_envelope.py`, `test_freshness.py`, `test_logging_secrets.py`; extended
+`test_stocks_api.py`, `test_llm.py`, `test_providers.py`, `test_merging.py` (event renames).
+
+**Known limitations of Phase 7:** job history is empty until the next run after deploy
+(no backfill of history — none exists); `stale` on `/status` is `null` until the first
+recorded success; in-process scheduler/caches/budget remain single-process (Phase 8 may
+replace scheduling with GitHub Actions cron per D79 — in that case the workflow should
+hit an ingestion entry that still records into `job_runs`); `/debug/jobs`, `/status`,
+`/stocks/{s}/ask` and `/explain` are unauthenticated (fine locally, must be revisited in
+Phase 8); `LLM_BASE_URL` is trusted configuration — pointing it elsewhere sends prompts
+to that endpoint (documented, not a runtime guard).
+
+**Audit findings recorded for the record (not bugs to fix in Phase 7):**
+- `financials.updated_at` marks the *attempted* refresh, not proven field change (documented
+  in the model; coalesce write semantics are intentional).
+- The pre-Phase-7 Progress log referenced `docs/incidents/postgresql-2026-08-21.md`, which
+  was never written; §6 retains the full incident notes inline (file reference removed
+  below rather than backfilled).
+- Dead config keys (`openai_api_key`, `anthropic_api_key`, `finnhub_api_key`, `redis_url`)
+  remain as documented placeholders; nothing consumes them.
 
 ### Post-Part I round - Upstox everywhere, /alpha split, company profiles (2026-09-06)
 
@@ -622,10 +689,13 @@ backend math (EV/EBITDA comes only from the valuation endpoint); verdict wording
 
 ## 3. In Progress / Next Steps
 
-### Phase 7: Observability (next up per roadmap §14)
-- Structured logging, stale-data flags surfaced via API (`stale: true`), `/debug/jobs`.
-- Optional: aggregate `/overview` endpoint (tracked in §18 - was not needed for Phase 6; the landing preview composes existing endpoints).
-- Redis stays deferred/conditional.
+### Phase 8: Deployment (next up per roadmap §14, per D79)
+- Static frontend + sleep-tolerant API + autosuspend Postgres (Neon/Supabase).
+- Ingestion moves to GitHub Actions cron in production (the in-process APScheduler
+  is the local model). Any CI-driven ingestion must keep writing `job_runs` rows so
+  `/debug/jobs` + `/status` stay truthful in deployment.
+- Restrict `/debug/jobs` and `/status` (currently unauthenticated, local-only, D90).
+- Optional: aggregate `/overview` endpoint (tracked in §18); Redis stays deferred.
 
 ### Phase 6 recap (done - production frontend + 4 backend additions)
 - Frontend runs with: backend `uvicorn app.main:app` + `frontend/` `npm run dev` (Vite proxies `/api` → :8000; or set `VITE_API_BASE` for direct/CORS access).
@@ -673,7 +743,7 @@ cd C:\Users\shyam\Desktop\Projects\signaldesk\backend
 
 # --- Seed + ingest ---
 cd C:\Users\shyam\Desktop\Projects\signaldesk\backend
-.\.venv\Scripts\python.exe -m app.seed                              # seed Nifty 50 universe (idempotent)
+.\.venv\Scripts\python.exe -m app.seed                              # seed Nifty 250 universe (idempotent)
 .\.venv\Scripts\python.exe -c "import asyncio; from app.jobs import ingest_universe; asyncio.run(ingest_universe())"  # run price ingestion
 .\.venv\Scripts\python.exe -c "import asyncio; from app.jobs import ingest_financials; asyncio.run(ingest_financials())"  # run financials ingestion
 .\.venv\Scripts\python.exe -c "import asyncio; from app.jobs import ingest_news; asyncio.run(ingest_news())"  # run news + sentiment (slow: FinBERT)
@@ -851,7 +921,8 @@ Avoid `pg_ctl -l` with the old shared `server.log` arrangement.
 
 **Outcome:** PostgreSQL eventually recovered; the complete Phase 5 suite subsequently passed (**133/133 tests, 78% coverage**, live `/alpha` verification succeeded). No data/WAL deletion, database reinitialization, password reset, or PostgreSQL reinstall was performed.
 
-**If the problem recurs:** read `docs/incidents/postgresql-2026-08-21.md` before troubleshooting.
+**If the problem recurs:** this section IS the incident record (the previously referenced
+`docs/incidents/postgresql-2026-08-21.md` was never created; nothing else exists).
 
 ---
 

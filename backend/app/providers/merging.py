@@ -99,13 +99,13 @@ def merge_fundamentals(
         values[field] = p
         if s is not None and not _relatively_equal(float(p), float(s), tolerance):
             logger.info(
-                "provider fundamentals disagreement symbol=%s field=%s "
-                "primary=%.6g secondary=%.6g (primary kept)",
+                "provider_disagreement kind=fundamentals symbol=%s field=%s "
+                "primary=%.6g secondary=%.6g kept=primary",
                 symbol, field, float(p), float(s),
             )
     if filled:
         logger.info(
-            "provider fundamentals gap-fill symbol=%s fields=%s",
+            "merge_gap_fill op=fundamentals symbol=%s fields=%s",
             symbol, ",".join(sorted(filled)),
         )
     return Fundamentals(symbol=symbol, **values)  # type: ignore[arg-type]
@@ -156,8 +156,8 @@ def merge_financial_history(
                 continue
             if s is not None and not _relatively_equal(float(p), float(s), tolerance):
                 logger.info(
-                    "provider financial history disagreement symbol=%s "
-                    "period=%s field=%s primary=%.6g secondary=%.6g (primary kept)",
+                    "provider_disagreement kind=financial_history symbol=%s "
+                    "period=%s field=%s primary=%.6g secondary=%.6g kept=primary",
                     symbol, draft.period_end.isoformat(), field, float(p), float(s),
                 )
 
@@ -212,7 +212,10 @@ class MergingProvider(MarketDataProvider):
             raise
         except Exception as exc:
             if role == "secondary":
-                logger.info("secondary provider failed for %s: %s", what, exc)
+                logger.warning(
+                    "provider_failure provider=%s op=%s degraded=secondary_only error=%s",
+                    getattr(self.secondary, "name", "secondary"), what, exc,
+                )
                 return None
             raise
 
@@ -229,7 +232,7 @@ class MergingProvider(MarketDataProvider):
         filled = len(merged) - len(primary_bars)
         if filled > 0:
             logger.info(
-                "price merge symbol=%s primary=%d secondary_gapfill=%d total=%d",
+                "merge_gap_fill op=prices symbol=%s primary=%d secondary_gapfill=%d total=%d",
                 symbol, len(primary_bars), filled, len(merged),
             )
         return merged

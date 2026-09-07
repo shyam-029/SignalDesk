@@ -145,6 +145,49 @@ async def test_budget_cap_skips_provider(monkeypatch):
     assert "Alpha composite" in out
 
 
+# --- Provenance (Phase 7): fallback must be observable ------------------------
+
+async def test_source_llm_when_provider_succeeds(monkeypatch):
+    monkeypatch.setattr(narr.settings, "llm_api_key", "fake")
+    monkeypatch.setattr(narr.settings, "llm_model", "fake-model")
+    provider = FakeLLMProvider(text="LLM text.")
+    text, source = await narr.generate_alpha_explanation_result(
+        FakeStock("RELIANCE.NS"), _result(), provider
+    )
+    assert (text, source) == ("LLM text.", "llm")
+
+
+async def test_source_rule_based_on_provider_error(monkeypatch):
+    monkeypatch.setattr(narr.settings, "llm_api_key", "fake")
+    monkeypatch.setattr(narr.settings, "llm_model", "fake-model")
+    provider = FakeLLMProvider(error=LLMError("boom"))
+    text, source = await narr.generate_alpha_explanation_result(
+        FakeStock("RELIANCE.NS"), _result(), provider
+    )
+    assert source == "rule_based"
+    assert "Alpha composite" in text
+
+
+async def test_source_rule_based_when_unconfigured(monkeypatch):
+    monkeypatch.setattr(narr.settings, "llm_api_key", "")
+    monkeypatch.setattr(narr.settings, "llm_model", "fake-model")
+    text, source = await narr.generate_alpha_explanation_result(
+        FakeStock("RELIANCE.NS"), _result(), FakeLLMProvider()
+    )
+    assert source == "rule_based"
+
+
+async def test_source_preserved_across_cache(monkeypatch):
+    monkeypatch.setattr(narr.settings, "llm_api_key", "fake")
+    monkeypatch.setattr(narr.settings, "llm_model", "fake-model")
+    provider = FakeLLMProvider(text="Cached text.")
+    stock = FakeStock("RELIANCE.NS")
+    first = await narr.generate_alpha_explanation_result(stock, _result(), provider)
+    second = await narr.generate_alpha_explanation_result(stock, _result(), provider)
+    assert first == second == ("Cached text.", "llm")
+    assert provider.calls == 1
+
+
 # --- TTL cache ----------------------------------------------------------------
 
 async def test_ttl_cache_reuses_narrative(monkeypatch):

@@ -91,3 +91,37 @@ async def test_ingest_universe_isolates_failures(session_factory, monkeypatch):
     result = await ingest_universe(provider, batch_size=10)
     assert result["errors"] == 1
     assert result["bars"] == 0
+
+
+# --- Phase 7: provider failure observability --------------------------------
+
+import logging
+
+
+async def test_yfinance_failure_is_logged(monkeypatch, caplog):
+    """A yfinance failure surfaces as provider_failure with symbol context."""
+
+    def _boom(symbol):
+        raise RuntimeError("network exploded")
+
+    monkeypatch.setattr("app.providers.yfinance_provider.yf.Ticker", _boom)
+    provider = YFinanceProvider()
+    with caplog.at_level(logging.WARNING, logger="app.providers.yfinance_provider"):
+        with pytest.raises(MarketDataError):
+            await provider.get_price_history("AAA.NS", "1mo")
+    assert "provider_failure" in caplog.text
+    assert "provider=yfinance" in caplog.text
+    assert "AAA.NS" in caplog.text
+
+
+async def test_merging_secondary_failure_is_logged(caplog):
+    """Secondary-provider failures degrade (never fatal) but stay visible."""
+    from app.providers.merging import MergingProvider
+
+    primary = FakeProvider()
+    secondary = FakeProvider(fail_symbol="RELIANCE.NS")
+    merged = MergingProvider(primary, secondary)
+    with caplog.at_level(logging.WARNING, logger="app.providers.merging"):
+        bars = await merged.get_price_history("RELIANCE.NS", "1d")
+    assert len(bars) == 1  # primary still served
+    assert "provider_failure" in caplog.text

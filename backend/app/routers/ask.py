@@ -252,10 +252,12 @@ async def ask_stock(symbol: str, body: AskRequest, session: SessionDep) -> AskRe
     except ask_svc.AskBlocked:
         # OpenRouter's prompt-injection guardrail (or an equivalent provider
         # policy) rejected the request. Safe, generic message; no details.
+        # ASK_BLOCKED is the top-level envelope code (422 status preserved).
         raise ValidationError(
             "This question was blocked by safety filters. Rephrase it as a "
             "question about the stock's research data.",
-            {"code": "ASK_BLOCKED"},
+            {},
+            code="ASK_BLOCKED",
         )
 
     return AskResponse(

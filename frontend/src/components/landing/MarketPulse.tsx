@@ -10,17 +10,20 @@ import { cn } from "@/lib/utils";
 export interface Mover {
   symbol: string;
   name: string;
-  lastPrice: number;
+  lastPrice: number | null;
   changePct: number;
 }
 
 /**
  * Largest absolute daily moves first, capped at `count`. Reads only the real
- * /stocks response; nothing is estimated, padded, or fabricated.
+ * /stocks response; nothing is estimated, padded, or fabricated. Stocks with
+ * no price bars (null change) are excluded rather than treated as 0%.
  */
 export function pickTopMovers(items: StockSummary[], count = 7): Mover[] {
   return items
-    .filter((s) => Number.isFinite(s.change_pct))
+    .filter((s): s is StockSummary & { change_pct: number; last_price: number } =>
+      s.change_pct != null && s.last_price != null && Number.isFinite(s.change_pct),
+    )
     .slice()
     .sort((a, b) => Math.abs(b.change_pct) - Math.abs(a.change_pct))
     .slice(0, count)
@@ -45,11 +48,14 @@ function PulseChip({ s }: { s: StockSummary }) {
       <span
         className={cn(
           "num text-xs font-medium",
-          s.change_pct >= 0 ? "text-band-positive" : "text-band-weak",
+          s.change_pct == null
+            ? "text-faint"
+            : s.change_pct >= 0
+              ? "text-band-positive"
+              : "text-band-weak",
         )}
       >
-        {s.change_pct > 0 ? "+" : ""}
-        {s.change_pct.toFixed(2)}%
+        {s.change_pct == null ? "-" : `${s.change_pct > 0 ? "+" : ""}${s.change_pct.toFixed(2)}%`}
       </span>
     </Link>
   );

@@ -13,7 +13,9 @@
 
 import asyncio
 import logging
+import time
 from collections.abc import Awaitable, Callable
+from datetime import datetime, timezone
 from typing import TypeVar
 
 from sqlalchemy import delete, exists, func, select
@@ -28,6 +30,7 @@ from app.models import (
     DailyPrice,
     FinancialPeriod,
     Financials,
+    JobRun,
     NewsArticle,
     NewsSentiment,
     Stock,
@@ -893,37 +896,145 @@ async def repair_catalog_gaps(provider: MarketDataProvider | None = None) -> dic
 
 
 def run_daily_ingestion() -> None:
-    """Scheduled entrypoint: run price + financials ingestion once.
+    """Scheduled entrypoint: run all ingestion passes once.
 
     Runs asyncio.run here because APScheduler calls this synchronously.
     """
     asyncio.run(_ingest_all())
 
 
-async def _ingest_all() -> None:
-    """Run all ingestion passes (prices, financials, profiles, history, alpha, news)."""
-    await ingest_universe()
-    await ingest_financials()
-    await ingest_financial_periods()
-    await ingest_company_profiles()
+# --- Job-run recording (Phase 7) ---------------------------------------------
+
+# Cap stored error text: enough for diagnosis, never an unbounded traceback
+# dump (and provider errors deliberately exclude credentials already).
+ERROR_SUMMARY_MAX = 500
+
+# Result keys meaning "items processed" for the different pass shapes.
+_PROCESSED_KEYS = ("fetched", "repaired", "warmed", "snapshots")
+
+
+async def _record_pass(name: str, run, *args, **kwargs) -> None:
+    """Execute one ingestion pass inside a durable job_runs record.
+
+    Guarantees (PLANNING D85):
+      - a pass that raises is recorded as 'failed' and does NOT stop the
+        remaining passes (phase-level isolation on top of per-symbol D19);
+      - per-item failures inside the pass mark the run 'partial';
+      - status recording itself must never break ingestion: if the job_runs
+        write fails (e.g. DB down), the pass still runs and the failure to
+        record is logged as a warning.
+    """
+    started = datetime.now(timezone.utc)
+    t0 = time.perf_counter()
+    logger.info("job_start job=%s", name)
+
+    record: JobRun | None = None
+    try:
+        async with SessionLocal() as session:
+            record = JobRun(job_name=name, status="running", started_at=started)
+            session.add(record)
+            await session.commit()
+    except Exception as exc:
+        record = None
+        logger.warning(
+            "job_status_unavailable job=%s stage=begin error=%s: %s",
+            name, type(exc).__name__, exc,
+        )
+
+    async def _finish(status: str, processed, failed, summary: str | None) -> None:
+        finished = datetime.now(timezone.utc)
+        duration_ms = round((time.perf_counter() - t0) * 1000)
+        log = logger.error if status == "failed" else logger.info
+        log(
+            "%s job=%s status=%s duration_ms=%d processed=%s failed=%s",
+            "job_fail" if status == "failed" else "job_end",
+            name, status, duration_ms, processed, failed,
+        )
+        if record is None:
+            return
+        try:
+            async with SessionLocal() as session:
+                rec = await session.get(JobRun, record.id)
+                if rec is None:
+                    return
+                rec.status = status
+                rec.finished_at = finished
+                rec.duration_ms = duration_ms
+                rec.items_processed = processed
+                rec.items_failed = failed
+                rec.error_summary = summary[:ERROR_SUMMARY_MAX] if summary else None
+                await session.commit()
+        except Exception as exc:
+            logger.warning(
+                "job_status_unavailable job=%s stage=finish error=%s: %s",
+                name, type(exc).__name__, exc,
+            )
+
+    try:
+        result = await run(*args, **kwargs)
+    except Exception as exc:
+        summary = f"{type(exc).__name__}: {exc}"[:ERROR_SUMMARY_MAX]
+        await _finish("failed", None, None, summary)
+        return
+
+    result = result or {}
+    errors = int(result.get("errors", 0) or 0)
+    processed = next((result[k] for k in _PROCESSED_KEYS if k in result), None)
+    summary = None
+    status = "success"
+    if errors > 0:
+        status = "partial"
+        summary = f"{errors} item(s) failed"
+    await _finish(status, processed, errors, summary)
+
+
+async def _ingest_passes() -> None:
+    """All ingestion passes, each recorded and isolated (one row per pass)."""
+    await _record_pass("ingest_prices", ingest_universe)
+    await _record_pass("ingest_financials", ingest_financials)
+    await _record_pass("ingest_financial_periods", ingest_financial_periods)
+    await _record_pass("ingest_company_profiles", ingest_company_profiles)
     # Catch catalog stocks the universe passes dropped (renames/demergers).
-    await repair_catalog_gaps()
-    await backfill_alpha_history()
+    await _record_pass("repair_catalog_gaps", repair_catalog_gaps)
+    await _record_pass("backfill_alpha_history", backfill_alpha_history)
     # Pre-warm explanations AFTER the alpha pass so each stock's snapshot for
     # today already exists when its narrative is generated and cached.
-    await prewarm_alpha_explanations()
-    await ingest_news()
+    await _record_pass("prewarm_alpha_explanations", prewarm_alpha_explanations)
+    await _record_pass("ingest_news", ingest_news)
 
 
-def start_scheduler() -> None:
-    """Start a background scheduler that runs daily ingestion."""
+async def _ingest_all() -> None:
+    """Full nightly run; the top-level row catches failures outside any pass."""
+    await _record_pass("nightly_ingestion", _ingest_passes)
+
+
+def start_scheduler():
+    """Start the background scheduler that runs daily ingestion.
+
+    Reliability settings (PLANNING D86): pinned to Asia/Kolkata so the 18:30
+    IST after-close run is independent of the host's timezone; max_instances=1
+    prevents overlapping nightly runs; coalesce=True collapses multiple missed
+    firings into one; misfire_grace_time of 2 hours lets a run that was missed
+    (e.g. the process restarted around 18:30) still execute shortly after
+    instead of silently waiting for the next day.
+    """
     from apscheduler.schedulers.background import BackgroundScheduler
 
-    scheduler = BackgroundScheduler()
-    # Run once per day at 18:30 (after market close, IST ~18:30).
-    scheduler.add_job(run_daily_ingestion, "cron", hour=18, minute=30)
+    scheduler = BackgroundScheduler(timezone="Asia/Kolkata")
+    # Run once per day at 18:30 IST (after market close).
+    scheduler.add_job(
+        run_daily_ingestion,
+        "cron",
+        id="nightly_ingestion",
+        name="nightly_ingestion",
+        hour=18,
+        minute=30,
+        max_instances=1,
+        coalesce=True,
+        misfire_grace_time=2 * 60 * 60,
+    )
     scheduler.start()
-    logger.info("Background scheduler started (daily ingestion at 18:30).")
+    logger.info("Background scheduler started (daily ingestion 18:30 Asia/Kolkata).")
     return scheduler
 
 

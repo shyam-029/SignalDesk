@@ -34,6 +34,7 @@ import gzip
 import json
 import logging
 import re
+import time
 from datetime import date, datetime, timedelta
 from urllib.parse import quote
 
@@ -198,22 +199,32 @@ class UpstoxProvider(MarketDataProvider):
         Requests use full URLs (BASE_URL + path) so the join never depends on
         httpx base_url merging. Any transport, HTTP, or envelope failure
         raises MarketDataError with a terse message that never includes the
-        token or the raw body.
+        token or the raw body (Phase 7: failures are logged with provider/op/
+        duration, still without credentials).
         """
+        t0 = time.perf_counter()
         try:
-            resp = await self._client.get(f"{self.BASE_URL}{path}", params=params)
-        except httpx.HTTPError as exc:
-            raise MarketDataError(f"Upstox request failed for {path}: {exc}") from exc
-        if resp.status_code != 200:
-            raise MarketDataError(
-                f"Upstox returned HTTP {resp.status_code} for {path}"
+            try:
+                resp = await self._client.get(f"{self.BASE_URL}{path}", params=params)
+            except httpx.HTTPError as exc:
+                raise MarketDataError(f"Upstox request failed for {path}: {exc}") from exc
+            if resp.status_code != 200:
+                raise MarketDataError(
+                    f"Upstox returned HTTP {resp.status_code} for {path}"
+                )
+            try:
+                body = resp.json()
+            except ValueError as exc:
+                raise MarketDataError(f"Upstox returned invalid JSON for {path}") from exc
+            if not isinstance(body, dict) or body.get("status") != "success":
+                raise MarketDataError(f"Upstox reported an error for {path}")
+        except MarketDataError as exc:
+            duration_ms = round((time.perf_counter() - t0) * 1000)
+            logger.warning(
+                "provider_failure provider=upstox op=%s duration_ms=%d error=%s",
+                path, duration_ms, exc,
             )
-        try:
-            body = resp.json()
-        except ValueError as exc:
-            raise MarketDataError(f"Upstox returned invalid JSON for {path}") from exc
-        if not isinstance(body, dict) or body.get("status") != "success":
-            raise MarketDataError(f"Upstox reported an error for {path}")
+            raise
         data = body.get("data")
         return data if isinstance(data, dict) else (data or {})
 
@@ -365,8 +376,14 @@ class UpstoxProvider(MarketDataProvider):
                             net_margin = ni[label] / base
                     if op_margin is not None and net_margin is not None:
                         break
-        except MarketDataError:
-            pass  # income enrichment is best-effort; ratios above already stand
+        except MarketDataError as exc:
+            # Income enrichment is best-effort; ratios above already stand.
+            # Non-fatal by design, but never silent (Phase 7 D87).
+            logger.info(
+                "provider_failure provider=upstox op=income_statement symbol=%s "
+                "impact=margins_skipped error=%s",
+                symbol, exc,
+            )
 
         # Balance sheet: current ratio + debt/equity (yfinance omits both often).
         current_ratio = debt_to_equity = None
@@ -408,8 +425,13 @@ class UpstoxProvider(MarketDataProvider):
             if tl and eq and eq[1] != 0:
                 # Percent units, matching the yfinance debtToEquity convention.
                 debt_to_equity = tl[1] / eq[1] * 100.0
-        except MarketDataError:
-            pass  # balance enrichment is best-effort
+        except MarketDataError as exc:
+            # Balance enrichment is best-effort; not fatal, never silent.
+            logger.info(
+                "provider_failure provider=upstox op=balance_sheet symbol=%s "
+                "impact=solvency_skipped error=%s",
+                symbol, exc,
+            )
 
         # Only fields Upstox actually supplies are mapped; the rest stay None.
         # EV/EBITDA arrives as a pre-computed ratio, not as EV and EBITDA

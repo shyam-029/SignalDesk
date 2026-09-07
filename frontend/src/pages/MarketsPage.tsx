@@ -110,6 +110,9 @@ export default function MarketsPage() {
         header: "Day change",
         cell: (info) => {
           const v = info.getValue();
+          if (v == null) {
+            return <span className="num text-sm text-faint">-</span>;
+          }
           const up = v > 0;
           const down = v < 0;
           return (
