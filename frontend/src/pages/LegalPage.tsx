@@ -125,8 +125,8 @@ function Terms() {
       <Section title="9. Regulatory position">
         <p>SignalDesk is not currently presented as a SEBI-registered research analyst or investment adviser. If the product later offers paid research services, personalised advice, model portfolios, buy/sell/hold recommendations, or other regulated services, the regulatory position must be reassessed before launch.</p>
       </Section>
-      <Section title="10. Applicable law">
-        <p>These terms are intended for a service operated in India and are subject to applicable Indian law, while preserving any mandatory rights that apply to a user under the law that governs their transaction.</p>
+      <Section title="10. Governing law and jurisdiction">
+        <p>The operator's final legal entity, address, governing law, and dispute forum must be inserted before these terms are used as a public commercial contract. This avoids inventing a jurisdiction before the operator structure has been finalized.</p>
       </Section>
       <Links />
     </LegalShell>
