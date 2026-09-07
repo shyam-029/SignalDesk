@@ -12,10 +12,20 @@
 #
 # Health semantics (Phase 7):
 #  - GET /health  = pure liveness ("the process is alive"). Always 200.
-#  - GET /status  = readiness: DB reachable, scheduler alive, ingestion fresh,
-#    LLM configured. Optional components degrade the status, never crash it.
+#  - GET /status  = public minimal liveness-equivalent in production; the full
+#    readiness detail (db/scheduler/ingestion/llm) requires OPS_API_KEY.
+#
+# Hardening semantics (Phase 8):
+#  - API docs (/docs, /redoc, /openapi.json) are disabled in production.
+#  - /debug/jobs requires OPS_API_KEY (404 otherwise — no oracle).
+#  - Per-IP rate limiting: LLM routes strictest, expensive fan-out medium,
+#    plain reads highest. 429s use the standard error envelope + Retry-After.
+#  - CORS in production requires explicit origins; "*" is rejected at startup.
+#  - An unsafe (non-https) LLM_BASE_URL fails startup in production so
+#    prompts can never travel over cleartext from a misconfigured deploy.
 
 import logging
+import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import Annotated, AsyncIterator
@@ -23,20 +33,29 @@ from typing import Annotated, AsyncIterator
 from fastapi import Depends, FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app import rate_limit
+from app.auth import require_ops_key
 from app.config import settings
 from app.db import get_session
 from app.errors import (
     NotFoundError,
+    OpsNotConfigured,
+    RateLimitError,
     ValidationError,
+    _envelope,
+    access_logger,
     generic_handler,
     http_exception_handler,
     insufficient_data_handler,
     no_peers_handler,
     not_found_handler,
+    ops_not_configured_handler,
+    rate_limit_handler,
     request_validation_handler,
     validation_handler,
 )
@@ -53,6 +72,23 @@ logger = logging.getLogger(__name__)
 INGESTION_STALE_AFTER_SECONDS = 48 * 60 * 60
 
 configure_logging()
+
+# Phase 8 startup guards (fail closed, before the app serves traffic):
+#  - Production refuses a non-https LLM gateway so prompts can never travel
+#    over cleartext from a misconfigured deploy. Dev keeps localhost http
+#    (stub servers in tests).
+#  - Production refuses CORS "*" so browsers never get a wildcard policy.
+if settings.is_production() and not settings.public_llm_base_url_ok():
+    raise RuntimeError(
+        "Refusing to start: LLM_BASE_URL must be https:// in production "
+        f"(got {settings.llm_base_url!r})."
+    )
+
+_cors_origins = [o.strip() for o in settings.cors_origins.split(",") if o.strip()]
+if settings.is_production() and "*" in _cors_origins:
+    raise RuntimeError("Refusing to start: CORS_ORIGINS must not contain '*' in production.")
+
+_docs_enabled = not settings.is_production()
 
 
 @asynccontextmanager
@@ -71,23 +107,111 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             scheduler.shutdown(wait=False)
 
 
-app = FastAPI(title="SignalDesk API", version="0.1.0", lifespan=lifespan)
+app = FastAPI(
+    title="SignalDesk API",
+    version="0.1.0",
+    lifespan=lifespan,
+    # Phase 8: API docs are a dev/test tool. Disabled in production so the
+    # schema (full route + model surface) is not served to scanners.
+    docs_url="/docs" if _docs_enabled else None,
+    redoc_url="/redoc" if _docs_enabled else None,
+    openapi_url="/openapi.json" if _docs_enabled else None,
+)
 app.middleware("http")(request_id_middleware)
+
+
+@app.middleware("http")
+async def rate_limit_middleware(request: Request, call_next):
+    """Per-IP fixed-window limits (Phase 8; in-process, see app/rate_limit.py).
+
+    Bucket selection: LLM routes (ask/explain/alpha-explanation) strictest;
+    screener + heavy fan-out routes medium; everything else default. The
+    middleware runs OUTSIDE the error handlers' usual path, so a 429 is
+    built directly with the envelope helper instead of raising.
+    """
+    path = request.url.path
+    if request.method == "POST" and (path.endswith("/ask") or path.endswith("/explain")):
+        bucket = "llm"
+    elif path.endswith("/alpha/explanation"):
+        bucket = "llm"
+    elif (
+        path.endswith("/screener")
+        or path.endswith("/technicals/series")
+        or path.endswith("/alpha/history")
+        or path.endswith("/financials/history")
+    ):
+        bucket = "expensive"
+    else:
+        bucket = "default"
+    try:
+        rate_limit.check(request, bucket)
+    except RateLimitError as exc:
+        # The 429 short-circuits BEFORE request_id_middleware runs (the rate
+        # limiter was registered later, so it is outermost), so mint the id
+        # here and stamp it on both the envelope body and the header.
+        # Also emit the access line here — the inner access logging never runs
+        # for short-circuited responses, and 429s are operator-relevant.
+        rid = uuid.uuid4().hex[:12]
+        request.state.request_id = rid
+        access_logger.info(
+            "request method=%s path=%s status=%s duration_ms=%.1f",
+            request.method,
+            path,
+            429,
+            0.0,
+        )
+        body = _envelope(
+            "RATE_LIMITED", exc.message, {"retry_after": exc.retry_after}, request
+        )
+        body["error"]["request_id"] = rid
+        response = JSONResponse(status_code=429, content=body)
+        response.headers["Retry-After"] = str(exc.retry_after)
+        response.headers["X-Request-ID"] = rid
+        return response
+    return await call_next(request)
+
+
+@app.middleware("http")
+async def production_docs_guard(request: Request, call_next):
+    """Hide API docs in production even if the app object predates the env.
+
+    The constructor already disables /docs, /redoc and /openapi.json when
+    APP_ENV=production at import time (the real-deploy path). This runtime
+    guard covers the same rule per request so the invariant holds regardless
+    of import order — and so tests can exercise it by monkeypatching settings.
+    """
+    if settings.is_production() and request.url.path in (
+        "/docs",
+        "/redoc",
+        "/openapi.json",
+    ):
+        rid = uuid.uuid4().hex[:12]
+        request.state.request_id = rid
+        body = _envelope(404, "Not found.", {}, request)
+        body["error"]["request_id"] = rid
+        response = JSONResponse(status_code=404, content=body)
+        response.headers["X-Request-ID"] = rid
+        return response
+    return await call_next(request)
 
 # Browser origins allowed to call the API (from CORS_ORIGINS in .env).
 # Empty config disables CORS entirely (e.g. same-origin deployments).
-_cors_origins = [o.strip() for o in settings.cors_origins.split(",") if o.strip()]
+# Production requires explicit origins ("*" fails startup above). Methods
+# stay GET+POST (the app's actual methods); headers stay the two the app
+# uses (JSON bodies + ops Bearer key). No credentials/cookies anywhere.
 if _cors_origins:
     app.add_middleware(
         CORSMiddleware,
         allow_origins=_cors_origins,
         allow_methods=["GET", "POST"],
-        allow_headers=["*"],
+        allow_headers=["Content-Type", "Authorization"],
     )
 
 # Register the error-handling convention (own exceptions + FastAPI's native
 # errors, all in the same envelope).
 app.add_exception_handler(NotFoundError, not_found_handler)
+app.add_exception_handler(OpsNotConfigured, ops_not_configured_handler)
+app.add_exception_handler(RateLimitError, rate_limit_handler)
 app.add_exception_handler(ValidationError, validation_handler)
 app.add_exception_handler(NoPeersError, no_peers_handler)
 app.add_exception_handler(InsufficientDataError, insufficient_data_handler)
@@ -110,8 +234,8 @@ app.include_router(history.router, prefix="/api/v1")
 app.include_router(ask.router, prefix="/api/v1")
 app.include_router(explain.router, prefix="/api/v1")
 # Operational endpoint: intentionally not under /api/v1 (not a public
-# product API). Unauthenticated while the deployment is local-only;
-# restrict it before any public deployment (see PLANNING D90).
+# product API). Phase 8: requires OPS_API_KEY (the debug router declares the
+# dependency; unauthenticated callers get a 404 with no oracle).
 app.include_router(debug.router)
 
 
@@ -122,10 +246,23 @@ async def health() -> dict:
 
 
 @app.get("/status")
-async def status(
-    request: Request, session: Annotated[AsyncSession, Depends(get_session)]
+async def status_public() -> dict:
+    """Minimal public status (Phase 8): liveness-equivalent, no ops detail.
+
+    Public callers learn only that the process answers. Database state,
+    scheduler state, ingestion timestamps and LLM configuration are exposed
+    ONLY on /status/full with OPS_API_KEY.
+    """
+    return {"status": "ok"}
+
+
+@app.get("/status/full")
+async def status_full(
+    request: Request,
+    session: Annotated[AsyncSession, Depends(get_session)],
+    _authed: None = Depends(require_ops_key),
 ) -> dict:
-    """Readiness/operational status.
+    """Full readiness/operational status (OPS_API_KEY required).
 
     Each check is independent and fault-tolerant: an unavailable component
     degrades the overall state instead of failing the request.

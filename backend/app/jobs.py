@@ -607,10 +607,10 @@ async def _backfill_one_alpha(symbol: str) -> int:
     observations. The historical composite still blends the latest known
     fundamental + sentiment (documented approximation, PLANNING D71) so the
     Alpha line remains a real 40/30/30 signal rather than collapsing to the
-    technical score; the per-component history fills in only as genuine live
-    snapshots accumulate from /alpha. Existing snapshots for the symbol are
-    replaced so the whole series is recomputed under the current formula;
-    live /alpha requests rebuild today's snapshot on the next page view.
+    technical score; the per-component history fills in only as genuine
+    ingestion snapshots accumulate (record_live_alpha_snapshots, Phase 8).
+    Existing snapshots for the symbol are replaced so the whole series is
+    recomputed under the current formula.
     """
     from app.repositories import alpha as alpha_repo
     from app.repositories import financials as fin_repo
@@ -688,6 +688,68 @@ async def _backfill_one_alpha(symbol: str) -> int:
         )
         await session.commit()
         return await alpha_repo.upsert_snapshots_bulk(session, rows)
+
+
+async def record_live_alpha_snapshot(symbol: str) -> bool:
+    """Persist today's computed alpha snapshot for one symbol (Phase 8).
+
+    Ownership of snapshot writes moved here from GET /alpha (which is now
+    pure read). Called by the ingestion pathway — currently the nightly
+    backfill sweep covers history; this helper covers the "today" row so a
+    day's live view still accumulates per-component history without any
+    request-time write. Returns True when a snapshot was stored.
+    """
+    from datetime import date
+
+    from app.repositories import alpha as alpha_repo
+    from app.services import alpha as alpha_svc
+
+    async with SessionLocal() as session:
+        stock = await session.scalar(select(Stock).where(Stock.symbol == symbol))
+        if stock is None:
+            return False
+        result = await alpha_svc.compute_alpha(session, stock)
+        if result.composite is None:
+            return False
+        await alpha_repo.upsert_snapshot(
+            session,
+            symbol=stock.symbol,
+            snapshot_date=date.today(),
+            composite=result.composite,
+            fundamental=result.fundamental,
+            technical=result.technical,
+            sentiment=result.sentiment,
+            components_json=result.components,
+        )
+        return True
+
+
+async def record_live_alpha_snapshots(batch_size: int = BATCH_SIZE) -> dict:
+    """Persist today's snapshot for every catalog symbol (ingestion pass).
+
+    Wired into the nightly sweep after the backfill so history stays current
+    without request-time writes. Per-symbol isolation: one bad symbol never
+    aborts the pass.
+    """
+    async with SessionLocal() as session:
+        symbols = await _get_universe_symbols(session)
+
+    stored = 0
+    errors: list[str] = []
+    for i in range(0, len(symbols), batch_size):
+        batch = symbols[i : i + batch_size]
+        results = await asyncio.gather(
+            *(record_live_alpha_snapshot(s) for s in batch), return_exceptions=True
+        )
+        for symbol, res in zip(batch, results):
+            if isinstance(res, Exception):
+                logger.error("Live alpha snapshot failed for %s: %s", symbol, res)
+                errors.append(symbol)
+            elif res:
+                stored += 1
+
+    logger.info("Live alpha snapshots stored: %d, errors: %d", stored, len(errors))
+    return {"stored": stored, "errors": len(errors)}
 
 
 async def backfill_alpha_history(batch_size: int = BATCH_SIZE) -> dict:
@@ -1038,6 +1100,9 @@ async def _ingest_passes() -> dict:
         # Catch catalog stocks the universe passes dropped (renames/demergers).
         ("repair_catalog_gaps", repair_catalog_gaps),
         ("backfill_alpha_history", backfill_alpha_history),
+        # Today's live snapshot per symbol (Phase 8: GET /alpha is pure read,
+        # so ingestion owns the write that keeps per-component history current).
+        ("record_live_alpha_snapshots", record_live_alpha_snapshots),
         # Pre-warm explanations AFTER the alpha pass so each stock's snapshot
         # for today already exists when its narrative is generated and cached.
         ("prewarm_alpha_explanations", prewarm_alpha_explanations),

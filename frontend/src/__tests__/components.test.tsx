@@ -55,6 +55,22 @@ describe("DataState", () => {
     expect(onRetry).toHaveBeenCalledOnce();
   });
 
+  it("shows retry state for 429 rate-limited errors", () => {
+    const onRetry = vi.fn();
+    renderWithProviders(
+      <DataState
+        error={new ApiError(429, "RATE_LIMITED", "Rate limit exceeded.", { retry_after: 30 })}
+        onRetry={onRetry}
+      >
+        <p>hidden</p>
+      </DataState>,
+    );
+    expect(screen.getByText("Too many requests")).toBeInTheDocument();
+    expect(screen.getByText(/retry in about 30 seconds/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /retry/i }));
+    expect(onRetry).toHaveBeenCalledOnce();
+  });
+
   it("renders insufficient-data state without estimating values", () => {
     renderWithProviders(
       <DataState insufficient>

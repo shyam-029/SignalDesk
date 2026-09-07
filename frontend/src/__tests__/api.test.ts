@@ -107,4 +107,32 @@ describe("api client", () => {
     expect(urls[0]).toContain("/stocks/M%26M");
     expect(urls[1]).toContain("/stocks/RELIANCE/prices?range=1mo");
   });
+
+  it("flags rate-limited responses with retry-after", async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(429, {
+        error: {
+          code: "RATE_LIMITED",
+          message: "Rate limit exceeded. Please retry shortly.",
+          detail: { retry_after: 45 },
+          request_id: "r1",
+        },
+      }),
+    );
+    const err = await apiGet("/stocks/X").catch((e) => e);
+    expect(err).toBeInstanceOf(ApiError);
+    expect((err as ApiError).isRateLimited).toBe(true);
+    expect((err as ApiError).retryAfterSeconds).toBe(45);
+  });
+
+  it("treats non-rate-limit errors as not rate-limited", async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(404, {
+        error: { code: "RESOURCE_NOT_FOUND", message: "nope", detail: {}, request_id: "r2" },
+      }),
+    );
+    const err = await apiGet("/stocks/X").catch((e) => e);
+    expect((err as ApiError).isRateLimited).toBe(false);
+    expect((err as ApiError).retryAfterSeconds).toBeNull();
+  });
 });

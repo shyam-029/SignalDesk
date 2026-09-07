@@ -3,7 +3,7 @@
 > **Purpose:** The operational counterpart to `PLANNING.md`. This is the file to read FIRST to pick up
 > where we left off. Updated after every phase.
 > **Rules:** What's done → in progress → next. Command cheatsheet. Known gotchas.
-> **Last updated:** 2026-09-07 (Phase 7 COMPLETE: observability — root structured logging, durable job_runs history, /debug/jobs, /status vs /health, freshness/stale flags, uniform error envelope, honest nulls in /stocks, LLM fallback provenance)
+> **Last updated:** 2026-09-08 (Phase 8 COMPLETE: ops Bearer auth, /status split + gated ops, docs off in prod, pure-read /alpha with ingestion-owned snapshots, per-IP rate limits + 429 envelope + Retry-After, LLM concurrency cap, CORS/LLM-URL production guards, frontend 429 states)
 > **Roadmap audit completed 2026-08-19 - see PLANNING §18 (4-tier product taxonomy; expanded 2026-09-07 in D92).**
 
 ---
@@ -37,20 +37,122 @@
 | **Part H - Grounded single-shot ask (LLM)** | ✅ **COMPLETE** |
 | **Part I - Phase 6.5 verification + close-out** | ✅ **COMPLETE** |
 | **7 - Observability & reliability (logging, job status, health, freshness, errors)** | ✅ **COMPLETE** |
+| **8 - Security/access-control hardening (ops auth, rate limits, pure-read alpha)** | ✅ **COMPLETE** |
 
-**One-line status:** **Phase 7 COMPLETE (incl. the 7C audit round).** Backend pytest
-**322/322**, frontend tsc clean, vitest **69/69**, `vite build` OK. Live smoke verified:
-`/health`, `/status` (ok; ingestion `stale: null` = never-run), `/debug/jobs` (scheduler
-alive, next run 18:30 IST), stock endpoints with honest nulls, `quote.stale` rendered,
-404/422/405/500 all in the uniform error envelope with request_id (500 also carries the
-X-Request-ID header), `/alpha/explanation` exposing `source`. Nightly ingestion runs on a
-dedicated engine; every pass is durably recorded and the wrapper aggregates failures.
-Migration `c1d2e3f4a5b6` adds `job_runs` (applied to the dev DB). **Next: Phase 8
-(deployment per D79).**
+**One-line status:** **Phase 8 COMPLETE.** Backend pytest **348/348** (322 baseline +
+25 new `test_phase8_security.py` + 1 new public-`/status` test in `test_health_status.py`;
+`test_health_status.py` updated for the /status split), frontend tsc clean, vitest
+**72/72** (69 baseline + 2 api.test + 1 components.test), `vite build` OK. Details in
+the Phase 8 section below. **Next: deployment execution per D79/D98** (hosting
+choice, secrets, cron transport — all human decisions; nothing left to code).
 
 ---
 
 ## 2. Completed Work
+
+### Phase 8 - security/access-control hardening (2026-09-08)
+
+Decisions: **D94-D98** in PLANNING.md. No user system (still a public
+read-only research app); operational + abuse controls only.
+
+**Config (D94, D98)**
+- `backend/app/config.py`: new `OPS_API_KEY` (required in production),
+  `CRON_API_KEY` (optional, `effective_cron_key()` falls back to ops),
+  rate-limit tunables (`RATE_LIMIT_LLM/EXPENSIVE/DEFAULT_PER_MIN` =
+  20/60/300), `LLM_MAX_CONCURRENT=3`, plus `is_production()`,
+  `ops_auth_configured()`, `public_llm_base_url_ok()` (https required in
+  prod; localhost-http allowed in dev for stub servers).
+- `backend/.env.example`: placeholders + comments for all new keys. No
+  production credential invented or committed.
+
+**Auth (D94)**
+- New `backend/app/auth.py`: `require_ops_key` / `require_cron_key`
+  (`Authorization: Bearer`, `secrets.compare_digest`, identical 404 on
+  missing vs wrong — no oracle, never logs header or keys). Open dev mode
+  only when NOT production AND no key set; production without a key fails
+  closed (`OpsNotConfigured` → 404). No user/auth database.
+
+**Operational routes + docs (D95)**
+- `GET /debug/jobs` requires the ops key; `GET /status` is now public
+  minimal (`{"status":"ok"}`) with full readiness moved to
+  `GET /status/full` (key required). `/docs`, `/redoc`, `/openapi.json`
+  disabled in production (constructor + per-request guard so import order
+  cannot reopen them). `test_health_status.py` updated for the split
+  (public-minimal test + `/status/full` coverage).
+
+**GET /alpha pure read (D96)**
+- Request-time `upsert_snapshot` removed from `routers/alpha.py`. New
+  `jobs.record_live_alpha_snapshot(s)` pass keeps today's per-component
+  history current inside ingestion (wired after the backfill in
+  `_ingest_passes`). Regression test proves zero writes across two views.
+
+**Rate limiting + LLM concurrency (D97)**
+- New `backend/app/rate_limit.py` (in-process fixed windows per IP:
+  llm/expensive/default buckets; `Retry-After` on 429; lazy prune) wired as
+  middleware in `main.py` + `RateLimitError` 429 envelope in `errors.py`
+  (body detail + header + `request_id` on both, incl. header sync).
+- New `backend/app/llm_semaphore.py` (`asyncio.Semaphore` from settings)
+  held only around actual provider `generate()` in all three narrative
+  services; cache/scope/budget/availability paths never hold a slot.
+- Documented in-process-only (Redis for multi-replica = Semester 2).
+
+**CORS + LLM-URL guards (D98)**
+- Production refuses startup on `CORS_ORIGINS=*` and non-https
+  `LLM_BASE_URL`; CORS headers narrowed to `Content-Type, Authorization`;
+  methods stay GET+POST; no cookies/credentials.
+
+**Cron (D98)**
+- Reviewed: no HTTP ingestion endpoint exists or was created. Production
+  uses the existing `python -m app.jobs ingest` path. `require_cron_key`
+  exists only for a future trigger; `CRON_API_KEY` documented for then.
+
+**Frontend**
+- `lib/api.ts`: `ApiError.isRateLimited` + `retryAfterSeconds`. `DataState`
+  renders "Too many requests — retry in ~Ns" with retry affordance.
+  `AskPanel` surfaces the same for 429 (ASK_BLOCKED copy untouched). No
+  login, no admin UI, no secrets in source.
+
+**Tests**
+- New `backend/tests/test_phase8_security.py` (25 tests): dev-open,
+  prod-closed, missing/wrong/correct key, no-oracle, non-Bearer scheme,
+  /status split + no-leak, docs off in prod / on in dev, alpha zero-writes,
+  LLM 429 + envelope + Retry-After + header sync, higher research limit,
+  expensive-bucket screener limit, semaphore cap + settings resize,
+  LLM-URL validation (3), CORS wildcard parse, secrets hygiene (logs +
+  responses), cron fallback.
+- `tests/conftest.py`: autouse reset of limiter/semaphore state (older
+  fixtures reset LLM caches; without this, shared per-minute budgets bled
+  across tests and caused spurious 429s — root-caused during the run).
+- Frontend: +2 `api.test.ts` (429 flag/retry-after, non-429 negative),
+  +1 `components.test.tsx` (429 DataState + retry).
+
+**Verification actually performed**
+- Backend `pytest`: **348/348** (322 baseline + 26 new; ~163s).
+- Frontend: `tsc -b` clean, vitest **72/72** (~9s), `vite build` OK (~36s).
+- Import check: `app.main` imports; dev shows docs on, `is_production()`
+  False, cron-fallback empty, LLM-URL check True.
+- `git diff --stat`: 17 tracked files + 4 new (`auth.py`,
+  `rate_limit.py`, `llm_semaphore.py`, `test_phase8_security.py`).
+  Secret scan of the diff: no keys/credentials (only comments, setting
+  names, and test fixtures with fake values).
+
+**Remaining deployment decisions (human, not code)**
+- Hosting: sleep-tolerant API host + autosuspend Postgres + static
+  frontend (per D79); decides where secrets live and whether in-process
+  limits suffice.
+- Set `OPS_API_KEY` in the API host env (+ optional separate
+  `CRON_API_KEY`); set `CORS_ORIGINS` to the exact frontend origin(s);
+  set `VITE_API_BASE` at frontend build time.
+- Cron transport: `python -m app.jobs ingest` from GitHub Actions with the
+  `DATABASE_URL` secret (recommended; no HTTP secret needed) vs a future
+  HTTP trigger (then wire `CRON_API_KEY`).
+- Anonymous-LLM cost tolerance: current posture is anonymous + strict
+  per-IP limits; if abuse/cost spikes, add keyed access or Turnstile
+  (deliberately NOT built in Phase 8).
+- Known limits: limiter/semaphore/daily-cap are per-process (restart
+  resets; replicas each count separately); `job_runs.error_summary` stays
+  curated/truncated; `/status/full` boolean `llm_configured` is the only
+  LLM signal exposed and only to key holders.
 
 ### Phase 7C - post-implementation audit round (2026-09-07)
 
@@ -735,12 +837,15 @@ backend math (EV/EBITDA comes only from the valuation endpoint); verdict wording
 
 ## 3. In Progress / Next Steps
 
-### Phase 8: Deployment (next up per roadmap §14, per D79)
-- Static frontend + sleep-tolerant API + autosuspend Postgres (Neon/Supabase).
-- Ingestion moves to GitHub Actions cron in production (the in-process APScheduler
-  is the local model). Any CI-driven ingestion must keep writing `job_runs` rows so
-  `/debug/jobs` + `/status` stay truthful in deployment.
-- Restrict `/debug/jobs` and `/status` (currently unauthenticated, local-only, D90).
+### Phase 8: Deployment (next up per roadmap §14, per D79/D98)
+- Hosting decision still open: static frontend + sleep-tolerant API +
+  autosuspend Postgres (Neon/Supabase). Secrets to set: `OPS_API_KEY`
+  (required), `CORS_ORIGINS` (exact frontend origin), `VITE_API_BASE`.
+- Ingestion stays `python -m app.jobs ingest` from GitHub Actions cron with
+  the `DATABASE_URL` secret (no HTTP trigger; `CRON_API_KEY` only if a
+  future HTTP endpoint is added). The sweep now includes the
+  `record_live_alpha_snapshots` pass (Phase 8) and still writes `job_runs`
+  rows so `/debug/jobs` + `/status/full` stay truthful.
 - Optional: aggregate `/overview` endpoint (tracked in §18); Redis stays deferred.
 
 ### Phase 6 recap (done - production frontend + 4 backend additions)

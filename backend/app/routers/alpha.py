@@ -15,7 +15,6 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_session
-from app.repositories import alpha as alpha_repo
 from app.routers.common import resolve_stock
 from app.services import alpha as alpha_svc
 from app.services.llm_narrative import generate_alpha_explanation_result
@@ -56,22 +55,13 @@ class AlphaExplanationResponse(BaseModel):
 async def get_alpha(symbol: str, session: SessionDep) -> AlphaResponse:
     """Alpha Score composite (quality/momentum/tone) + separate value signal.
 
-    Pure computation: no LLM work happens on this path.
+    Pure computation, pure READ (Phase 8): no LLM work and no database
+    writes happen on this path, so the endpoint is idempotent and safely
+    cacheable. Today's snapshot is written by the ingestion pathway
+    (nightly backfill; see jobs.backfill_alpha_history), never by a GET.
     """
     stock = await resolve_stock(session, symbol)
     result = await alpha_svc.compute_alpha(session, stock)
-
-    # Persist a snapshot for history (idempotent by symbol+date).
-    await alpha_repo.upsert_snapshot(
-        session,
-        symbol=stock.symbol,
-        snapshot_date=date.today(),
-        composite=result.composite,
-        fundamental=result.fundamental,
-        technical=result.technical,
-        sentiment=result.sentiment,
-        components_json=result.components,
-    )
 
     return AlphaResponse(
         symbol=result.symbol,

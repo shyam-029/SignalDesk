@@ -109,16 +109,21 @@ export function ErrorState({
 }) {
   const isApi = error instanceof ApiError;
   const unknownStock = isApi && error.isNotFound;
+  const rateLimited = isApi && error.isRateLimited;
   const title = unknownStock
     ? "Unknown symbol"
-    : isApi && error.status === 0
-      ? "API unreachable"
-      : "Something went wrong";
+    : rateLimited
+      ? "Too many requests"
+      : isApi && error.status === 0
+        ? "API unreachable"
+        : "Something went wrong";
   const message = unknownStock
     ? "No company with this symbol exists in the SignalDesk catalog."
-    : isApi
-      ? error.message
-      : "An unexpected error occurred.";
+    : rateLimited
+      ? rateLimitMessage(error)
+      : isApi
+        ? error.message
+        : "An unexpected error occurred.";
 
   return (
     <div
@@ -185,4 +190,13 @@ function StaleChip({ asOf }: { asOf: string }) {
       As of <span className="num normal-case tracking-normal text-muted">{asOf}</span>
     </p>
   );
+}
+
+/** Human-friendly 429 message honoring the backend Retry-After hint. */
+function rateLimitMessage(error: ApiError): string {
+  const wait = error.retryAfterSeconds;
+  if (wait != null) {
+    return `The API is busy. Please retry in about ${wait} second${wait === 1 ? "" : "s"}.`;
+  }
+  return "The API is busy. Please wait a moment and retry.";
 }
