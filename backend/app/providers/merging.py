@@ -85,7 +85,8 @@ def merge_fundamentals(
     filled: list[str] = []
     for field in (
         "market_cap", "trailing_pe", "enterprise_value", "ebitda",
-        "price_to_book", "price_to_sales", "return_on_equity",
+        "price_to_book", "price_to_sales", "ev_ebitda",
+        "return_on_equity",
         "return_on_assets", "operating_margin", "profit_margin",
         "debt_to_equity", "interest_coverage", "current_ratio",
     ):

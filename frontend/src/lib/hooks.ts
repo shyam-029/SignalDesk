@@ -24,10 +24,11 @@ export function useStockList(
   sector?: string,
   sort?: string,
   direction?: string,
+  mcapBucket?: string,
 ) {
   return useQuery({
-    queryKey: ["stocks", page, limit, sector ?? null, sort ?? null, direction ?? null],
-    queryFn: () => api.stocks(page, limit, sector, sort, direction),
+    queryKey: ["stocks", page, limit, sector ?? null, sort ?? null, direction ?? null, mcapBucket ?? null],
+    queryFn: () => api.stocks(page, limit, sector, sort, direction, mcapBucket),
     staleTime: 60_000,
   });
 }
@@ -89,21 +90,39 @@ export function useEtfs() {
   });
 }
 
-export function useFunds() {
+export function useFunds(sort?: string, direction?: string) {
   return useQuery({
-    queryKey: ["funds"],
-    queryFn: () => api.funds(),
+    queryKey: ["funds", sort ?? null, direction ?? null],
+    queryFn: () => api.funds(sort, direction),
     staleTime: 5 * 60_000,
   });
 }
 
-export function useFund(fundId: number | undefined) {
+export function useFund(fundId: number | undefined, window?: string) {
   return useQuery({
-    queryKey: ["fund", fundId],
-    queryFn: () => api.fund(fundId as number),
+    queryKey: ["fund", fundId, window ?? "all"],
+    queryFn: () => api.fund(fundId as number, window),
     enabled: fundId != null,
     staleTime: 5 * 60_000,
     retry: noRetryOn404,
+  });
+}
+
+// --- Market dashboard ----------------------------------------------------------
+
+export function useBenchmarks() {
+  return useQuery({
+    queryKey: ["benchmarks"],
+    queryFn: () => api.benchmarks(),
+    staleTime: 5 * 60_000,
+  });
+}
+
+export function useMarketNews(limit = 20) {
+  return useQuery({
+    queryKey: ["market-news", limit],
+    queryFn: () => api.marketNews(limit),
+    staleTime: 5 * 60_000,
   });
 }
 

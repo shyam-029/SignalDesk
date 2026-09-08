@@ -33,11 +33,11 @@ const METRIC_INFO_KEYS: Record<string, "pe" | "ev_ebitda" | "pb" | "ps"> = {
 
 /**
  * ValuationSection: relative multiples vs same-industry peers.
- * All four supported multiples (P/E, EV/EBITDA, P/B, P/S) are shown, each with
- * its own peer median from the backend (one lightweight query per multiple,
- * cached by TanStack Query). Valuation carries its OWN semantic state and
- * never inherits Alpha's color. EV/EBITDA/market-cap inputs live in a
- * secondary expandable area, not the primary view.
+ * The section frame ALWAYS renders: the verdict panel reflects the selected
+ * metric (verdict when computable, an honest compact "not computable" note
+ * when the snapshot lacks the inputs), and the multiples grid stays visible
+ * with "-" for every gap. A data gap never collapses the whole section into
+ * an error card.
  */
 export function ValuationSection({ symbol }: { symbol: string }) {
   const [metric, setMetric] = React.useState<string>("PE");
@@ -48,6 +48,10 @@ export function ValuationSection({ symbol }: { symbol: string }) {
   const error = queryError(selected.error);
   const noPeers = error?.code === "NO_PEERS";
   const insufficient = error?.code === "INSUFFICIENT_DATA";
+  // Soft codes are data gaps: the verdict panel reports them as an honest
+  // note; only genuine failures (network, 5xx) surface as errors.
+  const soft = Boolean(noPeers || insufficient);
+  const hardError = soft ? null : (selected.error as Error | null);
 
   const sem = valuation ? valuationSemantics(valuation.status) : null;
   const ratios = fundamentals.data?.key_ratios ?? {};
@@ -72,23 +76,18 @@ export function ValuationSection({ symbol }: { symbol: string }) {
         </Tabs>
       }
     >
-
         <DataState
           loading={selected.isLoading}
-          error={selected.error}
+          error={hardError}
           onRetry={selected.refetch}
-          insufficient={Boolean(insufficient || noPeers)}
-          insufficientTitle={noPeers ? "No comparable peers" : "Not computable"}
-          insufficientMessage={
-            noPeers
-              ? "No valid peer multiples exist for this stock's industry, so a relative valuation would be misleading. SignalDesk refuses to guess."
-              : "The stock's financial snapshot lacks the inputs needed for this multiple. Nothing is estimated in the meantime."
-          }
+          skeleton={<VerdictSkeleton />}
         >
-          {valuation && (
-            <div className="grid gap-8 lg:grid-cols-12">
-              {/* Status + relative position for the selected metric */}
-              <div className="lg:col-span-5">
+          <div className="grid gap-8 lg:grid-cols-12">
+            {/* Status + relative position for the selected metric. Data gaps
+                (not computable / no peers) render as a compact honest note;
+                the multiples grid beside it is unaffected. */}
+            <div className="lg:col-span-5">
+              {valuation ? (
                 <div
                   className={cn(
                     "border bg-surface p-5",
@@ -125,86 +124,100 @@ export function ValuationSection({ symbol }: { symbol: string }) {
                     , trading {valuation.margin_pct < 0 ? "below" : "above"} the peer median.
                   </p>
                 </div>
-                <p className="mt-3 text-xs leading-relaxed text-faint">
-                  &ldquo;Relatively cheaper&rdquo; does not mean intrinsically cheap. Peer set:{" "}
-                  {valuation.peers.length} same-industry companies from the SignalDesk catalog.
-                </p>
+              ) : (
+                <div className="border border-dashed border-line px-5 py-6">
+                  <p className="label-caps">Verdict · {METRIC_LABELS[metric]}</p>
+                  <p className="num mt-1 text-2xl font-medium text-faint">-</p>
+                  <p className="mt-2 text-xs leading-relaxed text-muted">
+                    {noPeers
+                      ? "No valid peer multiples exist for this stock's industry, so a relative verdict would be misleading."
+                      : "The financial snapshot lacks the inputs for this multiple (e.g. negative or missing EBITDA for EV/EBITDA). Nothing is estimated."}
+                  </p>
+                  <p className="mt-3 text-xs text-faint">
+                    The other multiples below may still be computable - select one.
+                  </p>
+                </div>
+              )}
+              <p className="mt-3 text-xs leading-relaxed text-faint">
+                &ldquo;Relatively cheaper&rdquo; does not mean intrinsically cheap. Peer set:{" "}
+                {valuation?.peers.length ?? 0} same-industry companies from the SignalDesk catalog.
+              </p>
+            </div>
+
+            {/* The four multiples, each backed by its own valuation query.
+                Always rendered: gaps show "-", never an error. */}
+            <div className="lg:col-span-7">
+              <div className="border border-line bg-surface">
+                <div className="border-b border-line px-5 py-3">
+                  <p className="label-caps">All multiples · stock vs peer median</p>
+                </div>
+                <div className="grid sm:grid-cols-2">
+                  {VALUATION_METRICS.map((m) => (
+                    <MultipleRow
+                      key={m}
+                      symbol={symbol}
+                      metric={m}
+                      active={m === metric}
+                      onSelect={() => setMetric(m)}
+                    />
+                  ))}
+                </div>
+
+                {/* Secondary inputs, expandable, not the primary focus. */}
+                <details className="border-t border-line px-5 py-3">
+                  <summary className="flex cursor-pointer items-center justify-between text-xs font-medium text-muted">
+                    Valuation inputs
+                    <InfoDot metric="value_signal" className="size-3.5" />
+                  </summary>
+                  <div className="num mt-3 grid grid-cols-3 gap-4 text-xs">
+                    <div>
+                      <p className="flex items-center gap-1 text-faint">
+                        Enterprise Value <InfoDot metric="ev" className="size-3" />
+                      </p>
+                      <p className="mt-0.5 font-medium">
+                        {ratios.enterprise_value != null
+                          ? `₹${fmtCompact(ratios.enterprise_value)}`
+                          : "-"}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="flex items-center gap-1 text-faint">
+                        EBITDA <InfoDot metric="ebitda" className="size-3" />
+                      </p>
+                      <p className="mt-0.5 font-medium">
+                        {ratios.ebitda != null ? `₹${fmtCompact(ratios.ebitda)}` : "-"}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="flex items-center gap-1 text-faint">
+                        Market cap <InfoDot metric="market_cap" className="size-3" />
+                      </p>
+                      <p className="mt-0.5 font-medium">
+                        {ratios.market_cap != null
+                          ? `₹${fmtCompact(ratios.market_cap)}`
+                          : "-"}
+                      </p>
+                    </div>
+                  </div>
+                  <p className="mt-3 text-xs text-faint">
+                    Underlying inputs for the multiples above · snapshot updated{" "}
+                    {fundamentals.data?.updated_at
+                      ? new Date(fundamentals.data.updated_at).toLocaleDateString("en-IN")
+                      : "-"}
+                  </p>
+                </details>
               </div>
 
-              {/* The four multiples, each backed by its own valuation query. */}
-              <div className="lg:col-span-7">
-                <div className="border border-line bg-surface">
-                  <div className="border-b border-line px-5 py-3">
-                    <p className="label-caps">All multiples · stock vs peer median</p>
-                  </div>
-                  <div className="grid sm:grid-cols-2">
-                    {VALUATION_METRICS.map((m) => (
-                      <MultipleRow
-                        key={m}
-                        symbol={symbol}
-                        metric={m}
-                        active={m === metric}
-                        onSelect={() => setMetric(m)}
-                      />
-                    ))}
-                  </div>
-
-                  {/* Secondary inputs, expandable, not the primary focus. */}
-                  <details className="border-t border-line px-5 py-3">
-                    <summary className="flex cursor-pointer items-center justify-between text-xs font-medium text-muted">
-                      Valuation inputs
-                      <InfoDot metric="value_signal" className="size-3.5" />
-                    </summary>
-                    <div className="num mt-3 grid grid-cols-3 gap-4 text-xs">
-                      <div>
-                        <p className="flex items-center gap-1 text-faint">
-                          Enterprise Value <InfoDot metric="ev" className="size-3" />
-                        </p>
-                        <p className="mt-0.5 font-medium">
-                          {ratios.enterprise_value != null
-                            ? `₹${fmtCompact(ratios.enterprise_value)}`
-                            : "-"}
-                        </p>
-                      </div>
-                      <div>
-                        <p className="flex items-center gap-1 text-faint">
-                          EBITDA <InfoDot metric="ebitda" className="size-3" />
-                        </p>
-                        <p className="mt-0.5 font-medium">
-                          {ratios.ebitda != null ? `₹${fmtCompact(ratios.ebitda)}` : "-"}
-                        </p>
-                      </div>
-                      <div>
-                        <p className="flex items-center gap-1 text-faint">
-                          Market cap <InfoDot metric="market_cap" className="size-3" />
-                        </p>
-                        <p className="mt-0.5 font-medium">
-                          {ratios.market_cap != null
-                            ? `₹${fmtCompact(ratios.market_cap)}`
-                            : "-"}
-                        </p>
-                      </div>
-                    </div>
-                    <p className="mt-3 text-xs text-faint">
-                      Underlying inputs for the multiples above · snapshot updated{" "}
-                      {fundamentals.data?.updated_at
-                        ? new Date(fundamentals.data.updated_at).toLocaleDateString("en-IN")
-                        : "-"}
-                    </p>
-                  </details>
-                </div>
-
-                <div className="mt-3 flex items-center gap-2">
-                  <ExplainAction
-                    symbol={symbol}
-                    questionType="valuation"
-                    question="Why is this valued here vs peers?"
-                    triggerLabel="Why this valuation?"
-                  />
-                </div>
+              <div className="mt-3 flex items-center gap-2">
+                <ExplainAction
+                  symbol={symbol}
+                  questionType="valuation"
+                  question="Why is this valued here vs peers?"
+                  triggerLabel="Why this valuation?"
+                />
               </div>
             </div>
-          )}
+          </div>
         </DataState>
 
         {/* Peer comparison table (Part D): the same peer set the multiples use. */}
@@ -212,6 +225,26 @@ export function ValuationSection({ symbol }: { symbol: string }) {
           <PeersTable symbol={symbol} />
         </div>
     </CollapsibleSection>
+  );
+}
+
+function VerdictSkeleton() {
+  return (
+    <div className="grid gap-8 lg:grid-cols-12">
+      <div className="lg:col-span-5 space-y-3">
+        <div className="h-4 w-28 animate-pulse bg-surface-2" />
+        <div className="h-8 w-48 animate-pulse bg-surface-2" />
+        <div className="h-4 w-64 animate-pulse bg-surface-2" />
+      </div>
+      <div className="lg:col-span-7 grid grid-cols-2 gap-px border border-line bg-line">
+        {Array.from({ length: 4 }, (_, i) => (
+          <div key={i} className="bg-surface px-5 py-4">
+            <div className="h-3 w-16 animate-pulse bg-surface-2" />
+            <div className="mt-2 h-6 w-20 animate-pulse bg-surface-2" />
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -305,9 +338,7 @@ function queryError(error: unknown): { code?: string; message: string } | null {
   if (!error) return null;
   const e = error as { code?: string; message?: string };
   return { code: e.code, message: e.message ?? "Request failed" };
-}
-
-function fmtSignedShort(v: number): string {
+}function fmtSignedShort(v: number): string {
   const sign = v > 0 ? "+" : "";
   return `${sign}${v.toFixed(1)}%`;
 }

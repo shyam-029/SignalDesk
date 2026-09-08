@@ -358,6 +358,9 @@ export interface FundSummary {
   return_1m_pct: number | null;
   return_3m_pct: number | null;
   return_6m_pct: number | null;
+  // 1y/3y are annualised (CAGR %) by the backend.
+  return_1y_pct: number | null;
+  return_3y_pct: number | null;
 }
 
 export interface FundListResponse {
@@ -383,8 +386,39 @@ export interface FundDetailResponse {
   return_1m_pct: number | null;
   return_3m_pct: number | null;
   return_6m_pct: number | null;
+  return_1y_pct: number | null;
+  return_3y_pct: number | null;
   nav_points: number;
   history_start: string | null;
   history_end: string | null;
   items: NavPoint[];
+}
+
+// --- Market dashboard (GET /benchmarks, GET /market/news) ----------------------
+
+export interface BenchmarkCard {
+  symbol: string;
+  name: string | null;
+  latest_close: number | null;
+  change_pct: number | null;
+  as_of: string | null;
+  sparkline: number[];
+}
+
+export interface BenchmarkListResponse {
+  items: BenchmarkCard[];
+}
+
+export interface MarketNewsItem {
+  id: number;
+  symbol: string;
+  title: string;
+  source: string;
+  url: string;
+  published_at: string | null;
+  sentiment: string | null;
+}
+
+export interface MarketNewsResponse {
+  items: MarketNewsItem[];
 }

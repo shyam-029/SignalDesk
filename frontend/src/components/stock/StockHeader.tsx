@@ -1,11 +1,18 @@
+import * as React from "react";
 import { Link } from "react-router-dom";
-import { ArrowDown, ArrowUp, ChevronLeft } from "lucide-react";
+import { ArrowDown, ArrowUp, Bookmark, BookmarkCheck, ChevronLeft } from "lucide-react";
 
 import { useStockDetail } from "@/lib/hooks";
 import { AskPanel } from "@/components/explain/AskPanel";
 import { DataState } from "@/components/data/DataState";
 import { InfoDot } from "@/components/data/InfoDot";
 import { StockLogo } from "@/components/stock/StockLogo";
+import {
+  addToWatchlist,
+  createWatchlist,
+  removeFromWatchlist,
+  useWatchlists,
+} from "@/lib/watchlist";
 import {
   fmtDate,
   fmtMarketCap,
@@ -39,12 +46,15 @@ export function StockHeader({ symbol }: { symbol: string }) {
         }}
       />
       <div className="relative mx-auto max-w-6xl px-4 pb-8 pt-6 md:px-6">
-        <Link
-          to="/markets"
-          className="mb-5 inline-flex items-center gap-1 text-xs text-muted hover:text-foreground"
-        >
-          <ChevronLeft className="size-3.5" /> All stocks
-        </Link>
+        <div className="mb-5 flex items-center justify-between">
+          <Link
+            to="/markets"
+            className="inline-flex items-center gap-1 text-xs text-muted hover:text-foreground"
+          >
+            <ChevronLeft className="size-3.5" /> All stocks
+          </Link>
+          {detail && <WatchlistButton symbol={detail.symbol} />}
+        </div>
 
         <DataState
           loading={query.isLoading}
@@ -156,6 +166,86 @@ function Stat({
         {metric && <InfoDot metric={metric} className="size-3.5" />}
       </dt>
       <dd className="num mt-0.5 text-sm font-medium">{value}</dd>
+    </div>
+  );
+}
+
+/**
+ * WatchlistButton: add/remove this stock from a device-local watchlist,
+ * creating one on the spot. Account-backed lists arrive with M3; this is
+ * the same store the markets dashboard renders.
+ */
+function WatchlistButton({ symbol }: { symbol: string }) {
+  const lists = useWatchlists();
+  const [open, setOpen] = React.useState(false);
+  const [newName, setNewName] = React.useState("");
+  const watchedIn = lists.filter((l) => l.symbols.includes(symbol));
+
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className={cn(
+          "inline-flex items-center gap-1.5 border px-2.5 py-1 text-xs font-medium transition-colors",
+          watchedIn.length > 0
+            ? "border-cobalt/50 text-cobalt dark:text-cobalt-strong"
+            : "border-line text-muted hover:text-foreground",
+        )}
+      >
+        {watchedIn.length > 0 ? (
+          <BookmarkCheck className="size-3.5" />
+        ) : (
+          <Bookmark className="size-3.5" />
+        )}
+        {watchedIn.length > 0 ? `Watched (${watchedIn.length})` : "Watchlist"}
+      </button>
+      {open && (
+        <div className="glass absolute right-0 top-full z-40 mt-1.5 w-64 border border-line bg-background p-2">
+          {lists.map((l) => {
+            const inList = l.symbols.includes(symbol);
+            return (
+              <button
+                key={l.id}
+                type="button"
+                onClick={() =>
+                  inList ? removeFromWatchlist(l.id, symbol) : addToWatchlist(l.id, symbol)
+                }
+                className="flex w-full items-center justify-between px-2 py-1.5 text-left text-sm transition-colors hover:bg-surface-2"
+              >
+                <span className="truncate">{l.name}</span>
+                {inList && <BookmarkCheck className="size-3.5 text-band-positive" />}
+              </button>
+            );
+          })}
+          <form
+            className="mt-1 flex gap-1 border-t border-line pt-2"
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (!newName.trim()) return;
+              const list = createWatchlist(newName);
+              addToWatchlist(list.id, symbol);
+              setNewName("");
+              setOpen(false);
+            }}
+          >
+            <input
+              value={newName}
+              onChange={(e) => setNewName(e.target.value)}
+              placeholder="New list name"
+              className="h-7 min-w-0 flex-1 border border-line bg-surface px-2 text-xs focus:outline-none"
+            />
+            <button
+              type="submit"
+              className="border border-line px-2 text-xs font-medium hover:bg-surface-2"
+            >
+              Add
+            </button>
+          </form>
+          <p className="mt-1 px-2 text-xs text-faint">Stored on this device.</p>
+        </div>
+      )}
     </div>
   );
 }

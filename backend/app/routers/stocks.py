@@ -155,12 +155,13 @@ async def list_stocks(
     direction: str = Query("asc"),
     page: int = Query(1, ge=1),
     limit: int = Query(DEFAULT_LIMIT, ge=1, le=MAX_LIMIT),
+    mcap_bucket: str | None = Query(None),
 ) -> StockListResponse:
-    """List stocks in the catalog with price, change and market cap.
+    """List stocks in the active ranked universe with price, change and mcap.
 
-    Sorting is server-side (the catalog is a few hundred rows, loaded once
-    and sorted in Python so the derived last_price/change_pct columns can be
-    ordered with them). Null sort values sort last in both directions.
+    Sorting is server-side; nulls sort last. mcap_bucket (large/mid/small,
+    INR crore) filters AFTER the snapshot join so the markets dashboard can
+    show today's movers within a size class.
     """
     if sort not in VALID_SORTS:
         raise ValidationError(
@@ -171,6 +172,11 @@ async def list_stocks(
         raise ValidationError(
             "Unsupported direction value",
             {"direction": direction, "supported": ["asc", "desc"]},
+        )
+    if mcap_bucket is not None and mcap_bucket not in MCAP_BUCKETS:
+        raise ValidationError(
+            "Unsupported mcap_bucket value",
+            {"mcap_bucket": mcap_bucket, "supported": list(MCAP_BUCKETS)},
         )
 
     # Distinct sectors for the frontend's filter dropdowns (catalog-wide).
@@ -220,6 +226,10 @@ async def list_stocks(
             last_price = float(latest.close)
         fin = financials.get(st.id)
         market_cap = float(fin.market_cap) if fin is not None and fin.market_cap else None
+        if mcap_bucket is not None:
+            lo, hi = MCAP_BUCKETS[mcap_bucket]
+            if market_cap is None or not (lo * 1e7 <= market_cap < hi * 1e7):
+                continue
         rows.append(
             StockSummary(
                 symbol=st.symbol,
@@ -255,11 +265,20 @@ async def list_stocks(
     start = (page - 1) * limit
     return StockListResponse(
         items=rows[start : start + limit],
-        total=total,
+        # The bucket filter runs post-join in Python; report the filtered count.
+        total=len(rows) if mcap_bucket is not None else total,
         page=page,
         limit=limit,
         sectors=sectors,
     )
+
+
+# Market-cap buckets (INR Cr) for the markets dashboard movers panel.
+MCAP_BUCKETS: dict[str, tuple[float, float]] = {
+    "large": (100_000.0, float("inf")),   # >= 1 lakh crore
+    "mid": (20_000.0, 100_000.0),         # 20k-1L crore
+    "small": (0.0, 20_000.0),             # < 20k crore
+}
 
 
 @router.get("/search", response_model=StockSearchResponse)

@@ -241,19 +241,50 @@ def test_window_returns_known_case():
         (date(2026, 9, 1), 132.0),
     ]
     rets = window_returns(pts)
-    # 1m: target 2026-08-02; first point at/after is the latest itself ->
-    # anchor == latest -> 0.0 (a real flat month, not a fabricated number).
-    assert rets["1m"] == 0.0
+    # 1m: target 2026-08-02; the nearest point at/after is the latest itself,
+    # 30 days past the target -> the window is NOT covered (a 60-day gap
+    # reported as "0% for a month" would be a lie). None, never 0.
+    assert rets["1m"] is None
     # 3m: target 2026-06-02 -> anchor 2026-06-05 (120) -> 132/120 - 1 = 10%
     assert rets["3m"] == 10.0
     # 6m: target 2026-03-05 -> anchor 2026-03-15 (110) -> 132/110 - 1 = 20%
     assert rets["6m"] == 20.0
+    # 1y/3y: history does not reach those targets -> not covered.
+    assert rets["1y"] is None
+    assert rets["3y"] is None
 
 
 def test_window_returns_insufficient_history():
-    assert window_returns([]) == {"1m": None, "3m": None, "6m": None}
+    assert window_returns([]) == {"1m": None, "3m": None, "6m": None, "1y": None, "3y": None}
     one = window_returns([(date(2026, 9, 1), 100.0)])
-    assert one == {"1m": None, "3m": None, "6m": None}
+    assert one == {"1m": None, "3m": None, "6m": None, "1y": None, "3y": None}
+
+
+def test_window_returns_one_year_is_cagr():
+    """1y/3y windows are annualised (CAGR), not absolute."""
+    pts = [(date(2025, 9, 1), 100.0), (date(2026, 9, 1), 200.0)]
+    rets = window_returns(pts)
+    # Exactly doubled in 1y -> CAGR 100%.
+    assert rets["1y"] == 100.0
+    # 3y CAGR of 2x = 2^(1/3)-1 = 25.99% (anchor exactly 1096 calendar days
+    # back, within the 21-day coverage tolerance).
+    pts3 = [(date(2023, 9, 2), 100.0), (date(2026, 9, 1), 200.0)]
+    rets3 = window_returns(pts3)
+    assert rets3["3y"] == pytest.approx(25.99, abs=0.01)
+
+
+def test_downsample_keeps_shape_and_endpoints():
+    from datetime import timedelta
+
+    from app.services.funds import downsample
+
+    pts = [(date(2024, 1, 1) + timedelta(days=i), 100.0 + i) for i in range(400)]
+    out = downsample(pts, max_points=120)
+    assert len(out) <= 120
+    assert out[0] == pts[0]
+    assert out[-1] == pts[-1]
+    # Monotone dates preserved.
+    assert all(b[0] > a[0] for a, b in zip(out, out[1:]))
 
 
 # --- ETFs ----------------------------------------------------------------------

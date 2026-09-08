@@ -138,9 +138,13 @@ export default function ScreenerPage() {
         const sem = valuationSemantics(r.valuation_status);
         return (
           <span className="flex flex-col items-start gap-0.5">
-            {sem && (
+            {sem ? (
               <span className={`border px-1.5 py-0.5 text-xs font-medium ${sem.band.text} ${sem.band.border} ${sem.band.bg.replace("/10", "/6")}`}>
                 {sem.short}
+              </span>
+            ) : (
+              <span className="text-xs text-faint" title="The snapshot lacks the P/E inputs for this stock">
+                -
               </span>
             )}
             <span className="num text-xs text-faint">{fmtSignedPct(r.margin_pct)}</span>

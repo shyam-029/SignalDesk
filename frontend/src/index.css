@@ -221,3 +221,9 @@
     border-radius: 2px;
   }
 }
+
+/* Landing ticker tape: a seamless 50-stock loop (the copy is doubled, so -50% is one full cycle). */
+@keyframes ticker {
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
+}

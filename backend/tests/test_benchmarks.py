@@ -146,5 +146,7 @@ async def test_benchmark_pass_records_job_run(session_factory, monkeypatch):
 
 
 def test_benchmark_symbol_list_matches_plan():
-    """The required Plan 13 symbols are exactly the ingested set."""
-    assert set(BENCHMARK_SYMBOLS) == {"^NSEI", "^NSEBANK", "^CNXIT", "^CRSLDX"}
+    """The required index set: Nifty 50, Sensex, India VIX, Bank, IT, broad market."""
+    assert set(BENCHMARK_SYMBOLS) == {
+        "^NSEI", "^BSESN", "^INDIAVIX", "^NSEBANK", "^CNXIT", "^CRSLDX",
+    }
