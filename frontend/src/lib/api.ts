@@ -12,9 +12,12 @@ import type {
   AlphaExplanationResponse,
   AskResponse,
   CompanyProfileResponse,
+  EtfListResponse,
   ExplainQuestionType,
   ExplainResponse,
   FinancialsHistoryResponse,
+  FundDetailResponse,
+  FundListResponse,
   Fundamentals,
   NewsListResponse,
   PeersResponse,
@@ -143,6 +146,14 @@ export const api = {
   // Altman Z-Score distress diagnostic: separate from /scores by design.
   altman: (symbol: string) =>
     apiGet<AltmanResponse>(`/stocks/${encodeURIComponent(symbol)}/altman`),
+
+  // --- ETF + fund domains (Plan 8/9 slices) ---
+
+  etfs: () => apiGet<EtfListResponse>("/etfs"),
+
+  funds: () => apiGet<FundListResponse>("/funds"),
+
+  fund: (fundId: number) => apiGet<FundDetailResponse>(`/funds/${fundId}`),
 
   valuation: (symbol: string, metric: string) =>
     apiGet<Valuation>(

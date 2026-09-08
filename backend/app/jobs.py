@@ -24,6 +24,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import SessionLocal
 from app.config import settings
+from app.data.funds import CURATED_FUNDS, MFAPI_BACKFILL_DAYS
+from app.data.ranking_exclusions import ETF_SYMBOLS
 from app.models import (
     AlphaScore,
     CompanyProfile,
@@ -31,6 +33,7 @@ from app.models import (
     FinancialPeriod,
     Financials,
     JobRun,
+    MutualFund,
     NewsArticle,
     NewsSentiment,
     Stock,
@@ -39,14 +42,22 @@ from app.models import (
 )
 from app.providers.base import Fundamentals, MarketDataProvider
 from app.providers.factory import build_default_market_provider
+from app.providers.funds_data import (
+    fetch_amfi_navall,
+    fetch_mfapi_history,
+    match_curated,
+    parse_navall,
+)
 from app.providers.news_base import Article, NewsProvider
 from app.providers.nse_master import NseMasterRow, fetch_master_with_retry
 from app.providers.rss_provider import GoogleNewsRSSProvider, NewsProviderError
 from app.providers.sentiment import FinBERTScorer, Sentiment
 from app.providers.upstox_provider import SYMBOL_ALIASES
 from app.providers.yfinance_provider import MarketDataError, YFinanceProvider
-from app.repositories import company_profiles as profile_repo
+from app.repositories import balance_sheets as bs_repo
 from app.repositories import benchmarks as benchmark_repo
+from app.repositories import company_profiles as profile_repo
+from app.repositories import funds as fund_repo
 from app.repositories import ranking as ranking_repo
 from app.services import ranking as ranking_svc
 
@@ -1073,6 +1084,258 @@ async def ingest_benchmarks(
     return {"fetched": len(symbols) - len(errors), "bars": bars, "errors": len(errors)}
 
 
+# --- Balance-sheet ingestion (Plan 5.4; drives the real Altman Z-Score) ------
+
+async def _fetch_one_balance_sheet(
+    provider: MarketDataProvider, symbol: str
+) -> tuple[str, int]:
+    """Fetch + upsert one symbol's annual balance-sheet periods.
+
+    A provider without the capability (NotImplementedError) is not an error:
+    the symbol stores nothing. Raises MarketDataError upward so callers
+    isolate per-symbol failures (D19). Banks/NBFCs legitimately store partial
+    rows (no Working Capital) — honesty lives downstream in the Z-Score.
+    """
+    try:
+        drafts = await _with_retry(
+            lambda: provider.get_balance_sheet(symbol),
+            what=f"balance-sheet fetch for {symbol}",
+        )
+    except NotImplementedError:
+        logger.info("Provider has no balance sheet for %s; skipping.", symbol)
+        return symbol, 0
+
+    if not drafts:
+        return symbol, 0
+
+    async with SessionLocal() as session:
+        stock_id = await session.scalar(
+            select(Stock.id).where(Stock.symbol == symbol)
+        )
+        if stock_id is None:
+            raise MarketDataError(f"Symbol {symbol} not in DB catalog")
+        stored = await bs_repo.upsert_periods(session, stock_id, drafts)
+        return symbol, stored
+
+
+async def ingest_balance_sheets(
+    provider: MarketDataProvider | None = None, batch_size: int = BATCH_SIZE
+) -> dict:
+    """Fetch + upsert annual balance sheets for the active universe.
+
+    Same batching + per-symbol isolation as the other ingestions (D19).
+    Rows are small (about four annual periods per stock) and feed the real
+    Altman Z-Score computation directly.
+    """
+    provider = provider or build_default_market_provider()
+
+    async with SessionLocal() as session:
+        symbols = await _get_universe_symbols(session)
+
+    if not symbols:
+        logger.warning("No symbols found for universe '%s'.", UNIVERSE_NAME)
+        return {"fetched": 0, "rows": 0, "errors": 0}
+
+    rows = 0
+    errors: list[str] = []
+    for i in range(0, len(symbols), batch_size):
+        batch = symbols[i : i + batch_size]
+        results = await asyncio.gather(
+            *(_fetch_one_balance_sheet(provider, s) for s in batch),
+            return_exceptions=True,
+        )
+        for symbol, res in zip(batch, results):
+            if isinstance(res, Exception):
+                logger.error("Failed to ingest balance sheet for %s: %s", symbol, res)
+                errors.append(symbol)
+            else:
+                _, stored = res
+                rows += stored
+
+    logger.info(
+        "Balance-sheet ingestion done: %d symbols, %d periods, %d errors",
+        len(symbols) - len(errors),
+        rows,
+        len(errors),
+    )
+    return {"fetched": len(symbols) - len(errors), "rows": rows, "errors": len(errors)}
+
+
+# --- ETF catalog ingestion (Plan 9 slice; is_etf stocks + prices) ------------
+
+# Display names for the curated ETF list (data/ranking_exclusions.ETF_SYMBOLS
+# is the single source of the symbol set — the SAME list the ranking uses to
+# exclude ETFs from the equity universe, so the two can never drift).
+ETF_NAMES: dict[str, str] = {
+    "NIFTYBEES": "Nippon India ETF Nifty 50 BeES",
+    "JUNIORBEES": "Nippon India ETF Nifty Next 50 BeES",
+    "BANKBEES": "Nippon India ETF Bank BeES",
+    "GOLDBEES": "Nippon India ETF Gold BeES",
+    "SILVERBEES": "Nippon India Silver ETF",
+    "LIQUIDBEES": "Nippon India ETF Liquid BeES",
+    "HDFCNIFTY": "HDFC Nifty 50 ETF",
+    "ICICINIFTY": "ICICI Prudential Nifty 50 ETF",
+    "ITBEES": "Nippon India ETF IT BeES",
+    "PSUBNKBEES": "Nippon India ETF PSU Bank BeES",
+    "MOM100": "Motilal Oswal M100 ETF",
+    "MON100": "Motilal Oswal NASDAQ 100 ETF",
+    "MAFANG": "Mirae Asset NYSE FANG+ ETF",
+    "MAKEINDIA": "Motilal Oswal Mfg India ETF",
+    "MOM50": "Motilal Oswal M50 ETF",
+    "HDFCMID150": "HDFC Nifty Midcap 150 ETF",
+}
+
+
+async def _ensure_etf_catalog(session) -> int:
+    """Get-or-create stocks rows (is_etf=True) for the curated ETF symbols."""
+    created = 0
+    for bare in sorted(ETF_SYMBOLS):
+        symbol = f"{bare}.NS"
+        existing = await session.scalar(select(Stock).where(Stock.symbol == symbol))
+        if existing is not None:
+            if not existing.is_etf:
+                existing.is_etf = True
+            continue
+        session.add(
+            Stock(
+                symbol=symbol,
+                name=ETF_NAMES.get(bare, bare),
+                is_etf=True,
+            )
+        )
+        created += 1
+    if created:
+        await session.flush()
+    return created
+
+
+async def ingest_etfs(
+    provider: MarketDataProvider | None = None, batch_size: int = BATCH_SIZE
+) -> dict:
+    """Ensure the curated ETF catalog rows exist and fetch their price history.
+
+    ETFs reuse the EQUITY price pipeline (daily_prices via stocks rows flagged
+    is_etf) but never enter universes, the screener or the /stocks list —
+    they surface only through GET /etfs. Per-symbol isolation (D19).
+    """
+    provider = provider or build_default_market_provider()
+
+    async with SessionLocal() as session:
+        created = await _ensure_etf_catalog(session)
+        await session.commit()
+    if created:
+        logger.info("ETF catalog: %d rows created", created)
+
+    symbols = [f"{bare}.NS" for bare in sorted(ETF_SYMBOLS)]
+    bars = 0
+    errors: list[str] = []
+    for i in range(0, len(symbols), batch_size):
+        batch = symbols[i : i + batch_size]
+        results = await asyncio.gather(
+            *(_fetch_one_symbol(provider, s) for s in batch),
+            return_exceptions=True,
+        )
+        for symbol, res in zip(batch, results):
+            if isinstance(res, Exception):
+                logger.error("Failed to ingest ETF prices for %s: %s", symbol, res)
+                errors.append(symbol)
+            else:
+                _, stored = res
+                bars += stored
+
+    logger.info(
+        "ETF ingestion done: %d symbols, %d bars, %d errors",
+        len(symbols) - len(errors),
+        bars,
+        len(errors),
+    )
+    return {"fetched": len(symbols) - len(errors), "bars": bars, "errors": len(errors)}
+
+
+# --- Mutual-fund ingestion (Plan 8 slice: AMFI daily NAV, curated catalog) ----
+
+async def ingest_funds(
+    backfill_history: bool = False,
+    client=None,
+) -> dict:
+    """Sync the curated fund catalog with the official AMFI NAVAll file.
+
+    For every curated entry matched in today's file: get-or-create the fund
+    row (AMFI verbatim name, plan/option) and upsert the daily NAV point
+    (idempotent by fund+date). backfill_history=True additionally pulls each
+    matched scheme's NAV history from api.mfapi.in (documented FALLBACK
+    source, rows tagged source='mfapi') so 1m/3m/6m returns exist on day
+    one; the nightly AMFI point keeps history current thereafter.
+    Failures are isolated per fund (D19).
+    """
+    text = await fetch_amfi_navall(client=client)
+    rows = parse_navall(text)
+    if not rows:
+        raise MarketDataError("AMFI NAVAll parsed to zero rows; refusing to sync")
+
+    matched: list[tuple[CuratedFund, object]] = []
+    unmatched: list[str] = []
+    for entry in CURATED_FUNDS:
+        hit = match_curated(rows, entry)
+        if hit is None:
+            unmatched.append(entry.match)
+        else:
+            matched.append((entry, hit))
+    if unmatched:
+        logger.warning(
+            "Fund catalog: %d curated entries unmatched today: %s",
+            len(unmatched), ",".join(unmatched),
+        )
+
+    synced = 0
+    errors: list[str] = []
+    for entry, hit in matched:
+        try:
+            async with SessionLocal() as session:
+                fund = await fund_repo.get_or_create_fund(
+                    session,
+                    amfi_code=hit.code,
+                    name=hit.name,
+                    category=entry.category,
+                    plan=hit.plan,
+                    option=hit.option,
+                )
+                await fund_repo.upsert_navs(
+                    session, fund.id, [(hit.date, hit.nav, "amfi")]
+                )
+                if backfill_history:
+                    try:
+                        history = await fetch_mfapi_history(hit.code, client=client)
+                        capped = history[-MFAPI_BACKFILL_DAYS:]
+                        await fund_repo.upsert_navs(
+                            session, fund.id,
+                            [(d, nav, "mfapi") for d, nav in capped],
+                        )
+                    except MarketDataError as exc:
+                        # Fallback-only failure is not fatal: the AMFI NAV
+                        # stands. Logged, never silent.
+                        logger.warning(
+                            "mfapi backfill failed for %s: %s", hit.code, exc
+                        )
+                await fund_repo.refresh_latest_nav(session, fund.id)
+            synced += 1
+        except Exception as exc:
+            logger.error("Failed to ingest fund %s: %s", entry.match, exc)
+            errors.append(entry.match)
+
+    logger.info(
+        "Fund ingestion done: %d synced, %d errors, %d unmatched",
+        synced, len(errors), len(unmatched),
+    )
+    return {
+        "fetched": synced,
+        "rows": len(matched),
+        "errors": len(errors),
+        "unmatched": len(unmatched),
+        "backfilled": backfill_history,
+    }
+
+
 # --- Top-1000 universe ranking (M1-T2, Plan 7) -------------------------------
 
 async def _fetch_one_mcap(
@@ -1335,18 +1598,22 @@ async def _ingest_passes() -> dict:
         ("ingest_prices", ingest_universe),
         ("ingest_financials", ingest_financials),
         ("ingest_financial_periods", ingest_financial_periods),
+        ("ingest_balance_sheets", ingest_balance_sheets),
         ("ingest_company_profiles", ingest_company_profiles),
         # Benchmark indexes (M1-T6): own tables, own measured contribution.
         ("ingest_benchmarks", ingest_benchmarks),
+        # ETF catalog + prices (Plan 9 slice); is_etf stocks, never universes.
+        ("ingest_etfs", ingest_etfs),
+        # Curated fund catalog + AMFI daily NAV (Plan 8 slice).
+        ("ingest_funds", ingest_funds),
         # Catch catalog stocks the universe passes dropped (renames/demergers).
         ("repair_catalog_gaps", repair_catalog_gaps),
         ("backfill_alpha_history", backfill_alpha_history),
         # Today's live snapshot per symbol (Phase 8: GET /alpha is pure read,
         # so ingestion owns the write that keeps per-component history current).
         ("record_live_alpha_snapshots", record_live_alpha_snapshots),
-        # Pre-warm explanations AFTER the alpha pass so each stock's snapshot
-        # for today already exists when its narrative is generated and cached.
-        ("prewarm_alpha_explanations", prewarm_alpha_explanations),
+        # Plan 18: no nightly LLM pre-warm — explanations are on-demand with
+        # the rule-based default; the pre-warm helper remains for manual use.
         ("ingest_news", ingest_news),
     )
     statuses = []
@@ -1439,7 +1706,18 @@ if __name__ == "__main__":
         # audit trail and the top1000 universe. Monthly cadence is wired in
         # M1-T5; manual here.
         asyncio.run(_record_pass("rank_universe", rank_universe))
+    elif command == "etfs":
+        # ETF catalog + price history (Plan 9 slice); recorded like a pass.
+        asyncio.run(_record_pass("ingest_etfs", ingest_etfs))
+    elif command == "funds":
+        # Curated fund catalog + AMFI daily NAV, plus the mfapi history
+        # backfill (documented fallback) on explicit runs.
+        asyncio.run(_record_pass("ingest_funds", ingest_funds, True))
+    elif command == "balance-sheets":
+        # Annual balance sheets for the active universe (Altman Z-Score data).
+        asyncio.run(_record_pass("ingest_balance_sheets", ingest_balance_sheets))
     else:
         raise SystemExit(
-            f"Unknown command: {command} (use 'backfill', 'ingest' or 'rank')"
+            f"Unknown command: {command} "
+            "(use 'backfill', 'ingest', 'rank', 'etfs', 'funds' or 'balance-sheets')"
         )

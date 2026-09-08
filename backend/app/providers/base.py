@@ -108,6 +108,26 @@ class FinancialPeriodDraft:
     source: str = ""
 
 
+@dataclass(frozen=True)
+class BalanceSheetDraft:
+    """One historical annual balance-sheet period (Plan 5.4, Altman Z-Score).
+
+    Values are raw provider numbers in RUPEES. ebit is carried from the
+    income statement (Altman X3 numerator). None means the provider did not
+    supply the field for that period; callers must never invent a value.
+    """
+
+    period_end: date
+    period_type: str  # "annual"
+    working_capital: float | None = None
+    total_assets: float | None = None
+    retained_earnings: float | None = None
+    ebit: float | None = None
+    book_equity: float | None = None
+    total_liabilities: float | None = None
+    source: str = ""
+
+
 class MarketDataProvider(ABC):
     """Contract every market data source must implement."""
 
@@ -139,6 +159,18 @@ class MarketDataProvider(ABC):
         Returns a Fundamentals object; fields the source cannot supply are None.
         """
         ...
+
+    async def get_balance_sheet(
+        self, symbol: str
+    ) -> list["BalanceSheetDraft"]:
+        """Return historical annual balance-sheet periods for a symbol.
+
+        Optional capability (D56 pattern): providers without it keep the
+        default, which callers treat as "no balance-sheet data available"
+        (never an error). Implementations return one draft per annual
+        reporting period, newest first.
+        """
+        raise NotImplementedError(f"{type(self).__name__} has no balance sheet")
 
     async def get_financial_history(
         self, symbol: str, period_type: str = "annual"

@@ -15,7 +15,6 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_session
-from app.repositories import financials as fin_repo
 from app.routers.common import resolve_stock
 from app.services import altman as altman_svc
 
@@ -40,15 +39,14 @@ class AltmanResponse(BaseModel):
 async def get_altman(symbol: str, session: SessionDep) -> AltmanResponse:
     """Financial-distress diagnostic for one stock (Altman Z'', 1995).
 
-    Reads the stored financial snapshot through the single honest reader
-    (services/altman.from_stored_snapshot). Pure read: no provider calls, no
-    writes, deterministic per stored row.
+    Reads the latest stored annual balance-sheet period through the single
+    honest reader (services/altman.compute_stock_altman). Pure read: no
+    provider calls, no writes, deterministic per stored rows. Stocks whose
+    balance sheet is not stored (or is non-standard, e.g. banks) get
+    status=unavailable with the reason — never a manufactured score.
     """
     stock = await resolve_stock(session, symbol)
-    fundamentals = await fin_repo.get_financials(session, stock)
-    result = altman_svc.from_stored_snapshot(
-        fundamentals, sector=stock.sector, industry=stock.industry
-    )
+    result = await altman_svc.compute_stock_altman(session, stock)
     return AltmanResponse(
         symbol=stock.symbol,
         status=result.status,

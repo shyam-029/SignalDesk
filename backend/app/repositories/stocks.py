@@ -39,6 +39,14 @@ async def get_peers(session: AsyncSession, stock: Stock) -> list[Stock]:
 
 
 async def list_all_symbols(session: AsyncSession) -> list[str]:
-    """Return every symbol in the catalog (used by the screener)."""
-    result = await session.execute(select(Stock.symbol).order_by(Stock.symbol))
+    """Return every EQUITY symbol in the catalog (used by the screener).
+
+    ETFs (is_etf) are a separate domain (Plan 9, GET /etfs) and never enter
+    the equity screener.
+    """
+    result = await session.execute(
+        select(Stock.symbol)
+        .where(Stock.is_etf.is_(False))
+        .order_by(Stock.symbol)
+    )
     return list(result.scalars())

@@ -2,7 +2,7 @@
 
 > **Purpose:** The operational companion to `SEMESTER2_PLAN.md`. Read this file FIRST to resume work, then the plan for the what/why.
 > **Rules:** Current state, then active milestone, then next task. Checklists per milestone. Verification results. Risks and pending human decisions stay visible until closed.
-> **Last updated:** 2026-09-08 (M1-T3+T4+T6 done local-measured: 500 fixed, top1000 cutover live, benchmarks live, Altman Z'' live; backend 410/410, frontend 73/73, tsc clean, build OK).
+> **Last updated:** 2026-09-08 (M1-T3+T4+T6 done + follow-up: real Altman Z-Scores live (1,000/1,000 balance sheets ingested, 796/1000 with full inputs), ETF page live, curated mutual-funds page live with real AMFI NAVs; backend 423/423, frontend 73/73, tsc clean, build OK).
 > **Companion:** `SEMESTER2_PLAN.md` (sections cited as Plan 1-30). Semester 1 record: `PLANNING.md` / `PROGRESS.md`, frozen, unmodified.
 
 ---
@@ -14,7 +14,7 @@
 | Repo / branch / HEAD | `C:\Users\shyam\Desktop\Projects\signaldesk`, `main`, `968a44d` (Phase 8 complete, clean tree) |
 | Semester 1 | COMPLETE (Phases 1-8). Backend 348/348 (zero-network), frontend 72/72, tsc clean, build OK |
 | Semester 2 plan | COMPLETE (`SEMESTER2_PLAN.md`, 30 sections + appendices) |
-| Semester 2 implementation | IN PROGRESS (M1-T1, M1-T2, M1-T3, M1-T4, M1-T6 done; T5/T7 remain) |
+| Semester 2 implementation | IN PROGRESS (M1-T1, T2, T3, T4, T6 done + ETF/fund/Z-score slices live; T5/T7 remain) |
 | Active milestone | **M1 - Scale-Up and Ship It** |
 | Next concrete task | **M1-T5:** production deploy per Plan 21 (gated by this report's PASS WITH CHANGES) |
 
@@ -166,3 +166,33 @@ Symbols: `^NSEI` (NIFTY 50), `^NSEBANK` (NIFTY BANK), `^CNXIT` (NIFTY IT), `^CRS
 Formulation: **Altman Z'' (1995, non-manufacturing / emerging-market)**: Z'' = 6.56*X1 + 3.26*X2 + 6.72*X3 + 1.05*X4 (X1 working capital/assets, X2 retained earnings/assets, X3 EBIT/assets, X4 book equity/liabilities); zones safe >2.6 / grey 1.1-2.6 / distress <1.1. Chosen because the SignalDesk universe is dominated by services/IT/financials: the 1968 Z and 1993 Z' both include X5 sales/assets (asset turnover), which structurally penalizes asset-light companies, and Z uses market-value leverage (pro-cyclical for a daily screen). Z'' drops X5 and uses book equity.
 Required inputs: working capital, total assets, retained earnings, EBIT, book equity, total liabilities (all balance-sheet). Available in SignalDesk today: NONE (Semester 1 stores income statements only; snapshot carries no balance-sheet levels). Unavailable: all six. Coverage: 0% calculable today (honest); every response is status=unavailable with reason + missing-input list. Financials (sector markers: financial/bank/insurance/NBFC/housing finance) are non_applicable_financial even with data (verified live: HDFCBANK.NS). Example computed values (unit tests, hand-verified): safe 4.87, grey 2.06, distress -1.53; zone boundaries pinned. Missing values are never zero-filled; non-positive denominators are invalid_input.
 Exposed: `GET /api/v1/stocks/{symbol}/altman` (pure read, deterministic, no provider calls) + FundamentalsSection "Financial distress" panel + methodology page section + METRIC_INFO `altman` entry. Solvency Score untouched (verified: same inputs still score 90/100 profitability/solvency in tests; Alpha weights unchanged). Tests: 17 backend (known I/O, missing/invalid, non-applicable, determinism, API incl. solvency-intact) + 1 frontend (endpoint shape) green. Pipeline position: pure read over the stored snapshot on request (no nightly pass needed; `_ingest_all` docstring records the verified cycle). Folding Altman into Alpha weights is documented as a FUTURE design decision, not implemented.
+
+## 13. Follow-up round (2026-09-08, same day): Z-Scores now score, ETF + fund domains live
+
+### 13.1 Altman Z-Score: real scores (was: honestly unavailable for everyone)
+
+The M2 balance-sheet slice was pulled forward because a distress score that can never compute is a placeholder, not a feature.
+- Migration `f1a2b3c4d5e6`: `balance_sheet_periods` (annual; working_capital, total_assets, retained_earnings, ebit, book_equity, total_liabilities, source; UNIQUE(stock_id, period_end, period_type)).
+- Provider capability `get_balance_sheet` on the ABC (D56 pattern) + yfinance implementation (annual `balance_sheet` + `EBIT` from `income_stmt`; Working-Capital fallback CA-CL; banks legitimately lack it). `MergingProvider` passes it through (primary wins, secondary gap-fills).
+- Nightly pass `ingest_balance_sheets` (batched, D19 isolation, CLI `balance-sheets`). MEASURED full run: 1,000/1,000 top-1000 stocks covered, 4,840 rows, 0 errors, **461s**. DB 104 -> 108 MB.
+- Coverage: 796/1,000 latest periods carry ALL six inputs; the rest are mostly banks/NBFCs (no Working Capital) -> honest unavailable/non-applicable. Example live scores: RELIANCE **2.18 grey**, TCS **8.46 safe**; HDFCBANK `non_applicable_financial`. The reader (`compute_stock_altman`) stays a pure DB read on request.
+- Tests: 13 new (upsert/idempotency/isolation, input mapping incl. never-zero-fill, available case x10 = same score, no-row unavailable, API).
+
+### 13.2 ETF domain (Plan 9 slice, pulled forward)
+
+- `ingest_etfs` pass + CLI `etfs`: get-or-create `is_etf` stocks rows for the curated `ETF_SYMBOLS` (16 majors; same set the ranking excludes, single source of truth) + price history via the standard equity pipeline. `ICICINIFTY.NS` has no Yahoo data (honest skip, 0 errors).
+- `GET /api/v1/etfs`: symbol, name, last price, 1D, 1Y return, as-of. `/stocks` list + screener now exclude `is_etf` rows, so equity surfaces stay clean. 16/16 rows live with real prices (e.g. BANKBEES 589.09, 1Y +5.1%).
+- Frontend `/etfs` page (nav link "ETFs") with DataState discipline; rows link to the standard research page.
+
+### 13.3 Mutual-fund domain (Plan 8 slice, pulled forward)
+
+- Tables `mutual_funds` + `mf_nav_history` (same migration). Curated catalog of 21 entries matched against the official AMFI NAVAll file by name+plan+option (verified against the LIVE file 2026-09-08: several funds renamed — Axis/ICICI Bluechip -> Large Cap, HDFC Mid-Cap Opportunities -> HDFC Mid Cap, Mirae Tax Saver -> Mirae Asset ELSS Tax Saver; the list matches 22 rows because one curated entry legitimately matches an extra share-class row; unmatched entries are logged, never guessed).
+- `ingest_funds` pass + CLI `funds`: AMFI NAVAll is PRIMARY (8-column shape parsed defensively); mfapi.in history backfill (750 days, `source='mfapi'`) is the documented FALLBACK. MEASURED: 22 funds across 10 categories, 16,501 NAV rows, latest NAVs 2026-09-07/08, real returns live (e.g. UTI Nifty 50 Index 3M +3.40%).
+- `GET /api/v1/funds` + `/funds/{id}` (returns computed backend-side by `services/funds.window_returns`; missing windows = null). Frontend `/funds` + `/funds/:id` pages (nav links "Funds").
+- 9 new backend tests (parser shapes, share-class matching, catalog+NAV job, idempotent rerun, window-returns math, ETF row creation/universe exclusion).
+
+### 13.4 Other changes in this round
+
+- Plan 18 conformance: `prewarm_alpha_explanations` REMOVED from the nightly passes (no nightly bulk LLM pre-warming; helper retained for manual use).
+- Fund/ETF ingestions ride the nightly `_ingest_passes` (measured contributions: balance sheets ~8 min at 1000, funds ~seconds after first sync, ETFs seconds).
+- Suites: backend **423/423**, frontend **73/73**, `tsc -b` clean, `vite build` OK. Storage 108 MB of 512 MB.
