@@ -1,0 +1,121 @@
+# SignalDesk - Semester 2 Progress Tracker
+
+> **Purpose:** The operational companion to `SEMESTER2_PLAN.md`. Read this file FIRST to resume work, then the plan for the what/why.
+> **Rules:** Current state, then active milestone, then next task. Checklists per milestone. Verification results. Risks and pending human decisions stay visible until closed.
+> **Last updated:** 2026-09-08 (M1-T1 CI workflow done: two green runs, backend 348/348 + alembic head, frontend 72/72 + tsc + build).
+> **Companion:** `SEMESTER2_PLAN.md` (sections cited as Plan 1-30). Semester 1 record: `PLANNING.md` / `PROGRESS.md`, frozen, unmodified.
+
+---
+
+## 1. Current State
+
+| Item | State |
+|---|---|
+| Repo / branch / HEAD | `C:\Users\shyam\Desktop\Projects\signaldesk`, `main`, `968a44d` (Phase 8 complete, clean tree) |
+| Semester 1 | COMPLETE (Phases 1-8). Backend 348/348 (zero-network), frontend 72/72, tsc clean, build OK |
+| Semester 2 plan | COMPLETE (`SEMESTER2_PLAN.md`, 30 sections + appendices) |
+| Semester 2 implementation | STARTED (M1-T1 done) |
+| Active milestone | **M1 - Scale-Up and Ship It** |
+| Next concrete task | **M1-T2:** top-1000 ranking job (eligibility rules E1-E12 with per-symbol audit reasons) |
+
+## 2. Milestone Board
+
+| Milestone | Status | Depends on | Definition of done |
+|---|---|---|---|
+| M1 - Scale-Up and Ship It | IN PROGRESS (T1 done) | - | Plan 24/M1 |
+| M2 - Statements and Depth | NOT STARTED | M1 | Plan 24/M2 |
+| M3 - Accounts and Workspace | NOT STARTED | M1 (parallel with M2) | Plan 24/M3 |
+| M4 - Fund Data Backbone | NOT STARTED | M1 | Plan 24/M4 |
+| M5 - Fund Research Experience | NOT STARTED | M4 | Plan 24/M5 |
+| M6 - ETF Layer | NOT STARTED | M2 + M5 | Plan 24/M6 |
+| M7 - Scenario and Forecast Lab | NOT STARTED | M4/M5 | Plan 24/M7 |
+| M8 - Research Synthesis and Close | NOT STARTED | All | Plan 27 |
+
+## 3. Active Milestone Checklist (M1)
+
+- [x] M1-T1: `.github/workflows/ci.yml` runs backend pytest (348 baseline), frontend vitest/tsc/build on every push
+- [ ] M1-T2: top-1000 ranking job implements eligibility rules E1-E12 (Plan 7) with per-symbol audit reasons
+- [ ] M1-T3: one measured end-to-end chunked ingestion run in Actions; runtime recorded vs 6h cap (Plan 22)
+- [ ] M1-T4: storage projection recorded vs 0.5 GB cap; canary test in place (Plan 22)
+- [ ] M1-T5: production deploy per Plan 21 (Pages + Render + Neon + cron); `/health` and `/status/full` smoke green
+- [ ] M1-T6: benchmark index ingestion (`^NSEI`, sector symbols) live
+- [ ] M1-T7: nightly cron green one full week; zero-cost itemized and verified
+- [ ] News breadth gate: news stays core-500 until the M1-T3 benchmark proves headroom (tiered decision)
+
+## 4. Upcoming Milestone Checklists (brief; detail in Plan 24)
+
+- M2: statements/dividends/earnings/risk endpoints + pages; enriched peers; sector indexes; Alpha v2 specified, implemented, snapshotted; screener precompute live.
+- M3: auth routes + sessions; workspace schema/endpoints/pages; scoping + adversarial auth tests green; auth rate bucket enforced.
+- M4: AMFI NAV + catalog ingestion; curated universe (~800) with documented cut rule; NAV backfill; nightly metric precompute.
+- M5: fund detail/screener/compare; holdings Excel-first ingestion; overlap engine with exact definitions; three-pair hand-reproducible DoD.
+- M6: ETF flags + metadata + screener + detail; tracking difference where free index data exists.
+- M7: bootstrap/block-bootstrap + goal simulator + walk-forward backtests; leakage + calibration suites; five-state labeling; Alpha hit-rate backtest.
+- M8: stock comparator; PDF reports; LLM-on-funds on-demand; methodology pages; final DoD audit.
+
+## 5. Verification and Test Results
+
+- Semester 1 freeze (2026-09-08 @ `968a44d`): backend pytest **348/348**, frontend vitest **72/72**, `tsc -b` clean, `vite build` OK. Coverage about 78 percent.
+- M1-T1 CI (2026-09-08 @ `9dfd182`): two consecutive green runs (push `34211797445` + `workflow_dispatch` re-run `34212950591`). Backend job: `alembic upgrade head` clean through all 7 migrations to `c1d2e3f4a5b6`, pytest **348 passed** (33.70s / 33.29s). Frontend job: vitest **72 passed** (9 files), `tsc -b` clean, `vite build` OK (4.55s / 4.53s). No env diffs found; zero-network suite ran unchanged against the `postgres:17` service.
+
+## 6. Known Risks and Blockers
+
+- **Neon 0.5 GB storage hard cap** (exceeding suspends compute): mitigated by Plan 22 budget + retention + canary; first cut defined (alpha backfill depth outside top 250).
+- **Actions 6-hour job cap** at full 1000-symbol breadth: M1-T3 benchmark is the gate; ingestion is chunked with continuation.
+- **Upstox manual token expires**: human renewal required; yfinance-only fallback designed in; owner TBD (Plan 29).
+- **Yahoo throttling** at 1000 symbols: chunked, rate-limit-aware ingestion; retry/backoff already in `jobs.py`.
+- **OpenRouter free = 50 requests/day** (under 10 USD all-time credits): LLM on-demand only, ~45/day ceiling, rule-based default (Plan 18).
+- **Render free cold starts** (~30-60s) and 512 MB RAM: FinBERT stays out of the API image; static shell + skeletons absorb cold starts.
+- **Free OpenRouter model IDs rotate**: availability probe + fallback already exist (`/ask` pattern).
+- **Yahoo market cap gaps** for some small caps: ranking rule E7 excludes with audit reason, never estimates.
+- **MF holdings formats heterogeneous**: Excel-first, monthly cadence accepted; the riskiest data dependency (Plan 8.4, 13).
+
+## 7. Data-Source, Runtime and Storage Findings (verified 2026-09-08)
+
+- Neon Free: 0 USD permanent, no card; 0.5 GB/project hard; 100 CU-hours/month; scale-to-zero 5 min; 5 GB egress. (Official pricing page.)
+- Render Hobby: free web 512 MB/0.1 CPU with spindown; **free Postgres 30-day limit: rejected as DB**. 500 build-min/month. (Official pricing page.)
+- Cloudflare Pages Free: 500 builds/month, 20k files, 25 MiB/file, effectively unlimited static bandwidth. (Official limits page.)
+- OpenRouter free variants: 20 req/min; 50 req/day (<10 USD credits); 1000/day after one-time 10 USD purchase (optional, outside strict zero-cost plan). (Official limits page.)
+- GitHub Actions: free unlimited standard minutes on public repos; 6h/job cap.
+- Supabase Free kept as DB fallback (500 MB, 7-day idle pause).
+- Upstox supplies no market cap (Semester 1 data-quality finding): ranking depends on Yahoo mcap alone (Plan 7, rule E6 limitation).
+- No legitimate free NSE real-time feed; no free transcript source; exchange shareholding scraping is terms-gray (not committed without review).
+- Storage estimate at full scale roughly 320-450 MB vs 0.5 GB cap (Plan 22). Runtime estimate roughly 2.5-4.5 h vs 6h cap (Plan 22). Both UNCONFIRMED until M1-T3/T4 measure them.
+
+## 8. Deployment Status
+
+Not deployed. Target topology: Cloudflare Pages (frontend) + Render free API + Neon free Postgres + GitHub Actions cron/CI (Plan 21). Runbook: Plan 28. Blocked only on human decisions in section 9 (hosting choice among verified-free options is made; account creation + secrets entry remain).
+
+## 9. Human Decisions Still Pending
+
+- Custom domain (~10 USD/year, optional, outside zero-cost plan).
+- One-time 10 USD OpenRouter top-up (optional, outside the plan).
+- Email verification / password-reset flows now or later (v1: neither; admin-assisted recovery).
+- Fund-universe curation cut rule (proposed: top by AUM per category to ~800).
+- MF holdings automation level (manual monthly download vs semi-automated fetch + review).
+- Upstox token renewal owner and cadence (or drop to yfinance-only).
+- News breadth step-up 500 to 1000 after M1 benchmark.
+- Legal-review pass on disclaimers, simulation wording, ownership-data collection.
+
+## 10. Operational Gotchas (durable, carried from Semester 1)
+
+- **PostgreSQL on Windows `0xC0000142`:** if backends die on connect while port 5432 listens, suspect antivirus/VSS interference with the log file; stable launch is `postgres.exe -D <data>` directly (not `pg_ctl -l` with a shared server.log). Full incident in git history of `PROGRESS.md`.
+- **Stale uvicorn serves old code** (new routes 404 without envelope): restart backend after pulling changes.
+- **Do not rewrite .md files with PowerShell text processing** (PS 5.1 mangles UTF-8): use the file editor; restore via `git checkout -- <file>`.
+- Charts must gate on real container width (ResizeObserver): collapsible sections keep content mounted at width 0.
+- Postgres `Numeric` returns `Decimal`: compare with `Decimal(...)` in tests, not float.
+- `published_at` must be timezone-aware; race-safe upserts via `ON CONFLICT DO NOTHING` on URL/unique anchors.
+- Test engine must be function-scoped (pytest-asyncio loop affinity); redirect DB via `app.dependency_overrides[get_session]`; never touch prod engine.
+- Alembic env is async: never switch it back to sync. Migration head at S1 freeze: `c1d3...` chain ending with job-runs migration (verify with `alembic current` before new work).
+- FinBERT loads lazily behind a thread lock and is heavy (~420 MB): ingestion-runtime only, never in the API image.
+- `OPENROUTER_API_KEY` is an alias for `LLM_API_KEY`; empty model disables LLM by design.
+- Scoring must renormalize over missing fields; nulls stay null; no emulator math in the frontend.
+- Copy discipline is a hard rule for anything user-visible (no em dashes, no AI-tell wording, "-" null placeholder, normalized disclaimer).
+
+## 11. Work Log
+
+- 2026-09-08: Semester 2 master plan written (`SEMESTER2_PLAN.md`, 30 sections); this tracker created. No application code changed. Semester 1 `PLANNING.md`/`PROGRESS.md` left untouched. No commit, no push.
+- 2026-09-08: **M1-T1 done** @ `9dfd182` - added `.github/workflows/ci.yml` (two parallel jobs, push/PR to `main` + `workflow_dispatch`; backend: Python 3.12, `postgres:17` service on localhost:5432 with `signaldesk_test` DB matching conftest, pip cache, `alembic upgrade head` then pytest; frontend: Node 22, npm cache, `npm ci`, `npm test`, `npm run typecheck`, `npm run build`). Run 1 (push, `34211797445`) and run 2 (`workflow_dispatch` re-run, `34212950591`) both green: backend 348/348 with migrations to head `c1d2e3f4a5b6`; frontend 72/72, tsc clean, build OK. No flakiness observed; no env diffs found; no application/test code touched. Known cosmetic issue only: GitHub annotations warn that `actions/*` v4/v5 Node 20 targets are force-run on Node 24 (deprecation notice from GitHub, not a failure; revisit when actions v5/v6 replacements stabilize).
+
+---
+
+*Resume here. Next: M1-T2 (top-1000 ranking job). Plan reference: `SEMESTER2_PLAN.md` section 30.*
