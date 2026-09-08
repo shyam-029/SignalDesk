@@ -14,7 +14,7 @@ from app import jobs
 from app.models import AlphaScore, DailyPrice, Financials, Stock
 from app.repositories import alpha as alpha_repo
 from app.repositories import prices as price_repo
-from app.services.alpha import _mean_of, _renormalized, compute_alpha
+from app.services.alpha import _mean_of, _renormalized, blend_fundamental, compute_alpha
 from app.services import indicators
 
 
@@ -34,11 +34,11 @@ def test_renormalized_uses_all_weights():
 
 
 def test_renormalized_drops_missing_component():
-    # Only fundamental + technical: weights become 0.4/0.3 renormalized = 0.57/0.43
+    # Only fundamental + technical: weights become 0.4/0.35 renormalized = 0.533/0.467
     c, w = _renormalized(100, 0, None)
-    assert c == round(100 * 0.4 / 0.7 + 0 * 0.3 / 0.7)
-    assert abs(w["fundamental"] - 0.57) < 0.01
-    assert abs(w["technical"] - 0.43) < 0.01
+    assert c == round(100 * 0.4 / 0.75)
+    assert abs(w["fundamental"] - 0.53) < 0.01
+    assert abs(w["technical"] - 0.47) < 0.01
 
 
 def test_renormalized_all_missing():
@@ -48,10 +48,39 @@ def test_renormalized_all_missing():
 
 
 def test_renormalized_mix():
-    # fundamental 100 (40%), technical 50 (30%), sentiment 0 (30%)
-    # = 40 + 15 + 0 = 55
+    # fundamental 100 (40%), technical 50 (35%), sentiment 0 (25%)
+    # = 40 + 17.5 + 0 = 57.5 -> 58
     c, _ = _renormalized(100, 50, 0)
-    assert c == 55
+    assert c == 58
+
+
+def test_blend_fundamental_v15():
+    """Fundamental pillar: profit .45 / solvency .30 / distress .25 renormalized."""
+    # All three: (0.45*80 + 0.30*60 + 0.25*40) / 1.0 = 36 + 18 + 10 = 64
+    assert blend_fundamental(80, 60, 40) == 64
+    # Distress unavailable -> renormalize over profit+solvency (never zero-fill):
+    # (0.45*80 + 0.30*60) / 0.75 = 54/0.75 = 72
+    assert blend_fundamental(80, 60, None) == 72
+    # Profitability missing: (0.30*60 + 0.25*40) / 0.55 = (18+10)/0.55 = 50.9 -> 51
+    assert blend_fundamental(None, 60, 40) == 51
+    assert blend_fundamental(None, None, None) is None
+
+
+def test_distress_score_mapping():
+    """Z'' -> 0-100 mapping is monotone and zone-anchored."""
+    from app.services.altman import distress_score_0_100 as m
+
+    assert m(-1.0) == 0
+    assert m(0.0) == 0
+    assert m(0.55) == 20          # halfway through the distress zone
+    assert m(1.1) == 40           # distress/grey boundary
+    assert m(2.6) == 70           # grey/safe boundary
+    assert m(5.0) == 100          # saturation
+    assert m(9.0) == 100
+    assert m(1.85) == 55          # grey midpoint
+    # Monotone increasing over the whole documented range.
+    samples = [m(z / 10.0) for z in range(0, 51)]
+    assert all(b >= a for a, b in zip(samples, samples[1:]))
 
 
 # --- Indicators integration ---------------------------------------------------
@@ -63,6 +92,22 @@ def test_indicators_produce_technical_score():
     assert tech["score"] is not None
     assert 0 <= tech["score"] <= 100
     assert {"trend", "momentum", "reversion"} <= set(tech["components"])
+
+
+def test_technical_sensitivity_spends_the_band():
+    """v1.5 recalibration: observable states span the full sub-score range.
+
+    The old constants mapped a stock 5% above its SMA20 to a trend score of
+    ~62 — one more "moderate" read. The recalibrated bands put the same
+    state at ~78 and the mirrored fall at ~21, so the evidence differentiates.
+    """
+    flat = [100.0] * 40
+    above = flat[:-1] + [105.0]  # ~5% above SMA20
+    tech = indicators.score_technicals(above)
+    assert tech["components"]["trend"] > 75
+    below = flat[:-1] + [95.0]
+    tech2 = indicators.score_technicals(below)
+    assert tech2["components"]["trend"] < 25
 
 
 # --- Repository tests ---------------------------------------------------------

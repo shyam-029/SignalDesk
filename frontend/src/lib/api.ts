@@ -28,6 +28,7 @@ import type {
   Sentiment,
   StockDetail,
   StockListResponse,
+  StockSearchResponse,
   Technicals,
   TechnicalsSeriesResponse,
   Valuation,
@@ -111,6 +112,11 @@ export function apiGet<T>(path: string): Promise<T> {
   return request<T>(path);
 }
 
+/** GET with an AbortSignal (the header search debounces + cancels). */
+export function apiGetSignal<T>(path: string, signal?: AbortSignal): Promise<T> {
+  return request<T>(path, { signal });
+}
+
 export function apiPost<T>(path: string, body: unknown): Promise<T> {
   return request<T>(path, {
     method: "POST",
@@ -146,6 +152,13 @@ export const api = {
   // Altman Z-Score distress diagnostic: separate from /scores by design.
   altman: (symbol: string) =>
     apiGet<AltmanResponse>(`/stocks/${encodeURIComponent(symbol)}/altman`),
+
+  // Server-side search over the ranked universe (symbol or company name).
+  search: (query: string, signal?: AbortSignal) =>
+    apiGetSignal<StockSearchResponse>(
+      `/stocks/search?q=${encodeURIComponent(query)}`,
+      signal,
+    ),
 
   // --- ETF + fund domains (Plan 8/9 slices) ---
 

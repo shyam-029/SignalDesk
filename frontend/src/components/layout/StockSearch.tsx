@@ -2,34 +2,68 @@ import * as React from "react";
 import { useNavigate } from "react-router-dom";
 import { Loader2, Search } from "lucide-react";
 
-import { useStockList } from "@/lib/hooks";
-import { filterStocks } from "@/lib/search";
+import { api } from "@/lib/api";
 import { StockLogo } from "@/components/stock/StockLogo";
 import { cn } from "@/lib/utils";
 
 /**
- * StockSearch: header search over the live catalog. Matches by ticker (with
- * or without the .NS suffix) and by company name, ranks ticker-prefix hits
- * first, and navigates to the research page on selection. Arrow keys move
+ * StockSearch: header search over the active ranked universe. Queries the
+ * backend's server-side search endpoint (symbol or company name) with a
+ * short debounce — the catalog is 2,900+ rows and the old client-side
+ * filter over the first page hid every ranked stock beyond row 250
+ * (ETERNAL, SWIGGY, IFCI were ranked-in and unfindable). Arrow keys move
  * through the results, Enter opens the highlighted one, Escape dismisses.
- * The list is the real /stocks response (250 constituents, cached) - no
- * separate search endpoint, nothing fabricated.
  */
 export function StockSearch({ className }: { className?: string }) {
   const [query, setQuery] = React.useState("");
   const [open, setOpen] = React.useState(false);
   const [active, setActive] = React.useState(0);
+  const [results, setResults] = React.useState<
+    Array<{ symbol: string; name: string }>
+  >([]);
+  const [loading, setLoading] = React.useState(false);
+  const [failed, setFailed] = React.useState(false);
   const navigate = useNavigate();
-  const catalog = useStockList(1, 250);
 
-  const items = catalog.data?.items ?? [];
-  const hits = React.useMemo(() => filterStocks(items, query), [items, query]);
-  const show = open && query.trim().length > 0;
+  const trimmed = query.trim();
+  const show = open && trimmed.length > 0;
+
+  // Debounced server-side lookup (250ms): one request per pause in typing.
+  React.useEffect(() => {
+    if (trimmed.length === 0) {
+      setResults([]);
+      setLoading(false);
+      setFailed(false);
+      return;
+    }
+    setLoading(true);
+    const controller = new AbortController();
+    const timer = setTimeout(() => {
+      api
+        .search(trimmed, controller.signal)
+        .then((r) => {
+          setResults(r.items);
+          setFailed(false);
+        })
+        .catch((e) => {
+          if ((e as { name?: string }).name !== "AbortError") setFailed(true);
+        })
+        .finally(() => setLoading(false));
+    }, 250);
+    return () => {
+      controller.abort();
+      clearTimeout(timer);
+    };
+  }, [trimmed]);
+
+  const hits = results;
+  const activeHit = hits[active] ?? hits[0];
 
   const select = (symbol: string) => {
     navigate(`/stocks/${encodeURIComponent(symbol.replace(/\.NS$/, ""))}`);
     setQuery("");
     setActive(0);
+    setResults([]);
     setOpen(false);
   };
 
@@ -53,8 +87,7 @@ export function StockSearch({ className }: { className?: string }) {
       setActive((a) => (a - 1 + hits.length) % hits.length);
     } else if (e.key === "Enter") {
       e.preventDefault();
-      const hit = hits[active] ?? hits[0];
-      if (hit) select(hit.symbol);
+      if (activeHit) select(activeHit.symbol);
     }
   };
 
@@ -90,20 +123,20 @@ export function StockSearch({ className }: { className?: string }) {
           onMouseDown={(e) => e.preventDefault()}
           className="glass absolute left-0 right-0 top-full z-50 mt-1.5 max-h-80 overflow-y-auto rounded-sm p-1"
         >
-          {catalog.isLoading && (
+          {loading && (
             <p className="flex items-center gap-2 px-3 py-2.5 text-xs text-muted">
               <Loader2 className="size-3.5 animate-spin" aria-hidden />
-              Loading catalog…
+              Searching…
             </p>
           )}
-          {catalog.error && (
+          {failed && (
             <p className="px-3 py-2.5 text-xs text-band-weak">
-              The stock catalog could not be loaded.
+              Search failed. Check the API connection and retry.
             </p>
           )}
-          {!catalog.isLoading && !catalog.error && hits.length === 0 && (
+          {!loading && !failed && hits.length === 0 && (
             <p className="px-3 py-2.5 text-xs text-muted">
-              No matches for &ldquo;{query.trim()}&rdquo;
+              No matches for &ldquo;{trimmed}&rdquo; in the ranked top-1000 universe.
             </p>
           )}
           {hits.map((hit, i) => (

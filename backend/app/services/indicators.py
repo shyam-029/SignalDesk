@@ -100,12 +100,17 @@ def _ema_series(closes: list[float], period: int) -> list[float] | None:
 
 
 # Score scaling: how far the underlying indicator must move to span the full
-# 0-100 sub-score range. Calibrated so a normal trading day (±1-2% around the
-# SMA, ±0.5% MACD histogram) moves a sub-score by a few points, not tens —
-# the research signal should drift, not sawtooth.
-TREND_SCALE = 250.0  # ±20% vs SMA 20 spans 0-100
-MOMENTUM_SCALE = 2500.0  # ±2% MACD-histogram/price spans 0-100
-REVERSION_SCALE = 0.5  # RSI distance from 50, halved (±25 points max)
+# 0-100 sub-score range. Recalibrated (v1.5, 2026-09-08): the old constants
+# (250/2500/0.5) mapped every realistic market state into the 40-60 band, so
+# the composite read "moderate" for literally every stock. The bands below
+# spend the full 0-100 range on observable states while the EMA smoothing
+# still keeps the signal drifting, not sawtoothed:
+#   trend     ±8.3% vs SMA20 spans 0-100 (a stock 5% above its SMA20 -> ~80)
+#   momentum  ±1.25% MACD-histogram/price spans 0-100
+#   reversion RSI 30 -> 70, RSI 50 -> 50, RSI 70 -> 30 (slope 1.0)
+TREND_SCALE = 600.0
+MOMENTUM_SCALE = 4000.0
+REVERSION_SCALE = 1.0
 
 # The composite is an EMA of the daily raw scores: single-day indicator noise
 # (one gap, one earnings pop) should not swing the research signal.

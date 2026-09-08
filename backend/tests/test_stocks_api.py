@@ -5,6 +5,10 @@
 
 from datetime import date, timedelta
 
+from sqlalchemy import select
+
+from app.models import Stock
+
 
 async def test_health(client):
     r = await client.get("/health")
@@ -80,6 +84,67 @@ async def test_unknown_symbol_404_envelope(client):
     assert err["detail"]["symbol"] == "ZZZNOTREAL.NS"
 
 
+# --- Server-side universe search (the ETERNAL/SWIGGY/IFCI fix) ----------------
+
+
+async def _seed_search_data(session_factory):
+    """ETERNAL/SWIGGY ranked-in; OUTSIDE.NS cataloged but outside the universe."""
+    from app.models import Universe, stock_universe
+
+    async with session_factory() as session:
+        eternal = Stock(symbol="ETERNAL.NS", name="Eternal Ltd", sector="IT")
+        swiggy = Stock(symbol="SWIGGY.NS", name="Swiggy Ltd", sector="IT")
+        outside = Stock(symbol="ZZZOUT.NS", name="Outside Corp", sector="IT")
+        session.add_all([eternal, swiggy, outside])
+        await session.flush()
+        uni = Universe(name="top1000")
+        session.add(uni)
+        await session.flush()
+        await session.execute(
+            stock_universe.insert().values(
+                [
+                    {"universe_id": uni.id, "stock_id": eternal.id},
+                    {"universe_id": uni.id, "stock_id": swiggy.id},
+                ]
+            )
+        )
+        await session.commit()
+
+
+async def test_search_finds_ranked_stock_by_prefix(client, session_factory):
+    await _seed_search_data(session_factory)
+    r = await client.get("/api/v1/stocks/search", params={"q": "eter"})
+    assert r.status_code == 200
+    body = r.json()
+    symbols = [i["symbol"] for i in body["items"]]
+    assert "ETERNAL.NS" in symbols
+
+
+async def test_search_finds_by_company_name(client, session_factory):
+    await _seed_search_data(session_factory)
+    r = await client.get("/api/v1/stocks/search", params={"q": "swiggy"})
+    assert r.status_code == 200
+    assert [i["symbol"] for i in r.json()["items"]] == ["SWIGGY.NS"]
+
+
+async def test_search_excludes_stocks_outside_universe(client, session_factory):
+    await _seed_search_data(session_factory)
+    r = await client.get("/api/v1/stocks/search", params={"q": "outside"})
+    assert r.status_code == 200
+    assert r.json()["items"] == []
+
+
+async def test_stock_list_is_universe_scoped(client, session_factory):
+    """The research list presents the ranked 1000, not the 2,900-row catalog."""
+    await _seed_search_data(session_factory)
+    r = await client.get("/api/v1/stocks")
+    assert r.status_code == 200
+    body = r.json()
+    symbols = {i["symbol"] for i in body["items"]}
+    assert symbols == {"ETERNAL.NS", "SWIGGY.NS"}
+    assert body["total"] == 2
+
+
 async def test_bad_range_422_envelope(client, seeded):
     r = await client.get("/api/v1/stocks/RELIANCE/prices", params={"range": "99y"})
     assert r.status_code == 422
@@ -139,10 +204,16 @@ async def test_company_profile_missing_is_null_not_empty_error(client, seeded):
 
 async def test_list_stocks_no_prices_returns_nulls_not_zeros(client, session_factory, seeded):
     """A stock with no price bars gets last_price/change_pct null (was 0.0)."""
-    from app.models import Stock
+    from app.models import Stock, Universe, stock_universe
 
     async with session_factory() as session:
-        session.add(Stock(symbol="EMPTY.NS", name="Empty Co", sector="IT"))
+        stock = Stock(symbol="EMPTY.NS", name="Empty Co", sector="IT")
+        session.add(stock)
+        await session.flush()
+        uni = await session.scalar(select(Universe).where(Universe.name == "top1000"))
+        await session.execute(
+            stock_universe.insert().values(universe_id=uni.id, stock_id=stock.id)
+        )
         await session.commit()
 
     r = await client.get("/api/v1/stocks")

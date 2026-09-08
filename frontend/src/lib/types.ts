@@ -20,6 +20,12 @@ export interface StockListResponse {
   sectors: string[];
 }
 
+// Server-side universe search (GET /stocks/search?q=).
+export interface StockSearchResponse {
+  items: Array<{ symbol: string; name: string }>;
+  query: string;
+}
+
 export interface QuoteBlock {
   last_price: number | null;
   change_abs: number | null;
