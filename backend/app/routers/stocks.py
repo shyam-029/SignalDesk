@@ -23,6 +23,7 @@ from app.errors import NotFoundError, ValidationError
 from app.models import DailyPrice, Stock
 from app.repositories import financials as fin_repo
 from app.repositories import prices as price_repo
+from app.repositories import stocks as stock_repo
 from app.routers.common import resolve_stock
 from app.services import freshness
 
@@ -101,6 +102,16 @@ class PriceHistoryResponse(BaseModel):
     items: list[PriceBar]
 
 
+class StockSearchItem(BaseModel):
+    symbol: str
+    name: str
+
+
+class StockSearchResponse(BaseModel):
+    items: list[StockSearchItem]
+    query: str
+
+
 class QuoteBlock(BaseModel):
     """Latest-quote block for the stock-detail header.
 
@@ -162,7 +173,7 @@ async def list_stocks(
             {"direction": direction, "supported": ["asc", "desc"]},
         )
 
-    # Distinct sectors for the frontend's filter dropdowns.
+    # Distinct sectors for the frontend's filter dropdowns (catalog-wide).
     sectors = list(
         (
             await session.execute(
@@ -171,8 +182,12 @@ async def list_stocks(
         ).scalars()
     )
 
-    # Total count (respecting sector filter; ETFs excluded as a separate domain).
+    # The research list presents the ACTIVE ranked universe (top 1000): the
+    # catalog holds more rows than any human navigates (2,900+), and the
+    # agreed product surface is the ranked universe. Outside rows stay
+    # reachable by direct URL.
     count_q = select(func.count(Stock.id)).where(Stock.is_etf.is_(False))
+    count_q = stock_repo.active_universe_filter(count_q)
     if sector:
         count_q = count_q.where(Stock.sector == sector)
     total = (await session.execute(count_q)).scalar_one()
@@ -182,6 +197,7 @@ async def list_stocks(
         q = q.where(Stock.sector == sector)
     # ETFs are a separate domain (GET /etfs, Plan 9): never in the equity list.
     q = q.where(Stock.is_etf.is_(False)).order_by(Stock.symbol)
+    q = stock_repo.active_universe_filter(q)
     stocks = (await session.execute(q)).scalars().all()
 
     # Batch-load the derived columns for ALL matching stocks (bounded by the
@@ -243,6 +259,25 @@ async def list_stocks(
         page=page,
         limit=limit,
         sectors=sectors,
+    )
+
+
+@router.get("/search", response_model=StockSearchResponse)
+async def search_stocks(
+    session: SessionDep,
+    q: str = Query(..., min_length=1, max_length=32),
+    limit: int = Query(10, ge=1, le=25),
+) -> StockSearchResponse:
+    """Server-side search over the active universe (symbol or company name).
+
+    Declared BEFORE /{symbol} so "search" is never captured as a symbol.
+    Replaces the client-side filter over the first catalog page, which hid
+    every ranked stock beyond row 250 (ETERNAL, SWIGGY, IFCI ...).
+    """
+    rows = await stock_repo.search_universe(session, q, limit)
+    return StockSearchResponse(
+        items=[StockSearchItem(symbol=s.symbol, name=s.name) for s in rows],
+        query=q,
     )
 
 

@@ -112,9 +112,18 @@ async def test_fundamentals_no_financials_returns_empty(client, session_factory)
 async def test_list_stocks_query_count_is_bounded(client, session_factory):
     """list_stocks must issue a constant number of queries regardless of page size."""
     async with session_factory() as session:
+        from app.models import Universe, stock_universe
+
+        uni = Universe(name="top1000")
+        session.add(uni)
+        await session.flush()
         for i in range(10):
             s = Stock(symbol=f"STK{i}.NS", name=f"Stock {i}", sector="X")
             session.add(s)
+            await session.flush()
+            await session.execute(
+                stock_universe.insert().values(universe_id=uni.id, stock_id=s.id)
+            )
         await session.commit()
 
     # Count SQL executions on the engine during one request.

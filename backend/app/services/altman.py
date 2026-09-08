@@ -126,6 +126,29 @@ def zone_for(score: float) -> str:
     return "grey"
 
 
+def distress_score_0_100(z: float) -> int:
+    """Map a Z'' score onto the 0-100 scale the Alpha blend consumes.
+
+    Monotone piecewise-linear, anchored on the Altman zones so the mapping
+    is explainable on the methodology page:
+        z <= 0            -> 0    (deepest distress)
+        0 < z <= 1.1      -> 0-40 (distress zone: linear)
+        1.1 < z <= 2.6    -> 40-70 (grey zone: linear)
+        2.6 < z <= 5.0    -> 70-100 (safe zone: linear, saturates at 5)
+        z > 5             -> 100
+    Deterministic; no peer data required.
+    """
+    if z <= 0:
+        return 0
+    if z <= ZONE_DISTRESS:
+        return round(40.0 * (z / ZONE_DISTRESS))
+    if z <= ZONE_SAFE:
+        return round(40.0 + 30.0 * ((z - ZONE_DISTRESS) / (ZONE_SAFE - ZONE_DISTRESS)))
+    if z <= 5.0:
+        return round(70.0 + 30.0 * ((z - ZONE_SAFE) / (5.0 - ZONE_SAFE)))
+    return 100
+
+
 def compute_z_score(
     inputs: AltmanInputs,
     sector: str | None = None,

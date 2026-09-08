@@ -640,8 +640,9 @@ async def _backfill_one_alpha(symbol: str) -> int:
     from app.repositories import alpha as alpha_repo
     from app.repositories import financials as fin_repo
     from app.repositories import news as news_repo
+    from app.services import altman as altman_svc
     from app.services import indicators, scores as score_svc
-    from app.services.alpha import _mean_of, _renormalized
+    from app.services.alpha import _renormalized, blend_fundamental
 
     async with SessionLocal() as session:
         stock = await session.scalar(select(Stock).where(Stock.symbol == symbol))
@@ -655,13 +656,23 @@ async def _backfill_one_alpha(symbol: str) -> int:
             )
         ).all()
 
-        # Latest known fundamental score (slow-moving: quarterly snapshot).
+        # Latest known fundamental pillar (v1.5: profitability + solvency +
+        # Altman distress from the stored balance sheet), slow-moving.
         fundamental: int | None = None
         fundamentals = await fin_repo.get_financials(session, stock)
+        profit_score = solvency_score = None
         if fundamentals is not None:
             profit = score_svc.profitability_score(fundamentals)
             solvency = score_svc.solvency_score(fundamentals)
-            fundamental = _mean_of(profit.score, solvency.score)
+            profit_score, solvency_score = profit.score, solvency.score
+        altman_result = await altman_svc.compute_stock_altman(session, stock)
+        distress_score = None
+        if (
+            altman_result.status == altman_svc.STATUS_AVAILABLE
+            and altman_result.score is not None
+        ):
+            distress_score = altman_svc.distress_score_0_100(altman_result.score)
+        fundamental = blend_fundamental(profit_score, solvency_score, distress_score)
 
         # Latest known sentiment (slow-moving aggregate of recent headlines).
         sentiment: int | None = None

@@ -45,10 +45,17 @@ function Alpha() {
       </h2>
       <p className="mt-3 text-sm leading-relaxed text-muted">
         The composite blends three independent analyses, each scored 0 to 100: fundamental
-        strength (40%), technical positioning (30%), and news sentiment (30%). Weights
+        strength (40%), technical positioning (35%), and news sentiment (25%). Weights
         renormalize over the components that have data, so a stock without news is scored on
         the other two dimensions rather than penalized. The score is bounded 0 to 100 and is a
         research summary, not a prediction or a recommendation.
+      </p>
+      <p className="mt-3 text-sm leading-relaxed text-muted">
+        The fundamental pillar blends the balance sheet: 45% profitability, 30% solvency and
+        25% Altman distress (the Z-Score mapped onto 0 to 100), renormalized when a part is
+        missing. News is deliberately the smallest pillar: headline sentiment scored by a
+        model is the most subjective input, while stored prices and balance sheets are the
+        most objective.
       </p>
       <p className="mt-3 text-sm leading-relaxed text-muted">
         Valuation is left out of the blend: multiples derive from the same
@@ -130,8 +137,10 @@ function Technical() {
       <h2 className="font-display text-2xl font-semibold">Technical positioning</h2>
       <p className="mt-3 text-sm leading-relaxed text-muted">
         Standard parameters: SMA 20, EMA 12, RSI 14 (Wilder), MACD 12/26/9. The score weights
-        trend 50% (close vs SMA20), momentum 30% (MACD histogram), and mean reversion 20%
-        (RSI 14), renormalized when an indicator lacks data.
+        trend 50% (close vs SMA20, where plus or minus 8% spans the full sub-range),
+        momentum 30% (MACD histogram), and mean reversion 20% (RSI 14: RSI 30 to 70 maps to
+        70 to 30), renormalized when an indicator lacks data. The composite is EMA-smoothed
+        over five days so it drifts with the trend instead of jumping with every bar.
       </p>
       <p className="mt-3 text-sm leading-relaxed text-muted">
         These are product-defined heuristics, kept simple and explainable on purpose. They are

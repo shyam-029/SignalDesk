@@ -80,10 +80,20 @@ export function DataState({
 
 type State = "loading" | "error" | "insufficient" | "empty" | "ready";
 
+/** "Honest absence" codes: data gaps, not failures — render as insufficient. */
+function isSoftApiError(error: Error | null | undefined): boolean {
+  return error instanceof ApiError && (error.isNoPeers || error.isInsufficientData);
+}
+
 function resolveState(p: DataStateProps): State {
   if (p.loading) return "loading";
-  if (p.error) return "error";
+  // A NO_PEERS / INSUFFICIENT_DATA envelope is the backend saying "this is
+  // not computable for this stock", not a malfunction. If the caller marked
+  // the region insufficient, the note wins over the error styling (the old
+  // order rendered every null-input stock as "Something went wrong").
+  if (p.error && !(p.insufficient && isSoftApiError(p.error))) return "error";
   if (p.insufficient) return "insufficient";
+  if (p.error) return "insufficient";
   if (p.empty) return "empty";
   return "ready";
 }

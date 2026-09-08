@@ -2,7 +2,7 @@
 
 > **Purpose:** The operational companion to `SEMESTER2_PLAN.md`. Read this file FIRST to resume work, then the plan for the what/why.
 > **Rules:** Current state, then active milestone, then next task. Checklists per milestone. Verification results. Risks and pending human decisions stay visible until closed.
-> **Last updated:** 2026-09-08 (M1-T3+T4+T6 done + follow-up: real Altman Z-Scores live (1,000/1,000 balance sheets ingested, 796/1000 with full inputs), ETF page live, curated mutual-funds page live with real AMFI NAVs; backend 423/423, frontend 73/73, tsc clean, build OK).
+> **Last updated:** 2026-09-09 (follow-up round 2: server-side universe search fixes ETERNAL/SWIGGY/IFCI, list/screener scoped to the ranked 1000, null-input stocks render "-" instead of errors, technical sensitivity recalibrated, Alpha v1.5 = 40/35/25 with balance-sheet distress in the fundamental pillar; backend 430/430, frontend 73/73, tsc clean, build OK).
 > **Companion:** `SEMESTER2_PLAN.md` (sections cited as Plan 1-30). Semester 1 record: `PLANNING.md` / `PROGRESS.md`, frozen, unmodified.
 
 ---
@@ -196,3 +196,29 @@ The M2 balance-sheet slice was pulled forward because a distress score that can 
 - Plan 18 conformance: `prewarm_alpha_explanations` REMOVED from the nightly passes (no nightly bulk LLM pre-warming; helper retained for manual use).
 - Fund/ETF ingestions ride the nightly `_ingest_passes` (measured contributions: balance sheets ~8 min at 1000, funds ~seconds after first sync, ETFs seconds).
 - Suites: backend **423/423**, frontend **73/73**, `tsc -b` clean, `vite build` OK. Storage 108 MB of 512 MB.
+
+## 14. Follow-up round 2 (2026-09-09): search/universe, honest nulls, technical sensitivity, Alpha v1.5
+
+### 14.1 "ETERNAL/SWIGGY/IFCI missing" — diagnosis and fix
+
+Diagnosis: all three WERE in the catalog and ranked-in (ETERNAL rank 31, SWIGGY 159, IFCI 326; verified in ranking_audit). Two real defects made them unfindable: (a) the header search filtered CLIENT-SIDE over `/stocks?limit=250` — the first 250 of 2,907 catalog rows, so everything past "C" was invisible; (b) part of the report window coincided with the dead-backend state (Vite proxy 500 family). Fixed:
+- New `GET /stocks/search?q=` — server-side, universe-scoped, symbol/name match, prefix-ranked, debounced+abortable in the header (StockSearch rewritten; lib/search.ts retained as a pure util).
+- `/stocks` list + `/screener` now present the ACTIVE ranked universe (`settings.active_universe`, default top1000): total = **1000** (was 2907). Rows outside the universe remain reachable by direct URL (`get_stock` deliberately not scoped). Verified live: search q=eternal/swiggy/ifci all return hits; `/stocks?limit=1` total = 1000; `/stocks/ETERNAL.NS` 200 with mcap Rs 2.96L Cr.
+- 736 top-1000 stocks still had no bars (the nightly had never run at 1000 breadth); a full detached nightly run was started 2026-09-09 00:24 — job_runs: ingest_prices success 1000/0, ingest_financials success 1000/0 within minutes; remaining passes continue.
+
+### 14.2 Null-input stocks rendered as errors -> honest "-"
+
+`DataState` resolved `error` BEFORE `insufficient`, so a NO_PEERS / INSUFFICIENT_DATA envelope (a data gap, not a malfunction) rendered the red "Something went wrong" block on the valuation/scores regions for stocks with null snapshot fields. Fixed precedence: those two soft codes render the insufficient note ("-" UX) whenever the caller marked the region insufficient; genuine errors still render as errors.
+
+### 14.3 Technical sensitivity recalibrated (v1.5)
+
+The user's observation was correct and the cause was in `services/indicators.py`: the old scale constants (trend ±20% vs SMA20, momentum ±2% histogram/price, reversion RSI delta x0.5) mapped every realistic market state into the 40-60 band, and EMA(5) smoothing pulled it further to center — every stock read "moderate". New bands: trend ±8.3% vs SMA20 spans 0-100; momentum ±1.25%; reversion RSI 30->70 / 70->30 (slope 1.0). EMA(5) smoothing retained (drift, not sawtooth). Live sample after the change: trend components 23-46 across a downtrending large-cap sample with rising states reaching 78; the composite now differentiates weak/moderate/positive instead of pinning 45-50.
+
+### 14.4 Alpha v1.5: balance sheet in the blend, news deprioritized (owner decision)
+
+- Composite weights: **40% fundamental / 35% technical / 25% sentiment** (was 40/30/30; FinBERT-on-headlines is the most subjective pillar).
+- Fundamental pillar: **45% profitability + 30% solvency + 25% Altman Z'' distress** (services/altman.distress_score_0_100: zone-anchored monotone mapping, z<=0 -> 0, 1.1 -> 40, 2.6 -> 70, >=5 -> 100), renormalized over available components — a missing diagnostic is dropped, never zero-filled. The distress component appears in `components` (`distress`) and in components_json.
+- Verified live: ETERNAL composite 50 (fundamental 56, distress 97), RELIANCE 53 (distress 62); weights {0.4, 0.35, 0.25}. `/alpha/explanation`, ask evidence and the history backfill share the same math (`blend_fundamental` imported by jobs). Frontend copy updated (AlphaSection header, METRIC_INFO.alpha/technical_score, methodology page). Valuation stays separate; the standalone `/altman` endpoint is unchanged.
+- Stored history: the running nightly's backfill_alpha_history recomputes it under v1.5.
+
+Suites this round: backend **430/430** (new: search x4 incl. universe scoping, blend + distress mapping, technical sensitivity), frontend **73/73**, tsc clean, build OK.

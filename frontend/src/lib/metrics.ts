@@ -22,11 +22,11 @@ export const METRIC_INFO = {
   alpha: {
     label: "Alpha Score",
     short:
-      "SignalDesk's composite research signal: 40% fundamental, 30% technical, 30% sentiment, renormalized when a component is unavailable.",
+      "SignalDesk's composite research signal: 40% fundamental, 35% technical, 25% sentiment, renormalized when a component is unavailable.",
     method:
-      "The composite blends three separate analyses: fundamental strength (profitability and solvency scores), technical positioning (trend/momentum/reversion heuristics), and news sentiment, weighted 40/30/30 and renormalized over available components. It is a research summary, not a prediction, and it is not investment advice.",
+      "The composite blends three separate analyses: fundamental strength (profitability, solvency and the Altman distress diagnostic), technical positioning (trend/momentum/reversion heuristics), and news sentiment, weighted 40/35/25 and renormalized over available components. It is a research summary, not a prediction, and it is not investment advice.",
     longer:
-      "Alpha leaves valuation out on purpose. Multiples derive from the same fundamentals, so blending them would double count. Valuation is reported separately as the value signal: read both, don't merge them.",
+      "Alpha leaves valuation out on purpose. Multiples derive from the same fundamentals, so blending them would double count. Valuation is reported separately as the value signal: read both, don't merge them. News is deliberately the smallest pillar: headline sentiment is the most subjective input.",
   },
   fundamental_score: {
     label: "Fundamental Score",
@@ -38,7 +38,7 @@ export const METRIC_INFO = {
     label: "Technical Score",
     short: "Heuristic 0 to 100 read of price structure: trend (50%), momentum (30%), mean reversion (20%).",
     method:
-      "Trend scores the close relative to its 20-day SMA; momentum scores the MACD histogram; mean reversion scores RSI 14 distance from 50. Weights are renormalized when an indicator lacks data. These are product-defined heuristics, not validated predictive models.",
+      "Trend scores the close relative to its 20-day SMA (plus or minus 8% spans the full range); momentum scores the MACD histogram; mean reversion scores RSI 14 distance from 50 (RSI 30 to 70 spans 70 to 30). Weights are renormalized when an indicator lacks data, and the composite is EMA-smoothed over five days so it drifts rather than jumps. These are product-defined heuristics, not validated predictive models.",
   },
   sentiment_score: {
     label: "Sentiment Score",

@@ -41,7 +41,7 @@ export function AlphaSection({ symbol }: { symbol: string }) {
           title="Alpha Score"
           aside={
             <p className="num text-xs text-muted">
-              40% fundamental · 30% technical · 30% sentiment
+              40% fundamental · 35% technical · 25% sentiment
             </p>
           }
         />

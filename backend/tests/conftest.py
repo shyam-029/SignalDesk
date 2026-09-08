@@ -27,7 +27,7 @@ from sqlalchemy.ext.asyncio import (
 
 from app.db import Base, get_session
 from app.main import app
-from app.models import DailyPrice, Stock
+from app.models import DailyPrice, Stock, Universe, stock_universe
 
 
 @pytest.fixture(autouse=True)
@@ -98,7 +98,12 @@ async def client(session_factory) -> AsyncGenerator[AsyncClient, None]:
 
 @pytest.fixture()
 async def seeded(session_factory):
-    """Insert two stocks + daily prices for endpoint tests."""
+    """Insert two stocks + daily prices for endpoint tests.
+
+    Both stocks are linked into the active ranked universe ('top1000'):
+    the list/search/screener surfaces present that universe, so unlinked
+    rows would be invisible to them.
+    """
     async with session_factory() as session:
         session.add_all(
             [
@@ -110,6 +115,20 @@ async def seeded(session_factory):
 
         rel = await session.scalar(select(Stock).where(Stock.symbol == "RELIANCE.NS"))
         tcs = await session.scalar(select(Stock).where(Stock.symbol == "TCS.NS"))
+
+        uni = await session.scalar(select(Universe).where(Universe.name == "top1000"))
+        if uni is None:
+            uni = Universe(name="top1000")
+            session.add(uni)
+            await session.flush()
+        await session.execute(
+            stock_universe.insert().values(
+                [
+                    {"universe_id": uni.id, "stock_id": rel.id},
+                    {"universe_id": uni.id, "stock_id": tcs.id},
+                ]
+            )
+        )
 
         today = date.today()
         session.add_all(

@@ -101,6 +101,14 @@ class Settings(BaseSettings):
     # rate limits + cost control. Queued callers await a slot.
     llm_max_concurrent: int = 3
 
+    # --- Active universe (M1-T3 cutover) ---
+    # The ranked universe the RESEARCH surfaces present: /stocks list,
+    # /screener and /stocks/search read this universe (top 1000 by market
+    # cap). The catalog itself holds more rows (peer selection is
+    # industry-keyed, D18; ranking audit history), and every stored row
+    # stays reachable by direct URL.
+    active_universe: str = "top1000"
+
     model_config = SettingsConfigDict(
         # Read values from `.env` in the backend/ directory.
         env_file=BACKEND_DIR / ".env",

@@ -6,7 +6,20 @@ from decimal import Decimal
 
 from sqlalchemy import select
 
-from app.models import Financials, Stock
+from app.models import Financials, Stock, Universe, stock_universe
+
+
+async def _link_universe(session, stock_ids: list[int]) -> None:
+    """Link stocks into the active universe (list/screener/search surface it)."""
+    uni = await session.scalar(select(Universe).where(Universe.name == "top1000"))
+    if uni is None:
+        uni = Universe(name="top1000")
+        session.add(uni)
+        await session.flush()
+    for sid in stock_ids:
+        await session.execute(
+            stock_universe.insert().values(universe_id=uni.id, stock_id=sid)
+        )
 
 
 async def _seed_analysis_data(session_factory) -> None:
@@ -17,6 +30,8 @@ async def _seed_analysis_data(session_factory) -> None:
         rel = Stock(symbol="RELIANCE.NS", name="Reliance", sector="Energy", industry="Oil & Gas")
         session.add_all([tcs, infy, rel])
         await session.flush()
+
+        await _link_universe(session, [tcs.id, infy.id, rel.id])
 
         # TCS: P/E 28.4, ROE 18%, D/E 50, op margin 12.5%
         session.add(
