@@ -63,15 +63,22 @@ async def _seed_stock_and_universe(session_factory, symbol="RELIANCE.NS") -> Non
         session.add(s)
         await session.flush()
         universe = await session.scalar(
-            select(Universe).where(Universe.name == "nifty250")
+            select(Universe).where(Universe.name == jobs_module.UNIVERSE_NAME)
         )
         if universe is None:
-            universe = Universe(name="nifty250")
+            universe = Universe(name=jobs_module.UNIVERSE_NAME)
             session.add(universe)
             await session.flush()
-        await session.execute(
-            stock_universe.insert().values(universe_id=universe.id, stock_id=s.id)
+        existing = await session.scalar(
+            select(stock_universe.c.stock_id).where(
+                stock_universe.c.universe_id == universe.id,
+                stock_universe.c.stock_id == s.id,
+            )
         )
+        if existing is None:
+            await session.execute(
+                stock_universe.insert().values(universe_id=universe.id, stock_id=s.id)
+            )
         await session.commit()
 
 

@@ -8,6 +8,7 @@
 import type {
   AlphaHistoryResponse,
   AlphaResponse,
+  AltmanResponse,
   AlphaExplanationResponse,
   AskResponse,
   CompanyProfileResponse,
@@ -138,6 +139,10 @@ export const api = {
     apiGet<Fundamentals>(`/stocks/${encodeURIComponent(symbol)}/fundamentals`),
 
   scores: (symbol: string) => apiGet<ScoreCard>(`/stocks/${encodeURIComponent(symbol)}/scores`),
+
+  // Altman Z-Score distress diagnostic: separate from /scores by design.
+  altman: (symbol: string) =>
+    apiGet<AltmanResponse>(`/stocks/${encodeURIComponent(symbol)}/altman`),
 
   valuation: (symbol: string, metric: string) =>
     apiGet<Valuation>(

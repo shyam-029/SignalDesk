@@ -32,6 +32,13 @@ logger = logging.getLogger(__name__)
 # Results are cached in-process for an hour so a page of four metric queries
 # does not hammer the API. The token never leaves this module and is never
 # logged.
+#
+# Request-path rule (M1-T3 500 fix): live provider calls happen ONLY when
+# explicitly allowed. Request paths (routers -> compute_stock_valuation)
+# serve stored snapshots only; the nightly ingestion enriches the snapshots
+# themselves. Before this rule, one /alpha request for an unclassified stock
+# fanned out to thousands of sequential Upstox calls (one per NULL-cohort
+# "peer" missing a multiple) and never returned.
 
 _RATIO_FOR_METRIC = {"PE": "P/E", "PB": "P/B", "EV_EBITDA": "EV/EBITDA"}
 _RATIO_TTL_SECONDS = 3600.0
@@ -71,13 +78,21 @@ async def _upstox_ratio(symbol: str, metric: str) -> float | None:
 
 
 async def _multiple_with_fallback(
-    metric: str, fundamentals: Fundamentals | None, symbol: str
+    metric: str,
+    fundamentals: Fundamentals | None,
+    symbol: str,
+    allow_live_fallback: bool = False,
 ) -> float | None:
-    """Compute a multiple from the snapshot, falling back to Upstox ratios."""
+    """Compute a multiple from the snapshot, optionally falling back to Upstox.
+
+    allow_live_fallback=False (request-path default): stored snapshot only,
+    never a network call. True (ingestion enrichment only): the pre-computed
+    Upstox ratio fills the gap before the request fails.
+    """
     if fundamentals is None:
-        return await _upstox_ratio(symbol, metric)
+        return await _upstox_ratio(symbol, metric) if allow_live_fallback else None
     value = val_svc.compute_multiple(metric, fundamentals)
-    if value is None:
+    if value is None and allow_live_fallback:
         value = await _upstox_ratio(symbol, metric)
     return value
 
@@ -97,21 +112,25 @@ class StockAnalysis:
 
 
 async def compute_stock_valuation(
-    session: AsyncSession, stock: Stock, metric: str
+    session: AsyncSession,
+    stock: Stock,
+    metric: str,
+    allow_live_fallback: bool = False,
 ) -> tuple[ValuationResult, list[str]]:
     """Valuation result + peer symbol list for one stock/metric.
 
     Raises InsufficientDataError if the target has no financials or an invalid
-    multiple; NoPeersError if no valid peer multiples exist. When the stored
-    snapshot cannot produce a multiple (target or peer), the pre-computed
-    Upstox ratio fills the gap before the request fails.
+    multiple; NoPeersError if no valid peer multiples exist. The Upstox ratio
+    fallback runs ONLY with allow_live_fallback=True (ingestion enrichment);
+    request paths serve stored snapshots only (M1-T3 500 fix).
     """
     fundamentals = await fin_repo.get_financials(session, stock)
-    # A missing snapshot no longer fails the request outright: the Upstox
-    # ratio fallback gets its chance inside _multiple_with_fallback, and
-    # relative_valuation still raises InsufficientDataError when both
-    # providers come up empty.
-    current = await _multiple_with_fallback(metric, fundamentals, stock.symbol)
+    # A missing snapshot falls through to InsufficientDataError below via
+    # relative_valuation: request paths serve stored snapshots only (the
+    # Upstox ratio fallback needs allow_live_fallback=True; M1-T3 500 fix).
+    current = await _multiple_with_fallback(
+        metric, fundamentals, stock.symbol, allow_live_fallback
+    )
 
     peers = await stock_repo.get_peers(session, stock)
     peer_fundamentals = await fin_repo.get_financials_batch(session, peers)
@@ -120,7 +139,7 @@ async def compute_stock_valuation(
     peer_symbols: list[str] = []
     for peer in peers:
         value = await _multiple_with_fallback(
-            metric, peer_fundamentals.get(peer.id), peer.symbol
+            metric, peer_fundamentals.get(peer.id), peer.symbol, allow_live_fallback
         )
         peer_values.append(value)
         peer_symbols.append(peer.symbol)
@@ -134,7 +153,13 @@ async def compute_stock_valuation(
 async def compute_stock_scores(
     session: AsyncSession, stock: Stock
 ) -> tuple[score_svc.ComponentScore, score_svc.ComponentScore, str]:
-    """Profitability + solvency scores and their combined explanation."""
+    """Profitability + solvency scores and their combined explanation.
+
+    The Solvency Score methodology is FIXED (D/E 50 / interest coverage 30 /
+    current ratio 20): the Altman Z-Score (services/altman.py) is a separate
+    diagnostic surfaced on its own endpoint and is never folded in here or
+    into the Alpha composite (Part E pipeline decision).
+    """
     fundamentals = await fin_repo.get_financials(session, stock)
     if fundamentals is None:
         raise InsufficientDataError(f"No financial data for {stock.symbol}")

@@ -97,6 +97,51 @@ async def test_valuation_no_peers_409(client, session_factory):
     assert r.json()["error"]["code"] == "NO_PEERS"
 
 
+async def test_valuation_unclassified_stock_no_peers_409(client, session_factory):
+    """M1-T3 500: sector/industry NULL (ranking-created rows) => NO_PEERS.
+
+    The peer set must be empty (not the 2,655-row IS NULL cohort), and the
+    request must answer from stored snapshots only — zero live provider
+    calls. A monkeypatched UpstoxProvider that explodes on construction
+    proves no request-path code touches the network.
+    """
+    import app.services.analysis as analysis_mod
+
+    async with session_factory() as session:
+        u1 = Stock(symbol="U1.NS", name="U1", sector=None, industry=None)
+        u2 = Stock(symbol="U2.NS", name="U2", sector=None, industry=None)
+        session.add_all([u1, u2])
+        await session.flush()
+        # A stored P/E so the target multiple is computable: the request must
+        # reach the peer step (empty set -> NO_PEERS), proving the NULL cohort
+        # is not treated as peers.
+        from decimal import Decimal
+
+        from app.models import Financials
+
+        session.add(Financials(stock_id=u1.id, trailing_pe=Decimal("20.00")))
+        await session.commit()
+
+    def _boom(token):
+        raise AssertionError("request path must not construct a provider")
+
+    monkeypatch_provider = __import__("pytest").MonkeyPatch()
+    import app.providers.upstox_provider as upstox_mod
+
+    orig_provider = upstox_mod.UpstoxProvider
+    orig_token = analysis_mod.settings.upstox_analytics_token
+    upstox_mod.UpstoxProvider = _boom  # type: ignore[assignment]
+    analysis_mod.settings.upstox_analytics_token = "fake-token-for-test"
+    try:
+        r = await client.get("/api/v1/stocks/U1/valuation", params={"metric": "PE"})
+    finally:
+        upstox_mod.UpstoxProvider = orig_provider  # type: ignore[assignment]
+        analysis_mod.settings.upstox_analytics_token = orig_token
+        monkeypatch_provider.undo()
+    assert r.status_code == 409
+    assert r.json()["error"]["code"] == "NO_PEERS"
+
+
 async def test_valuation_bad_metric_422(client, session_factory):
     await _seed_analysis_data(session_factory)
     r = await client.get("/api/v1/stocks/TCS/valuation", params={"metric": "ROE"})

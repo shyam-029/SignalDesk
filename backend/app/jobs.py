@@ -46,18 +46,22 @@ from app.providers.sentiment import FinBERTScorer, Sentiment
 from app.providers.upstox_provider import SYMBOL_ALIASES
 from app.providers.yfinance_provider import MarketDataError, YFinanceProvider
 from app.repositories import company_profiles as profile_repo
+from app.repositories import benchmarks as benchmark_repo
 from app.repositories import ranking as ranking_repo
 from app.services import ranking as ranking_svc
 
 logger = logging.getLogger(__name__)
 
-UNIVERSE_NAME = "nifty250"  # the widest active catalog (50 -> 100 -> 250 ladder)
+UNIVERSE_NAME = "top1000"  # M1-T3 cutover: nightly ingestion reads the ranked
+# top-1000 universe (was "nifty250"). Ranked-out / excluded catalog stocks
+# are intentionally outside this path: they keep every stored row, and the
+# repair_catalog_gaps pass still refreshes them when they have gaps.
 PERIOD = "2y"  # how much price history to fetch on each run
 BATCH_SIZE = 5  # concurrent symbols per batch (respect provider rate limits)
 
 # --- Top-1000 ranking (M1-T2) ---
-# The ranked universe written by rank_universe. Nightly ingestion keeps
-# reading UNIVERSE_NAME (nifty250) until the M1-T3 cutover switches it.
+# The ranked universe written by rank_universe. M1-T3 cutover complete:
+# nightly ingestion reads UNIVERSE_NAME (top1000) directly.
 RANKED_UNIVERSE = "top1000"
 RANKED_SIZE = 1000
 
@@ -978,8 +982,98 @@ async def repair_catalog_gaps(provider: MarketDataProvider | None = None) -> dic
     return {"repaired": repaired, "errors": len(errors)}
 
 
-# --- Top-1000 universe ranking (M1-T2, Plan 7) -------------------------------
+# --- Benchmark index ingestion (M1-T6, Plan 13) ------------------------------
 
+# Required benchmark symbols (Plan 13): Nifty 50 + sector/index breadth.
+# Verified 2026-09-08: every symbol below serves 5d of daily bars from
+# yfinance with quoteType INDEX; .info carries NO fundamentals for indexes
+# (no marketCap/trailingPE/sector), so benchmarks ingest PRICES ONLY.
+# The list is a module constant (not DB-driven): indexes are four stable
+# symbols, not a ranked universe; adding one is a one-line diff + test.
+BENCHMARK_SYMBOLS: tuple[str, ...] = ("^NSEI", "^NSEBANK", "^CNXIT", "^CRSLDX")
+BENCHMARK_PERIOD = "2y"  # same stored depth as the equity price history
+
+# Provider display names for the benchmarks table (yfinance .info shortName
+# was read live 2026-09-08; kept as the creation default, refreshed on write).
+BENCHMARK_NAMES: dict[str, str] = {
+    "^NSEI": "NIFTY 50",
+    "^NSEBANK": "NIFTY BANK",
+    "^CNXIT": "NIFTY IT",
+    "^CRSLDX": "CRISIL Broad Market Index",
+}
+
+
+async def _fetch_one_benchmark(
+    provider: MarketDataProvider, symbol: str
+) -> tuple[str, int]:
+    """Fetch + upsert one index's price history. Returns (symbol, bars_offered).
+
+    Benchmarks ingest through the SAME provider interface as equities
+    (yfinance-only: Upstox serves no index bars) but persist to the separate
+    benchmarks tables — never the equity catalog — so benchmark data cannot
+    interfere with ranking, valuation or peer sets. Raises MarketDataError
+    upward so callers isolate per-index failures (D19).
+    """
+    bars = await _with_retry(
+        lambda: provider.get_price_history(symbol, BENCHMARK_PERIOD),
+        what=f"benchmark price fetch for {symbol}",
+    )
+    if not bars:
+        logger.warning("No benchmark price data for %s; skipping.", symbol)
+        return symbol, 0
+
+    async with SessionLocal() as session:
+        row = await benchmark_repo.get_or_create_benchmark(
+            session,
+            symbol=symbol,
+            name=BENCHMARK_NAMES.get(symbol),
+            source=getattr(provider, "name", None) or "yfinance",
+        )
+        benchmark_id = row.id
+        offered = await benchmark_repo.upsert_bars(session, benchmark_id, bars)
+        return symbol, offered
+
+
+async def ingest_benchmarks(
+    provider: MarketDataProvider | None = None,
+    symbols: tuple[str, ...] = BENCHMARK_SYMBOLS,
+    batch_size: int = BATCH_SIZE,
+) -> dict:
+    """Fetch + upsert price history for every benchmark index symbol.
+
+    Same batching + per-index isolation as the equity passes (D19). Recorded
+    as its own job_runs pass ("ingest_benchmarks") so its runtime and storage
+    contribution are measured separately in the M1-T3/T4 report.
+    """
+    provider = provider or YFinanceProvider()
+
+    bars = 0
+    errors: list[str] = []
+
+    for i in range(0, len(symbols), batch_size):
+        batch = symbols[i : i + batch_size]
+        results = await asyncio.gather(
+            *(_fetch_one_benchmark(provider, s) for s in batch),
+            return_exceptions=True,
+        )
+        for symbol, res in zip(batch, results):
+            if isinstance(res, Exception):
+                logger.error("Failed to ingest benchmark %s: %s", symbol, res)
+                errors.append(symbol)
+            else:
+                _, offered = res
+                bars += offered
+
+    logger.info(
+        "Benchmark ingestion done: %d symbols, %d bars, %d errors",
+        len(symbols) - len(errors),
+        bars,
+        len(errors),
+    )
+    return {"fetched": len(symbols) - len(errors), "bars": bars, "errors": len(errors)}
+
+
+# --- Top-1000 universe ranking (M1-T2, Plan 7) -------------------------------
 
 async def _fetch_one_mcap(
     provider: MarketDataProvider, bare_symbol: str
@@ -1242,6 +1336,8 @@ async def _ingest_passes() -> dict:
         ("ingest_financials", ingest_financials),
         ("ingest_financial_periods", ingest_financial_periods),
         ("ingest_company_profiles", ingest_company_profiles),
+        # Benchmark indexes (M1-T6): own tables, own measured contribution.
+        ("ingest_benchmarks", ingest_benchmarks),
         # Catch catalog stocks the universe passes dropped (renames/demergers).
         ("repair_catalog_gaps", repair_catalog_gaps),
         ("backfill_alpha_history", backfill_alpha_history),
@@ -1276,6 +1372,15 @@ async def _ingest_all() -> None:
 
     'failed' when every child pass failed or something outside the passes
     raised; 'partial' when any pass was partial/failed; else 'success'.
+
+    Part F daily cycle, verified: market/fundamental ingestion (prices,
+    financials, periods, profiles, benchmarks, repair, news) -> fundamental
+    calculations (scores are pure reads over the snapshots) -> technical
+    calculations (indicators over stored bars) -> sentiment (stored FinBERT
+    aggregates) -> SignalDesk scores (backfill + live snapshots, pure writes
+    of computed values) -> Altman Z-Score needs NO nightly pass (pure read
+    over the stored snapshot via from_stored_snapshot; recomputes on every
+    GET /stocks/{s}/altman) -> API serves latest state.
     """
     await _record_pass("nightly_ingestion", _ingest_passes)
 

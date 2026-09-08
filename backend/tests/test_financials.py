@@ -1,4 +1,4 @@
-﻿# Tests for the financials sub-phase: model, provider mapping, ingestion.
+# Tests for the financials sub-phase: model, provider mapping, ingestion.
 #
 # No network: uses FakeProvider from test_providers (mocked provider). All DB
 # writes go to signaldesk_test via session_factory / monkeypatched SessionLocal.
@@ -22,7 +22,7 @@ async def seed_one_stock(session_factory) -> None:
         stock = Stock(symbol="RELIANCE.NS", name="Reliance", sector="Energy")
         session.add(stock)
         await session.flush()
-        universe = Universe(name="nifty250")
+        universe = Universe(name=jobs_module.UNIVERSE_NAME)
         session.add(universe)
         await session.flush()
         await session.execute(

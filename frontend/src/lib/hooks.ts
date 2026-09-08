@@ -70,6 +70,15 @@ export function useScores(symbol: string) {
   });
 }
 
+// Altman Z-Score: separate diagnostic, never blended into /scores or Alpha.
+export function useAltman(symbol: string) {
+  return useQuery({
+    queryKey: ["altman", symbol],
+    queryFn: () => api.altman(symbol),
+    staleTime: 60_000,
+  });
+}
+
 export const VALUATION_METRICS = ["PE", "EV_EBITDA", "PB", "PS"] as const;
 export type ValuationMetric = (typeof VALUATION_METRICS)[number];
 

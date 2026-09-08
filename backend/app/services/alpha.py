@@ -5,6 +5,10 @@
 #   weights renormalized over available components; bounded 0-100.
 #   Valuation is NOT blended in — surfaced separately as value_signal
 #   (avoids double-counting: multiples already derive from fundamentals).
+#   The Altman Z-Score is likewise NOT blended in: it is a separate
+#   financial-distress diagnostic on its own endpoint (Part E pipeline
+#   decision; folding it into Alpha weightings is a future design decision,
+#   not part of M1).
 #
 # Pure computation lives here; data loading is delegated to the existing
 # services/repositories (analysis.compute_stock_scores, indicators, news repo).

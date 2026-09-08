@@ -1,6 +1,6 @@
 import { motion } from "framer-motion";
 
-import { useScores } from "@/lib/hooks";
+import { useAltman, useScores } from "@/lib/hooks";
 import { DataState } from "@/components/data/DataState";
 import { CollapsibleSection } from "@/components/stock/CollapsibleSection";
 import { FinancialsHistoryChart } from "@/components/stock/FinancialsHistoryChart";
@@ -120,6 +120,12 @@ export function FundamentalsSection({ symbol }: { symbol: string }) {
           <p className="mt-4 text-xs leading-relaxed text-muted">{scores.explanation}</p>
         )}
 
+        {/* Altman Z-Score: separate distress diagnostic, never blended into
+            the scores above or into Alpha. Own query, own honest states. */}
+        <div className="mt-8">
+          <AltmanBlock symbol={symbol} />
+        </div>
+
         {/* Multi-year income-statement history (Part D, backend data only). */}
         <div className="mt-8">
           <FinancialsHistoryChart symbol={symbol} />
@@ -165,4 +171,74 @@ function formatComponentValue(name: string, value: number): string {
   if (name === "Interest coverage" || name === "Current ratio")
     return `${value.toFixed(2)}x`;
   return `${value.toFixed(1)}%`;
+}
+
+const ALTMAN_ZONE_TONE: Record<string, string> = {
+  safe: "text-band-positive",
+  grey: "text-muted",
+  distress: "text-band-weak",
+};
+
+const ALTMAN_ZONE_LABEL: Record<string, string> = {
+  safe: "Safe zone",
+  grey: "Grey zone",
+  distress: "Distress zone",
+};
+
+/**
+ * AltmanBlock: the Z-Score distress diagnostic as its own panel below the
+ * profitability/solvency scores. An available score shows the value, zone
+ * and formula inputs; an unavailable score shows the stored reason (missing
+ * balance-sheet data or non-applicable financial) instead of a guess.
+ */
+function AltmanBlock({ symbol }: { symbol: string }) {
+  const query = useAltman(symbol);
+  const altman = query.data;
+
+  return (
+    <div className="border border-line bg-surface">
+      <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-line px-5 py-3">
+        <p className="label-caps flex items-center gap-1.5">
+          Financial distress · Altman Z-Score
+          <InfoDot metric="altman" className="size-3.5" />
+        </p>
+        {altman?.zone && (
+          <p className={cn("num text-xs font-semibold", ALTMAN_ZONE_TONE[altman.zone])}>
+            {ALTMAN_ZONE_LABEL[altman.zone]}
+          </p>
+        )}
+      </div>
+      <DataState
+        loading={query.isLoading}
+        error={query.error}
+        onRetry={query.refetch}
+        insufficient={Boolean(altman && altman.status === "unavailable")}
+        insufficientTitle={
+          altman?.reason === "non_applicable_financial"
+            ? "Not applicable to financials"
+            : "Z-Score unavailable"
+        }
+        insufficientMessage={
+          altman?.detail ??
+          "Balance-sheet inputs are not stored yet, so no score is computed. Nothing is estimated."
+        }
+        compact
+      >
+        {altman && altman.status === "available" && altman.score != null && (
+          <div className="px-5 py-4">
+            <div className="flex items-baseline justify-between gap-3">
+              <p className={cn("num text-2xl font-medium", altman.zone && ALTMAN_ZONE_TONE[altman.zone])}>
+                {altman.score.toFixed(2)}
+              </p>
+              <p className="num text-xs text-faint">safe above 2.6 · distress below 1.1</p>
+            </div>
+            <p className="mt-2 text-xs leading-relaxed text-muted">{altman.detail}</p>
+            <p className="mt-2 text-xs text-faint">
+              Separate diagnostic: not part of the Solvency Score or Alpha.
+            </p>
+          </div>
+        )}
+      </DataState>
+    </div>
+  );
 }

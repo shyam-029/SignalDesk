@@ -19,8 +19,10 @@ from app.db import SessionLocal
 from app.models import Stock, Universe, stock_universe
 from app.providers.yfinance_provider import MarketDataError, YFinanceProvider
 
-# The active ingestion universe (the widest catalog).
-UNIVERSE_NAME = "nifty250"
+# The active ingestion universe. M1-T3 cutover: nightly ingestion reads the
+# ranked "top1000" universe (see app/jobs.py UNIVERSE_NAME); the nifty
+# 50/100/250 rows remain as data for sector views and audit history.
+UNIVERSE_NAME = "top1000"
 
 
 async def _seed_one_universe(

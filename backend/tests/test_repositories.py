@@ -52,6 +52,22 @@ async def test_get_peers_sector_fallback_when_industry_null(session_factory):
         assert [p.symbol for p in peers] == ["B.NS"]
 
 
+async def test_get_peers_unclassified_stock_has_no_peers(session_factory):
+    """M1-T3 500: industry AND sector both NULL means no peer set.
+
+    Ranking-created catalog rows carry no classification; an IS NULL cohort
+    match would group thousands of unrelated companies and fan one request
+    into thousands of provider calls. Empty list, never the NULL cohort.
+    """
+    await _seed_stock(session_factory, "U1.NS", "U1", None, None)
+    await _seed_stock(session_factory, "U2.NS", "U2", None, None)
+    await _seed_stock(session_factory, "C.NS", "C", "Bank", "Banks")
+
+    async with session_factory() as session:
+        u1 = await stock_repo.get_stock(session, "U1.NS")
+        assert await stock_repo.get_peers(session, u1) == []
+
+
 async def test_get_financials_returns_fundamentals(session_factory):
     sid = await _seed_stock(session_factory, "RELIANCE.NS", "Reliance", "Energy", "Oil & Gas")
     async with session_factory() as session:

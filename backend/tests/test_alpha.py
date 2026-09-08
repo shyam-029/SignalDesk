@@ -286,3 +286,39 @@ async def test_alpha_endpoint_insufficient_data(client, session_factory):
     assert r.status_code == 200
     body = r.json()
     assert body["insufficient_data"] in (True, False)
+
+
+async def test_alpha_unclassified_stock_answers_fast_no_network(client, session_factory):
+    """M1-T3 500 regression: an unclassified stock's /alpha answers 200 fast.
+
+    UTIAMC.NS-class rows (sector/industry NULL, no snapshot) hung the worker:
+    the NULL-cohort peer fan-out fired thousands of Upstox calls. The fixed
+    path must return 200 with insufficient_data=True and construct no live
+    provider at all.
+    """
+    import app.services.analysis as analysis_mod
+    import app.providers.upstox_provider as upstox_mod
+
+    async with session_factory() as session:
+        session.add(Stock(symbol="U1.NS", name="U1", sector=None, industry=None))
+        session.add(Stock(symbol="U2.NS", name="U2", sector=None, industry=None))
+        await session.commit()
+
+    def _boom(token):
+        raise AssertionError("request path must not construct a provider")
+
+    orig_provider = upstox_mod.UpstoxProvider
+    orig_token = analysis_mod.settings.upstox_analytics_token
+    upstox_mod.UpstoxProvider = _boom  # type: ignore[assignment]
+    analysis_mod.settings.upstox_analytics_token = "fake-token-for-test"
+    try:
+        r = await client.get("/api/v1/stocks/U1/alpha")
+    finally:
+        upstox_mod.UpstoxProvider = orig_provider  # type: ignore[assignment]
+        analysis_mod.settings.upstox_analytics_token = orig_token
+    assert r.status_code == 200
+    body = r.json()
+    assert body["symbol"] == "U1.NS"
+    assert body["composite"] is None
+    assert body["value_signal"] is None
+    assert body["insufficient_data"] is True

@@ -1,4 +1,4 @@
-﻿# Phase 6.5 Part E tests â€” historical endpoints + ingestion job (zero network).
+# Phase 6.5 Part E tests â€” historical endpoints + ingestion job (zero network).
 
 from datetime import date, timedelta
 
@@ -70,7 +70,7 @@ async def _seed_universe(session_factory, symbols: list[str]) -> None:
     async with session_factory() as session:
         universe = await session.scalar(select(Universe).where(Universe.name == "nifty250"))
         if universe is None:
-            universe = Universe(name="nifty250")
+            universe = Universe(name=jobs_module.UNIVERSE_NAME)
             session.add(universe)
             await session.flush()
         for symbol in symbols:

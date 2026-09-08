@@ -79,6 +79,20 @@ export interface ScoreCard {
   explanation: string;
 }
 
+// Altman Z-Score distress diagnostic (GET /stocks/{symbol}/altman).
+// Separate from ScoreCard by design: never blended into solvency or Alpha.
+export interface AltmanResponse {
+  symbol: string;
+  status: "available" | "unavailable";
+  score: number | null;
+  zone: "safe" | "grey" | "distress" | null;
+  formulation: string;
+  inputs_used: Record<string, number>;
+  missing_inputs: string[];
+  reason: string | null;
+  detail: string | null;
+}
+
 export interface Valuation {
   symbol: string;
   method: string;
