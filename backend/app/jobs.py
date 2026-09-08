@@ -15,7 +15,7 @@ import asyncio
 import logging
 import time
 from collections.abc import Awaitable, Callable
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import TypeVar
 
 from sqlalchemy import delete, exists, func, select
@@ -40,16 +40,26 @@ from app.models import (
 from app.providers.base import Fundamentals, MarketDataProvider
 from app.providers.factory import build_default_market_provider
 from app.providers.news_base import Article, NewsProvider
+from app.providers.nse_master import NseMasterRow, fetch_master_with_retry
 from app.providers.rss_provider import GoogleNewsRSSProvider, NewsProviderError
 from app.providers.sentiment import FinBERTScorer, Sentiment
+from app.providers.upstox_provider import SYMBOL_ALIASES
 from app.providers.yfinance_provider import MarketDataError, YFinanceProvider
 from app.repositories import company_profiles as profile_repo
+from app.repositories import ranking as ranking_repo
+from app.services import ranking as ranking_svc
 
 logger = logging.getLogger(__name__)
 
 UNIVERSE_NAME = "nifty250"  # the widest active catalog (50 -> 100 -> 250 ladder)
 PERIOD = "2y"  # how much price history to fetch on each run
 BATCH_SIZE = 5  # concurrent symbols per batch (respect provider rate limits)
+
+# --- Top-1000 ranking (M1-T2) ---
+# The ranked universe written by rank_universe. Nightly ingestion keeps
+# reading UNIVERSE_NAME (nifty250) until the M1-T3 cutover switches it.
+RANKED_UNIVERSE = "top1000"
+RANKED_SIZE = 1000
 
 T = TypeVar("T")
 
@@ -968,6 +978,140 @@ async def repair_catalog_gaps(provider: MarketDataProvider | None = None) -> dic
     return {"repaired": repaired, "errors": len(errors)}
 
 
+# --- Top-1000 universe ranking (M1-T2, Plan 7) -------------------------------
+
+
+async def _fetch_one_mcap(
+    provider: MarketDataProvider, bare_symbol: str
+) -> tuple[str, float | None]:
+    """Fetch one symbol's market cap for ranking (E6: fresh, never stored).
+
+    Takes the CURRENT NSE bare symbol (the master's); provider calls use the
+    ".NS" suffixed form. Raises MarketDataError upward so callers isolate
+    per-symbol failures (D19); a provider-None stays None (E7 no_mcap).
+    """
+    fundamentals = await _with_retry(
+        lambda: provider.get_fundamentals(f"{bare_symbol}.NS"),
+        what=f"market-cap fetch for {bare_symbol}",
+    )
+    return bare_symbol, fundamentals.market_cap
+
+
+async def rank_universe(
+    provider: MarketDataProvider | None = None,
+    master_rows: list[NseMasterRow] | None = None,
+    batch_size: int = BATCH_SIZE,
+) -> dict:
+    """Rank the eligible NSE equity universe by market cap into 'top1000'.
+
+    Plan 7 pipeline: NSE master -> eligibility rules E1-E12 (pure logic in
+    app/services/ranking.py) -> fresh provider market caps -> rank + cutoff
+    -> persist cycle, audit trail, stocks metadata and universe membership.
+
+    Scope boundary: this pass is NEVER part of the nightly _ingest_passes or
+    the in-process scheduler — it is a monthly job, runnable manually via
+    `python -m app.jobs rank` (the monthly cron wiring lands in M1-T5).
+    master_rows is injectable for zero-network tests; None means fetch the
+    live master (fail-closed: a master outage fails the whole pass rather
+    than ranking against nothing).
+
+    Returns {"ranked", "excluded", "errors"}: errors > 0 marks the job_runs
+    row 'partial' (per-symbol mcap failures are isolated, never fatal).
+    """
+    provider = provider or build_default_market_provider()
+    started_clock = time.perf_counter()
+
+    rows = master_rows if master_rows is not None else await fetch_master_with_retry()
+
+    # Match the master to the catalog; create catalog rows for unseen
+    # rankable symbols (IPO/new-listing path, E8), then re-match.
+    async with SessionLocal() as session:
+        catalog = await ranking_repo.load_catalog_facts(session)
+        matches = ranking_svc.match_master_to_catalog(rows, catalog, SYMBOL_ALIASES)
+        new_entries: list[tuple[str, str, str | None]] = []
+        for row in rows:
+            if row.symbol in matches:
+                continue
+            if not ranking_svc.rankable_series(row):
+                continue
+            if ranking_svc.curated_excluded(row) is not None:
+                continue
+            new_entries.append((row.symbol, row.name, row.isin))
+        created = await ranking_repo.ensure_catalog_entries(session, new_entries)
+        await session.commit()
+    if created:
+        logger.info("Ranking created %d new catalog rows", created)
+        async with SessionLocal() as session:
+            catalog = await ranking_repo.load_catalog_facts(session)
+        matches = ranking_svc.match_master_to_catalog(rows, catalog, SYMBOL_ALIASES)
+
+    async with SessionLocal() as session:
+        price_facts, reference_dates = await ranking_repo.load_price_facts(session)
+
+    candidates = ranking_svc.build_candidates(
+        rows, catalog, matches, price_facts, symbol_aliases=SYMBOL_ALIASES
+    )
+
+    # Fresh market caps (E6) for candidates that can still rank. Per-symbol
+    # isolation: a failed fetch becomes an excluded/no_mcap audit row with
+    # the error in its detail, and counts toward the pass's 'errors'.
+    fetch_list = [c for c in candidates if ranking_svc.needs_mcap(c)]
+    mcaps: dict[str, tuple[float | None, str | None]] = {}
+    errors: list[str] = []
+    for i in range(0, len(fetch_list), batch_size):
+        batch = fetch_list[i : i + batch_size]
+        results = await asyncio.gather(
+            *(_fetch_one_mcap(provider, c.symbol) for c in batch),
+            return_exceptions=True,
+        )
+        for c, res in zip(batch, results):
+            if isinstance(res, Exception):
+                logger.error("Market-cap fetch failed for %s: %s", c.symbol, res)
+                errors.append(c.symbol)
+                mcaps[c.symbol] = (None, f"{type(res).__name__}: {res}")
+            else:
+                mcaps[c.symbol] = (res[1], None)
+    candidates = [
+        ranking_svc.with_mcap(c, *mcaps.get(c.symbol, (c.mcap, c.mcap_error)))
+        for c in candidates
+    ]
+
+    ctx = ranking_svc.RankContext(
+        today=date.today(),
+        reference_dates=reference_dates,
+        ranked_size=RANKED_SIZE,
+        symbol_aliases=SYMBOL_ALIASES,
+    )
+    decisions = ranking_svc.evaluate(candidates, ctx)
+
+    cycle_date = date.today()
+    mcap_asof = ranking_svc.cycle_reference_asof(reference_dates, cycle_date)
+    ranked_count = sum(1 for d in decisions if d.outcome == ranking_svc.RANKED_IN)
+    excluded_count = len(decisions) - ranked_count
+
+    async with SessionLocal() as session:
+        cycle = await ranking_repo.upsert_cycle(
+            session, cycle_date, RANKED_UNIVERSE, mcap_asof
+        )
+        await ranking_repo.replace_cycle_audit(session, cycle.id, decisions)
+        await ranking_repo.apply_stock_updates(session, decisions, cycle_date)
+        universe = await ranking_repo.get_or_create_universe(session, RANKED_UNIVERSE)
+        await ranking_repo.rebuild_universe_membership(
+            session, universe.id, ranking_repo.ranked_in_ids(decisions)
+        )
+        await ranking_repo.finalize_cycle(
+            session, cycle.id, round((time.perf_counter() - started_clock) * 1000)
+        )
+        await session.commit()
+        summary = await ranking_repo.cycle_audit_summary(session, cycle.id)
+
+    logger.info(
+        "Ranking done: cycle_date=%s ranked=%d excluded=%d errors=%d outcomes=%s",
+        cycle_date, ranked_count, excluded_count, len(errors), summary,
+    )
+    return {"ranked": ranked_count, "excluded": excluded_count, "errors": len(errors)}
+
+
 def run_daily_ingestion() -> None:
     """Scheduled entrypoint: run all ingestion passes once.
 
@@ -1005,7 +1149,8 @@ async def _ingest_all_with_job_engine() -> None:
 ERROR_SUMMARY_MAX = 500
 
 # Result keys meaning "items processed" for the different pass shapes.
-_PROCESSED_KEYS = ("fetched", "repaired", "warmed", "snapshots")
+# "ranked" is the top-1000 ranking pass (M1-T2).
+_PROCESSED_KEYS = ("fetched", "repaired", "warmed", "snapshots", "ranked")
 
 
 async def _record_pass(name: str, run, *args, **kwargs) -> str:
@@ -1183,5 +1328,13 @@ if __name__ == "__main__":
         asyncio.run(_record_pass("backfill_alpha_history", backfill_alpha_history))
     elif command == "ingest":
         run_daily_ingestion()
+    elif command == "rank":
+        # Top-1000 universe ranking (M1-T2): fetch the NSE master, apply the
+        # E1-E12 eligibility rules, rank by fresh market caps, write the
+        # audit trail and the top1000 universe. Monthly cadence is wired in
+        # M1-T5; manual here.
+        asyncio.run(_record_pass("rank_universe", rank_universe))
     else:
-        raise SystemExit(f"Unknown command: {command} (use 'backfill' or 'ingest')")
+        raise SystemExit(
+            f"Unknown command: {command} (use 'backfill', 'ingest' or 'rank')"
+        )

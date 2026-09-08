@@ -29,6 +29,7 @@ from sqlalchemy import (
     Index,
     Integer,
     func,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -56,6 +57,31 @@ class Stock(Base):
     name: Mapped[str]
     sector: Mapped[str | None]
     industry: Mapped[str | None]
+
+    # --- Ranking metadata (M1-T2, Plan 7 / 14) ---
+    # ISIN: the stable entity identity. Ranking matches NSE master rows to
+    # catalog rows by ISIN so a symbol rename never creates a second catalog
+    # entry (E5: one catalog entry per ISIN). NULL for rows seeded before the
+    # column existed and not yet seen in a master.
+    isin: Mapped[str | None] = mapped_column(String(24), index=True)
+    # Active flag: False means delisted/suspended per the latest ranking cycle
+    # (E9 inactive proxy or E10 master absence — one-cycle trigger, reversible
+    # on reappearance). The row and ALL its history are never deleted.
+    active: Mapped[bool] = mapped_column(default=True, server_default=text("true"))
+    # Why active became False ("absent_from_master" | "inactive_proxy"); NULL
+    # while active. Reappearance clears both (reversibility).
+    delisted_reason: Mapped[str | None] = mapped_column(String(64))
+    delisted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Position in the ranked top-1000 universe (1 = largest eligible market
+    # cap) and the date of the ranking cycle that set it; NULL when not
+    # currently ranked in.
+    mcap_rank: Mapped[int | None]
+    mcap_asof: Mapped[date | None]
+    # E1: BE/BZ series (eligible but trade-to-trade/surveillance segments).
+    restrict_flag: Mapped[str | None] = mapped_column(String(32))
+    # E2: ETFs live in their own domain (Plan 9); flagged when identified so
+    # they are excluded from the equity ranking and M6 inherits the data.
+    is_etf: Mapped[bool] = mapped_column(default=False, server_default=text("false"))
 
     # Many-to-many back-reference: which universes this stock belongs to.
     universes: Mapped[list["Universe"]] = relationship(
@@ -330,3 +356,76 @@ class JobRun(Base):
     items_processed: Mapped[int | None]
     items_failed: Mapped[int | None]
     error_summary: Mapped[str | None] = mapped_column(Text)
+
+
+class RankingCycle(Base):
+    """One run of the top-1000 universe ranking job (M1-T2, Plan 7).
+
+    One row per cycle date (same-day re-runs are idempotent: the existing
+    row is reused and its audit rows rebuilt). Execution status lives in
+    job_runs (pass name "rank_universe"); this row owns the data-level
+    facts: which universe was rebuilt, the market-wide newest bar date used
+    as the trading-calendar reference for the E9 inactive proxy, and timing.
+    """
+
+    __tablename__ = "ranking_cycles"
+    __table_args__ = (
+        UniqueConstraint("cycle_date", name="uq_ranking_cycles_date"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    cycle_date: Mapped[date]
+    universe_name: Mapped[str] = mapped_column(String(32))
+    # Market-wide newest daily_prices date at ranking time (E9 reference).
+    mcap_asof: Mapped[date | None]
+    started_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    duration_ms: Mapped[int | None]
+
+
+class RankingAudit(Base):
+    """Per-symbol ranking disposition for one cycle (the audit trail).
+
+    Every NSE master row gets exactly one row per cycle (plus catalog stocks
+    absent from the master), so a human can ask "why isn't stock X in the
+    top 1000 this month" and get a stored answer: ranked_out at rank N,
+    excluded/no_mcap, excluded/inactive_proxy, etc. This is queryable data,
+    never a log. outcome is ranked_in | ranked_out | excluded.
+    """
+
+    __tablename__ = "ranking_audit"
+    __table_args__ = (
+        # One audit row per master symbol per cycle (idempotency anchor).
+        UniqueConstraint("cycle_id", "symbol", name="uq_ranking_audit_cycle_symbol"),
+        Index("ix_ranking_audit_cycle_outcome", "cycle_id", "outcome"),
+        Index("ix_ranking_audit_stock", "stock_id"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    cycle_id: Mapped[int] = mapped_column(ForeignKey("ranking_cycles.id"), index=True)
+    # NULL when the master row never became a catalog row (e.g. series or
+    # curated exclusions); set once the symbol is rankable.
+    stock_id: Mapped[int | None] = mapped_column(ForeignKey("stocks.id"))
+    # Bare NSE master symbol ("RELIANCE"); for a catalog stock absent from
+    # the master, the bare catalog symbol.
+    symbol: Mapped[str] = mapped_column(String(32))
+    # Catalog symbol with suffix when matched to a row, else NULL.
+    catalog_symbol: Mapped[str | None] = mapped_column(String(32))
+    series: Mapped[str | None] = mapped_column(String(8))
+    isin: Mapped[str | None] = mapped_column(String(24))
+    # Master company-name snapshot (point-in-time record; never written back
+    # to the catalog — naming stays with existing sources).
+    name: Mapped[str | None] = mapped_column(Text)
+    outcome: Mapped[str] = mapped_column(String(16))
+    reason: Mapped[str | None] = mapped_column(String(32))
+    flag: Mapped[str | None] = mapped_column(String(32))
+    # Human-readable context, e.g. "REIT", "last bar 2026-07-01 (41 trading
+    # days stale)", "provider fetch failed: MarketDataError".
+    detail: Mapped[str | None] = mapped_column(Text)
+    # Ranking input actually seen this cycle (never backfilled/estimated).
+    mcap: Mapped[Numeric | None] = mapped_column(Numeric(20, 2))
+    # Position among eligible candidates (1 = largest mcap); <=1000 means
+    # ranked_in, >1000 means ranked_out with the exact rank shown.
+    rank: Mapped[int | None]

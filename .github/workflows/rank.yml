@@ -1,0 +1,48 @@
+name: rank
+
+# M1-T2: manual top-1000 universe ranking. workflow_dispatch ONLY — no
+# schedule here; the monthly cron is wired in M1-T5 (production deploy),
+# which consolidates all ops scheduling.
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  rank:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: signaldesk_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      # The CI database is a scratch DB; a real ranking run happens against
+      # production in M1-T5. This workflow exists to exercise the ranking
+      # pipeline end to end (master fetch + mcap fetches + audit writes).
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/signaldesk_test
+      APP_ENV: development
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Apply migrations
+        run: alembic upgrade head
+      - name: Rank top-1000 universe
+        run: python -m app.jobs rank
