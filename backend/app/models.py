@@ -429,3 +429,60 @@ class RankingAudit(Base):
     # Position among eligible candidates (1 = largest mcap); <=1000 means
     # ranked_in, >1000 means ranked_out with the exact rank shown.
     rank: Mapped[int | None]
+
+
+class Benchmark(Base):
+    """One benchmark index (M1-T6, Plan 13/14): ^NSEI, ^NSEBANK, ^CNXIT, ^CRSLDX.
+
+    Benchmarks live OUTSIDE the equity catalog on purpose: index rows in
+    `stocks` would leak into /stocks, /screener and peer sets. kind is
+    "index" for every row today (sector indexes are the same shape).
+    """
+
+    __tablename__ = "benchmarks"
+    __table_args__ = (
+        # One row per index symbol — the idempotency anchor for ingestion.
+        UniqueConstraint("symbol", name="uq_benchmarks_symbol"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    # Yahoo index symbol, e.g. "^NSEI" (kept verbatim, never suffixed).
+    symbol: Mapped[str] = mapped_column(String(32), index=True)
+    name: Mapped[str | None] = mapped_column(Text)
+    kind: Mapped[str] = mapped_column(String(16), default="index")
+    # Which provider supplied the row ("yfinance" — index bars have no
+    # Upstox secondary; provenance still recorded per the S1 contract).
+    source: Mapped[str | None] = mapped_column(String(32))
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+
+class BenchmarkPrice(Base):
+    """Daily OHLCV bar for one benchmark index (M1-T6).
+
+    Same shape as daily_prices so beta/drawdown/relative-performance math
+    (Plan 5.2) reuses the pattern; separate table so benchmark data never
+    interferes with equity ranking, valuation or peer sets.
+    """
+
+    __tablename__ = "benchmark_prices"
+    __table_args__ = (
+        # One bar per index per date — the idempotency anchor for ingestion.
+        UniqueConstraint(
+            "benchmark_id", "date", name="uq_benchmark_prices_benchmark_date"
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    benchmark_id: Mapped[int] = mapped_column(
+        ForeignKey("benchmarks.id"), index=True
+    )
+    date: Mapped[date]
+    open: Mapped[Numeric] = mapped_column(Numeric(16, 4))
+    high: Mapped[Numeric] = mapped_column(Numeric(16, 4))
+    low: Mapped[Numeric] = mapped_column(Numeric(16, 4))
+    close: Mapped[Numeric] = mapped_column(Numeric(16, 4))
+    volume: Mapped[int] = mapped_column(BigInteger)
+
+    benchmark: Mapped["Benchmark"] = relationship()

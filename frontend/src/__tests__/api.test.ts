@@ -108,6 +108,26 @@ describe("api client", () => {
     expect(urls[1]).toContain("/stocks/RELIANCE/prices?range=1mo");
   });
 
+  it("fetches the Altman Z-Score from its own endpoint", async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(200, {
+        symbol: "RELIANCE.NS",
+        status: "unavailable",
+        score: null,
+        zone: null,
+        formulation: "Altman Z'' (1995, non-manufacturing / emerging-market)",
+        inputs_used: {},
+        missing_inputs: ["total_assets"],
+        reason: "missing_balance_sheet",
+        detail: "Balance-sheet inputs are not stored by SignalDesk yet.",
+      }),
+    );
+    const data = await api.altman("RELIANCE");
+    expect(data.status).toBe("unavailable");
+    expect(data.reason).toBe("missing_balance_sheet");
+    expect(String(fetchMock.mock.calls[0][0])).toContain("/stocks/RELIANCE/altman");
+  });
+
   it("flags rate-limited responses with retry-after", async () => {
     fetchMock.mockResolvedValueOnce(
       jsonResponse(429, {

@@ -152,6 +152,15 @@ export const METRIC_INFO = {
     short: "Share price x shares outstanding: the market's total valuation of the equity.",
   },
 
+  // --- Altman Z-Score (financial distress diagnostic, separate from Alpha) ---
+  altman: {
+    label: "Altman Z-Score",
+    short:
+      "Financial-distress diagnostic: Altman Z'' for non-manufacturing and emerging-market companies. Separate from the Solvency Score and never blended into Alpha.",
+    method:
+      "Z'' = 6.56 x working capital/total assets + 3.26 x retained earnings/total assets + 6.72 x EBIT/total assets + 1.05 x book equity/total liabilities. Safe above 2.6, grey 1.1 to 2.6, distress below 1.1. Not applicable to banks and financials. Needs balance-sheet data; without it the score reports unavailable with the reason, never a guess.",
+  },
+
   // --- Performance strip (Part D) ---
   performance: {
     label: "Performance",

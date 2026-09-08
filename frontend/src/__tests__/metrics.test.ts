@@ -20,6 +20,7 @@ const REQUIRED_KEYS = [
   "margin_vs_peers",
   "profitability",
   "solvency",
+  "altman",
   "roe",
   "roa",
   "operating_margin",

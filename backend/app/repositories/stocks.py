@@ -19,11 +19,19 @@ async def get_peers(session: AsyncSession, stock: Stock) -> list[Stock]:
 
     Peer classification: use `industry` when the target has one; otherwise fall
     back to `sector` (defensive — a few stocks lack industry after backfill).
+
+    Unclassified stocks (industry AND sector both NULL — ranking-created
+    catalog rows never enriched) have NO peer set: an `IS NULL` match would
+    group thousands of unrelated companies into one meaningless peer set
+    (M1-T3 500: UTIAMC.NS matched 2,655 "peers", fanning one /alpha request
+    into thousands of provider calls). Empty list, never the NULL cohort.
     """
     if stock.industry is not None:
         column, classifier = Stock.industry, stock.industry
-    else:
+    elif stock.sector is not None:
         column, classifier = Stock.sector, stock.sector
+    else:
+        return []
 
     q = select(Stock).where(column == classifier, Stock.id != stock.id)
     result = await session.execute(q)

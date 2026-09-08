@@ -15,6 +15,7 @@ export default function MethodologyPage() {
         <Intro />
         <Alpha />
         <Fundamental />
+        <Altman />
         <Technical />
         <Sentiment />
         <Valuation />
@@ -94,6 +95,30 @@ function Fundamental() {
         Missing values drop the component and renormalize the remaining weights; if every
         component is missing the score is reported as unavailable. Negative ROE/margins clamp
         to 0; negative debt/equity (net cash) clamps to 100.
+      </p>
+    </section>
+  );
+}
+
+function Altman() {
+  return (
+    <section>
+      <h2 className="flex items-center gap-2 font-display text-2xl font-semibold">
+        Altman Z-Score <InfoDot metric="altman" />
+      </h2>
+      <p className="mt-3 text-sm leading-relaxed text-muted">
+        A separate financial-distress diagnostic using Altman Z&apos; for
+        non-manufacturing and emerging-market companies: 6.56 x working
+        capital/total assets + 3.26 x retained earnings/total assets + 6.72 x
+        EBIT/total assets + 1.05 x book equity/total liabilities. Safe above
+        2.6, grey 1.1 to 2.6, distress below 1.1. It is not applicable to
+        banks and financials, and it is never blended into the Solvency Score
+        or Alpha.
+      </p>
+      <p className="mt-3 text-sm leading-relaxed text-muted">
+        The score needs balance-sheet inputs that SignalDesk does not store
+        yet, so it reports unavailable with the reason instead of estimating
+        from income ratios.
       </p>
     </section>
   );
