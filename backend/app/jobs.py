@@ -257,6 +257,7 @@ def _financials_row(stock_id: int, f: Fundamentals) -> dict:
         "ebitda": f.ebitda,
         "price_to_book": f.price_to_book,
         "price_to_sales": f.price_to_sales,
+        "ev_ebitda": f.ev_ebitda,
         "return_on_equity": f.return_on_equity,
         "return_on_assets": f.return_on_assets,
         "operating_margin": f.operating_margin,
@@ -846,6 +847,34 @@ async def _fetch_one_profile(provider, symbol: str) -> tuple[str, bool]:
             website=profile.website,
             source=getattr(provider, "name", None),
         )
+        # Classification enrichment (markets/screener sector filters need it):
+        # ranking-created rows carry NULL sector/industry. Fetch the merged
+        # stock profile ONLY for stocks still missing classification (one
+        # extra provider call for the gap rows, none for classified ones) and
+        # fill the NULL columns — never overwrite an existing value.
+        stock_row = await session.get(Stock, stock_id)
+        needs_class = stock_row is not None and (
+            stock_row.sector is None or stock_row.industry is None
+        )
+        stock_id_resolved = stock_id
+    if needs_class:
+        try:
+            sp = await provider.get_stock_profile(symbol)
+        except NotImplementedError:
+            sp = None
+        except MarketDataError:
+            # Classification is best-effort: the profile itself still stored.
+            logger.info("classification fetch failed for %s; sector stays null", symbol)
+            sp = None
+        if sp is not None and (sp.sector is not None or sp.industry is not None):
+            async with SessionLocal() as session:
+                row = await session.get(Stock, stock_id_resolved)
+                if row is not None:
+                    if row.sector is None and sp.sector is not None:
+                        row.sector = sp.sector
+                    if row.industry is None and sp.industry is not None:
+                        row.industry = sp.industry
+                await session.commit()
     return symbol, True
 
 
@@ -1010,15 +1039,24 @@ async def repair_catalog_gaps(provider: MarketDataProvider | None = None) -> dic
 # Verified 2026-09-08: every symbol below serves 5d of daily bars from
 # yfinance with quoteType INDEX; .info carries NO fundamentals for indexes
 # (no marketCap/trailingPE/sector), so benchmarks ingest PRICES ONLY.
-# The list is a module constant (not DB-driven): indexes are four stable
+# The list is a module constant (not DB-driven): indexes are stable
 # symbols, not a ranked universe; adding one is a one-line diff + test.
-BENCHMARK_SYMBOLS: tuple[str, ...] = ("^NSEI", "^NSEBANK", "^CNXIT", "^CRSLDX")
+BENCHMARK_SYMBOLS: tuple[str, ...] = (
+    "^NSEI",      # Nifty 50
+    "^BSESN",     # BSE Sensex
+    "^INDIAVIX",  # India VIX
+    "^NSEBANK",   # Nifty Bank
+    "^CNXIT",     # Nifty IT
+    "^CRSLDX",    # CRISIL Broad Market Index
+)
 BENCHMARK_PERIOD = "2y"  # same stored depth as the equity price history
 
 # Provider display names for the benchmarks table (yfinance .info shortName
 # was read live 2026-09-08; kept as the creation default, refreshed on write).
 BENCHMARK_NAMES: dict[str, str] = {
     "^NSEI": "NIFTY 50",
+    "^BSESN": "BSE SENSEX",
+    "^INDIAVIX": "INDIA VIX",
     "^NSEBANK": "NIFTY BANK",
     "^CNXIT": "NIFTY IT",
     "^CRSLDX": "CRISIL Broad Market Index",

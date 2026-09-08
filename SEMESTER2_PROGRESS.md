@@ -2,7 +2,7 @@
 
 > **Purpose:** The operational companion to `SEMESTER2_PLAN.md`. Read this file FIRST to resume work, then the plan for the what/why.
 > **Rules:** Current state, then active milestone, then next task. Checklists per milestone. Verification results. Risks and pending human decisions stay visible until closed.
-> **Last updated:** 2026-09-09 (follow-up round 2: server-side universe search fixes ETERNAL/SWIGGY/IFCI, list/screener scoped to the ranked 1000, null-input stocks render "-" instead of errors, technical sensitivity recalibrated, Alpha v1.5 = 40/35/25 with balance-sheet distress in the fundamental pillar; backend 430/430, frontend 73/73, tsc clean, build OK).
+> **Last updated:** 2026-09-09 (round 3: valuation gaps closed with STORED Upstos EV/EBITDA ratios, valuation frame never collapses on gaps, per-section error boundaries end blank pages, sectors backfilled for the full top-1000, markets dashboard (index cards/movers/news/watchlists/recently viewed), funds sorting + windows + NAV chart, landing ticker + real Nifty-50 bar field; backend 431/431, frontend 73/73, tsc clean, build OK).
 > **Companion:** `SEMESTER2_PLAN.md` (sections cited as Plan 1-30). Semester 1 record: `PLANNING.md` / `PROGRESS.md`, frozen, unmodified.
 
 ---
@@ -222,3 +222,42 @@ The user's observation was correct and the cause was in `services/indicators.py`
 - Stored history: the running nightly's backfill_alpha_history recomputes it under v1.5.
 
 Suites this round: backend **430/430** (new: search x4 incl. universe scoping, blend + distress mapping, technical sensitivity), frontend **73/73**, tsc clean, build OK.
+
+## 15. Follow-up round 3 (2026-09-09): calculation gaps, dashboard, funds depth
+
+### 15.1 Valuation gaps filled with STORED Upstox ratios (D65, no request-path calls)
+
+- Migration `a3b4c5d6e7f8`: `financials.ev_ebitda` column. Upstox supplies EV/EBITDA as a pre-computed RATIO (never EV + EBITDA absolutes); the nightly financials pass stores it via the merged snapshot and `valuation.compute_multiple("EV_EBITDA")` falls back to the stored ratio when the absolutes are absent. Upstox P/S also mapped when the feed carries it.
+- Re-ran ingest_financials over the top-1000 (201s): 474 EV/EBITDA ratios stored. Verified: Swiggy now carries P/E -20.38 (loss-maker; P/E honestly cannot rank a negative multiple -> INSUFFICIENT_DATA verdict) and P/B 3.92 with a working peer verdict; the EV/EBITDA gap closes for the ~474 stocks whose only source is that ratio.
+- Negative P/E stays a data gap by design (`_is_valid` requires a positive multiple): the verdict panel explains it rather than estimating.
+
+### 15.2 Valuation frame no longer collapses on data gaps
+
+The whole section used to render a single "Not computable" card when the SELECTED metric was incomputable. Rebuilt: the frame always renders; the verdict panel shows either the verdict or a compact honest note ("lacks the inputs... other multiples below may still be computable"), and the all-multiples grid stays visible with "-" per gap. Soft codes (NO_PEERS/INSUFFICIENT_DATA) can no longer surface as red error cards here.
+
+### 15.3 Blank stock pages fixed with per-section error boundaries
+
+IFCI loaded and went blank because ONE section throwing during render unmounted the whole route. Every stock-page section now sits in its own ErrorBoundary (compact retry card, page stays up). Also recorded: recently-viewed tracking on every stock visit (device-local, lib/recent.ts).
+
+### 15.4 Sectors backfilled across the top-1000
+
+The nightly profiles pass now also fills stocks.sector/industry (NULL only, never overwrite) from the merged provider classification; a one-off backfill filled 698 + 253 = 951 gaps in two passes (252 first-pass failures were Upstox 429s, all healed on rerun). Sector NULL in top-1000: **0**. Markets/screener sector filters are fully populated.
+
+### 15.5 Markets page -> dashboard
+
+- Index cards: GET /benchmarks (stored benchmark tables; now 6 indexes incl. Sensex ^BSESN and India VIX ^INDIAVIX) with close, day change and 90d sparkline.
+- Today's movers: GET /stocks gains `mcap_bucket` (large >= 1L Cr, mid 20k-1L, small < 20k) - gainers/losers flip within a size class.
+- Market news feed: GET /market/news (latest across the universe, newest first).
+- Device-local watchlists (multiple named lists, create from the dashboard or from any stock header via the new watchlist button) and recently-viewed panel. Account-backed lists remain M3.
+- ETF + fund snapshot panels; SIP/SWP lab stub button (honest "coming soon" - it is scoped for the scenario lab).
+
+### 15.6 Funds: sorting, CAGR windows, NAV chart
+
+- GET /funds: server-side sort on category, name, NAV and EVERY return window (asc/desc, nulls last); 1y/3y returns are CAGR. Anchors require the window to be actually covered (21-day tolerance) - a 1y window over 8 months of history is None, never annualised from a stretched anchor.
+- GET /funds/{id}?window=1m|3m|6m|1y|3y|all: window-sliced, stride-downsampled series (120 points) + dependency-free SVG NAV chart; holdings section states honestly that portfolio disclosures are the M5 dependency.
+- Landing: ticker tape of the 50 largest at the top; the unfinished illustrative bar field is now REAL - the 50 largest, one bar each, sized by today's absolute move, colored red/green like the charts (hover readout); UniverseStrip renders the top 8 by market cap (4x2) instead of a hardcoded name list that silently matched one row.
+
+### 15.7 Operational notes
+
+- The long-running nightly process lazily imported the NEW financials repo against the OLD cached models after my live migration -> both alpha passes failed 1000/1000 ('Financials' object has no attribute 'ev_ebitda'). Re-ran both with fresh code: backfill 732s + snapshots 855s, full top-1000 history under Alpha v1.5. Lesson recorded: re-run affected passes after migrating alongside a running job process.
+- Suites: backend **431/431**, frontend **73/73**, tsc clean, vite build OK.

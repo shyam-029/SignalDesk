@@ -1,4 +1,6 @@
+import * as React from "react";
 import { Link } from "react-router-dom";
+import { ArrowDown, ArrowUp, ArrowUpDown } from "lucide-react";
 
 import { useFunds } from "@/lib/hooks";
 import { DataState } from "@/components/data/DataState";
@@ -8,22 +10,55 @@ import { cn } from "@/lib/utils";
 
 /**
  * FundsPage: the curated mutual-fund catalog (Plan 8 slice). Official AMFI
- * daily NAVs, windowed returns computed by the backend from stored NAV
- * history. Rows link to the fund detail page; returns show "-" until the
- * stored history covers the window.
+ * daily NAVs; every return column and the category sort server-side, in
+ * both directions. 1y/3y are annualised (CAGR); a "-" window means the
+ * stored history does not cover it yet and is never estimated.
  */
+
+type SortKey =
+  | "category"
+  | "name"
+  | "latest_nav"
+  | "return_1m"
+  | "return_3m"
+  | "return_6m"
+  | "return_1y"
+  | "return_3y";
+
+const COLUMNS: Array<{ key: SortKey; label: string; numeric?: boolean }> = [
+  { key: "name", label: "Scheme" },
+  { key: "category", label: "Category" },
+  { key: "latest_nav", label: "NAV", numeric: true },
+  { key: "return_1m", label: "1M", numeric: true },
+  { key: "return_3m", label: "3M", numeric: true },
+  { key: "return_6m", label: "6M", numeric: true },
+  { key: "return_1y", label: "1Y", numeric: true },
+  { key: "return_3y", label: "3Y", numeric: true },
+];
+
 export default function FundsPage() {
-  const query = useFunds();
+  const [sort, setSort] = React.useState<SortKey>("name");
+  const [direction, setDirection] = React.useState<"asc" | "desc">("asc");
+  const query = useFunds(sort, direction);
   const funds = query.data;
+
+  const onSort = (key: SortKey) => {
+    if (key === sort) {
+      setDirection((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSort(key);
+      setDirection("asc");
+    }
+  };
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-12 md:px-6">
       <SectionHeader index="03" kicker="Discovery" title="Mutual funds" />
       <p className="mt-3 max-w-2xl text-sm leading-relaxed text-muted">
         A curated set of major schemes across categories, priced from the
-        official AMFI daily NAV file. Returns are computed by SignalDesk from
-        stored NAV history - windows the history does not cover yet show "-"
-        and are never estimated.
+        official AMFI daily NAV file. Every column sorts both directions; 1Y
+        and 3Y are annualised. A window the stored history does not cover yet
+        shows "-" and is never estimated.
       </p>
 
       <div className="mt-8">
@@ -42,15 +77,51 @@ export default function FundsPage() {
                 <p className="num text-xs text-faint">{funds.total} schemes</p>
               </div>
               <div className="overflow-x-auto">
-                <table className="w-full min-w-[760px] border-collapse text-left">
+                <table className="w-full min-w-[880px] border-collapse text-left">
                   <thead>
                     <tr className="border-b border-line">
-                      <th className="px-5 py-3 label-caps font-medium">Scheme</th>
-                      <th className="px-3 py-3 label-caps font-medium">Category</th>
-                      <th className="px-3 py-3 label-caps text-right font-medium">NAV</th>
-                      <th className="px-3 py-3 label-caps text-right font-medium">1M</th>
-                      <th className="px-3 py-3 label-caps text-right font-medium">3M</th>
-                      <th className="px-5 py-3 label-caps text-right font-medium">6M</th>
+                      {COLUMNS.map((col) => {
+                        const active = sort === col.key;
+                        return (
+                          <th
+                            key={col.key}
+                            scope="col"
+                            aria-sort={
+                              active
+                                ? direction === "asc"
+                                  ? "ascending"
+                                  : "descending"
+                                : "none"
+                            }
+                            className={cn(
+                              "px-3 py-3",
+                              col.key === "name" && "pl-5",
+                              col.numeric ? "text-right" : "text-left",
+                            )}
+                          >
+                            <button
+                              type="button"
+                              onClick={() => onSort(col.key)}
+                              className={cn(
+                                "label-caps inline-flex cursor-pointer items-center gap-1 transition-colors hover:text-foreground",
+                                active && "text-foreground",
+                              )}
+                              title={`Sort by ${col.label}`}
+                            >
+                              {col.label}
+                              {active ? (
+                                direction === "asc" ? (
+                                  <ArrowUp className="size-3" aria-hidden />
+                                ) : (
+                                  <ArrowDown className="size-3" aria-hidden />
+                                )
+                              ) : (
+                                <ArrowUpDown className="size-3 opacity-40" aria-hidden />
+                              )}
+                            </button>
+                          </th>
+                        );
+                      })}
                     </tr>
                   </thead>
                   <tbody>
@@ -80,23 +151,23 @@ export default function FundsPage() {
                             "-"
                           )}
                         </td>
-                        {(["1m", "3m", "6m"] as const).map((w) => {
+                        {(["1m", "3m", "6m", "1y", "3y"] as const).map((w) => {
                           const value =
                             w === "1m"
                               ? fund.return_1m_pct
                               : w === "3m"
                                 ? fund.return_3m_pct
-                                : fund.return_6m_pct;
+                                : w === "6m"
+                                  ? fund.return_6m_pct
+                                  : w === "1y"
+                                    ? fund.return_1y_pct
+                                    : fund.return_3y_pct;
                           return (
                             <td
                               key={w}
                               className={cn(
-                                "num px-3 py-3 text-right text-sm font-medium last:px-5",
-                                value == null
-                                  ? "text-faint"
-                                  : value >= 0
-                                    ? "text-band-positive"
-                                    : "text-band-weak",
+                                "num px-3 py-3 text-right text-sm font-medium",
+                                value == null ? "text-faint" : value >= 0 ? "text-band-positive" : "text-band-weak",
                               )}
                             >
                               {fmtSignedPct(value)}

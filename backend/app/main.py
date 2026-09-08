@@ -62,7 +62,7 @@ from app.errors import (
 from app.jobs import start_scheduler
 from app.logging_utils import configure_logging, request_id_middleware
 from app.repositories import job_runs as job_runs_repo
-from app.routers import alpha, altman, ask, debug, etfs, explain, fundamentals, funds, history, news, scores, screener, stocks, technicals, valuation
+from app.routers import alpha, altman, ask, debug, etfs, explain, fundamentals, funds, history, market, news, scores, screener, stocks, technicals, valuation
 from app.services.valuation import InsufficientDataError, NoPeersError
 
 logger = logging.getLogger(__name__)
@@ -228,6 +228,7 @@ app.include_router(scores.router, prefix="/api/v1")
 app.include_router(altman.router, prefix="/api/v1")
 app.include_router(etfs.router, prefix="/api/v1")
 app.include_router(funds.router, prefix="/api/v1")
+app.include_router(market.router, prefix="/api/v1")
 app.include_router(valuation.router, prefix="/api/v1")
 app.include_router(screener.router, prefix="/api/v1")
 app.include_router(news.router, prefix="/api/v1")

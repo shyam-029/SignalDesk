@@ -11,6 +11,7 @@ import { Coverage } from "@/components/landing/Coverage";
 import { MethodologyTeaser } from "@/components/landing/MethodologyTeaser";
 import { FinalCTA } from "@/components/landing/FinalCTA";
 import { MarketPulse } from "@/components/landing/MarketPulse";
+import { TickerTape } from "@/components/landing/TickerTape";
 import { CandleField } from "@/components/landing/CandleField";
 import { ScrollPulse } from "@/components/landing/ScrollPulse";
 
@@ -31,6 +32,7 @@ export default function LandingPage() {
   return (
     <div className="grid-lines">
       <ScrollPulse />
+      <TickerTape />
       <MarketPulse />
       <Hero sparkline={sparkline} />
 

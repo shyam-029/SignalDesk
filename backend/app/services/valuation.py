@@ -51,15 +51,18 @@ def compute_multiple(metric: str, f: Fundamentals) -> float | None:
     """Return the target's valuation multiple, or None if not computable.
 
     Higher/negative is meaningless for these multiples, so:
-      - EV_EBITDA: None if EV or EBITDA missing, or EBITDA <= 0.
+      - EV_EBITDA: None if EV or EBITDA missing, or EBITDA <= 0 — UNLESS the
+        snapshot carries the stored pre-computed EV/EBITDA ratio (D65: the
+        Upstox key-ratios feed is the only source of that multiple for many
+        stocks; it is stored at ingestion, never fetched on the request path).
       - PE/PB/PS: the raw provider value (None propagates; caller filters).
     """
     if metric == "EV_EBITDA":
         ev = f.enterprise_value
         ebitda = f.ebitda
-        if ev is None or ebitda is None or ebitda <= 0:
-            return None
-        return ev / ebitda
+        if ev is not None and ebitda is not None and ebitda > 0:
+            return ev / ebitda
+        return f.ev_ebitda
     if metric == "PE":
         return f.trailing_pe
     if metric == "PB":

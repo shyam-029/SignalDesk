@@ -11,6 +11,7 @@ import type {
   AltmanResponse,
   AlphaExplanationResponse,
   AskResponse,
+  BenchmarkListResponse,
   CompanyProfileResponse,
   EtfListResponse,
   ExplainQuestionType,
@@ -19,6 +20,7 @@ import type {
   FundDetailResponse,
   FundListResponse,
   Fundamentals,
+  MarketNewsResponse,
   NewsListResponse,
   PeersResponse,
   PerformanceResponse,
@@ -128,11 +130,12 @@ export function apiPost<T>(path: string, body: unknown): Promise<T> {
 // --- Endpoint helpers (one per backend route the frontend uses) -------------
 
 export const api = {
-  stocks: (page = 1, limit = 50, sector?: string, sort?: string, direction?: string) => {
+  stocks: (page = 1, limit = 50, sector?: string, sort?: string, direction?: string, mcapBucket?: string) => {
     const q = new URLSearchParams({ page: String(page), limit: String(limit) });
     if (sector) q.set("sector", sector);
     if (sort) q.set("sort", sort);
     if (direction) q.set("direction", direction);
+    if (mcapBucket) q.set("mcap_bucket", mcapBucket);
     return apiGet<StockListResponse>(`/stocks?${q.toString()}`);
   },
 
@@ -164,9 +167,24 @@ export const api = {
 
   etfs: () => apiGet<EtfListResponse>("/etfs"),
 
-  funds: () => apiGet<FundListResponse>("/funds"),
+  funds: (sort?: string, direction?: string, category?: string) => {
+    const q = new URLSearchParams();
+    if (sort) q.set("sort", sort);
+    if (direction) q.set("direction", direction);
+    if (category) q.set("category", category);
+    const suffix = q.toString() ? `?${q.toString()}` : "";
+    return apiGet<FundListResponse>(`/funds${suffix}`);
+  },
 
-  fund: (fundId: number) => apiGet<FundDetailResponse>(`/funds/${fundId}`),
+  fund: (fundId: number, window?: string) =>
+    apiGet<FundDetailResponse>(
+      `/funds/${fundId}${window ? `?window=${encodeURIComponent(window)}` : ""}`,
+    ),
+
+  benchmarks: () => apiGet<BenchmarkListResponse>("/benchmarks"),
+
+  marketNews: (limit = 20) =>
+    apiGet<MarketNewsResponse>(`/market/news?limit=${limit}`),
 
   valuation: (symbol: string, metric: string) =>
     apiGet<Valuation>(

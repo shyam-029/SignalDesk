@@ -434,12 +434,14 @@ class UpstoxProvider(MarketDataProvider):
             )
 
         # Only fields Upstox actually supplies are mapped; the rest stay None.
-        # EV/EBITDA arrives as a pre-computed ratio, not as EV and EBITDA
-        # values, so neither absolute field can be derived from it.
+        # EV/EBITDA arrives as a pre-computed ratio (stored on the snapshot,
+        # D65); P/S is mapped when the key-ratios feed carries it.
         return Fundamentals(
             symbol=symbol,
             trailing_pe=ratios.get("P/E"),
             price_to_book=ratios.get("P/B"),
+            price_to_sales=ratios.get("P/S"),
+            ev_ebitda=ratios.get("EV/EBITDA"),
             return_on_equity=ratios.get("ROE"),
             return_on_assets=ratios.get("ROA"),
             operating_margin=op_margin,

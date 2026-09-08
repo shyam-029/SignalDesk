@@ -1,7 +1,7 @@
-﻿import { CheckCircle2, CircleDashed } from "lucide-react";
+﻿import { CheckCircle2 } from "lucide-react";
 
 import { Reveal } from "@/components/motion/Reveal";
-import { UniverseGrid } from "@/components/landing/UniverseGrid";
+import { CandleField } from "@/components/landing/CandleField";
 
 /**
  * Coverage: the product scope, stated plainly. Equities are live today; ETFs
@@ -42,7 +42,7 @@ export function Coverage() {
                 </span>
               </div>
               <h3 className="mt-3 font-display text-xl font-semibold">
-                Nifty 250 fundamentals, valuation, technicals, sentiment
+                Top-1000 fundamentals, valuation, technicals, sentiment
               </h3>
               <p className="mt-3 text-sm leading-relaxed text-muted">
                 Full research screen per company: scores with per-component evidence, relative
@@ -50,7 +50,7 @@ export function Coverage() {
                 news sentiment, and written explanations.
               </p>
               <ul className="num mt-5 space-y-1.5 text-xs text-muted">
-                {["Nifty 250 catalog", "Relative valuation · P/E, EV/EBITDA, P/B, P/S", "Alpha Score with weights", "Daily price ingestion"].map(
+                {["Top-1000 ranked catalog", "Relative valuation · P/E, EV/EBITDA, P/B, P/S", "Alpha Score with the balance sheet in the blend", "ETFs and curated funds live"].map(
                   (t) => (
                     <li key={t} className="flex items-start gap-2">
                       <span className="mt-1.5 inline-block size-1 shrink-0 bg-band-strong" />
@@ -71,24 +71,24 @@ export function Coverage() {
                   className="absolute left-0 top-0 h-[3px] w-full"
                   style={{ background: "var(--accent-amber)" }}
                 />
-                <div className="max-w-md">
-                  <div className="flex items-center justify-between">
-                    <p className="label-caps" style={{ color: "var(--accent-amber)" }}>
-                      Mutual funds
+                  <div className="max-w-md">
+                    <div className="flex items-center justify-between">
+                      <p className="label-caps" style={{ color: "var(--accent-amber)" }}>
+                        Mutual funds
+                      </p>
+                      <span className="inline-flex items-center gap-1 text-xs font-medium text-band-positive">
+                        <CheckCircle2 className="size-3.5" /> Shipping now
+                      </span>
+                    </div>
+                    <h3 className="mt-3 font-display text-xl font-semibold">
+                      Fund research is a different instrument.
+                    </h3>
+                    <p className="mt-3 text-sm leading-relaxed text-muted">
+                      A curated catalog priced from the official AMFI daily NAV
+                      file, with windowed returns. Fund-house holdings and
+                      portfolio overlap arrive with the next data drop.
                     </p>
-                    <span className="inline-flex items-center gap-1 text-xs font-medium text-faint">
-                      <CircleDashed className="size-3.5" /> On the roadmap
-                    </span>
                   </div>
-                  <h3 className="mt-3 font-display text-xl font-semibold">
-                    Fund research is a different instrument.
-                  </h3>
-                  <p className="mt-3 text-sm leading-relaxed text-muted">
-                    NAV history from AMFI, fund-house holdings, and the hard, valuable part:
-                    portfolio overlap between funds you own. The methodology will be built for
-                    funds, not borrowed from stocks.
-                  </p>
-                </div>
                 <div className="num mt-6 shrink-0 space-y-1 text-xs text-faint md:mt-0">
                   <p>mf_nav_history · AMFI daily</p>
                   <p>mf_holdings · overlap analysis</p>
@@ -103,33 +103,36 @@ export function Coverage() {
                   className="absolute left-0 top-0 h-[3px] w-full"
                   style={{ background: "var(--accent-teal)" }}
                 />
-                <div className="max-w-xl">
-                  <div className="flex items-center justify-between">
-                    <p className="label-caps" style={{ color: "var(--accent-teal)" }}>
-                      ETFs
+                  <div className="max-w-xl">
+                    <div className="flex items-center justify-between">
+                      <p className="label-caps" style={{ color: "var(--accent-teal)" }}>
+                        ETFs
+                      </p>
+                      <span className="inline-flex items-center gap-1 text-xs font-medium text-band-positive">
+                        <CheckCircle2 className="size-3.5" /> Shipping now
+                      </span>
+                    </div>
+                    <h3 className="mt-3 font-display text-xl font-semibold">
+                      Same price engine, different questions.
+                    </h3>
+                    <p className="mt-3 text-sm leading-relaxed text-muted">
+                      The 16 largest exchange-traded funds, priced from the same
+                      daily pipeline, tracked in their own domain. Tracking
+                      difference and index analytics land with the ETF layer.
                     </p>
-                    <span className="inline-flex items-center gap-1 text-xs font-medium text-muted">
-                      <CircleDashed className="size-3.5" /> On the roadmap
-                    </span>
                   </div>
-                  <h3 className="mt-3 font-display text-xl font-semibold">
-                    Same price engine, different questions.
-                  </h3>
-                  <p className="mt-3 text-sm leading-relaxed text-muted">
-                    ETFs trade like stocks but deserve their own analytical lens: tracking
-                    difference, liquidity, and the underlying index's fundamentals.
-                  </p>
-                </div>
               </div>
             </Reveal>
           </div>
         </div>
 
         <figure className="chart-frame mt-12">
-          <UniverseGrid className="h-auto w-full" />
+          <CandleField className="h-auto w-full" />
           <figcaption className="flex items-baseline gap-3 border-t border-line px-4 py-2.5">
             <span className="label-caps">The listed universe</span>
-            <span className="num text-xs text-muted">Illustrative · 250 constituents, one bar each</span>
+            <span className="num text-xs text-muted">
+              The 50 largest ranked companies · one bar each · today's move, colored like the price charts
+            </span>
           </figcaption>
         </figure>
       </div>

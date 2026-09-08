@@ -162,7 +162,7 @@ async def test_ingest_universe_records_run_via_nightly(session_factory, monkeypa
 
 async def test_latest_runs_and_last_success(session_factory, monkeypatch):
     """Repository helpers used by /debug/jobs and /status."""
-    from datetime import datetime, timezone
+    from datetime import datetime, timedelta, timezone
 
     from app.repositories import job_runs as repo
 
@@ -171,13 +171,15 @@ async def test_latest_runs_and_last_success(session_factory, monkeypatch):
             [
                 JobRun(
                     job_name="ingest_prices", status="success",
-                    started_at=datetime(2026, 9, 6, 18, 30, tzinfo=timezone.utc),
-                    finished_at=datetime(2026, 9, 6, 18, 50, tzinfo=timezone.utc),
+                    # Relative to now: the stale-detection assertion below has
+                    # to hold on any calendar day the suite runs.
+                    started_at=datetime.now(timezone.utc) - timedelta(hours=2),
+                    finished_at=datetime.now(timezone.utc) - timedelta(hours=1),
                 ),
                 JobRun(
                     job_name="ingest_prices", status="failed",
-                    started_at=datetime(2026, 9, 7, 18, 30, tzinfo=timezone.utc),
-                    finished_at=datetime(2026, 9, 7, 18, 31, tzinfo=timezone.utc),
+                    started_at=datetime.now(timezone.utc) - timedelta(minutes=90),
+                    finished_at=datetime.now(timezone.utc) - timedelta(minutes=89),
                     error_summary="MarketDataError: x",
                 ),
             ]

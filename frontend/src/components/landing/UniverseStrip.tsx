@@ -7,28 +7,15 @@ import { Reveal } from "@/components/motion/Reveal";
 import { fmtPrice, fmtSignedPct } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
-/** The household names to feature first (they exist in the Nifty 250 catalog). */
-const FEATURED = new Set([
-  "TCS",
-  "RELIANCE",
-  "HDFCBANK",
-  "INFY",
-  "ICICIBANK",
-  "BHARTIARTL",
-  "SBIN",
-  "LT",
-]);
-
 /**
- * UniverseStrip: the research universe, from the live catalog. These are
- * research subjects, not customers: no "trusted by" language, no logos.
+ * UniverseStrip: the research universe, from the live catalog. The eight
+ * LARGEST companies in the ranked universe (by market cap) render 4-up x 2 —
+ * real data, no hardcoded household list (the old hardcoded set broke the
+ * moment the universe scaled past the first alphabet page).
  */
 export function UniverseStrip() {
-  const list = useStockList(1, 200);
-
-  const featured = list.data
-    ? list.data.items.filter((s) => FEATURED.has(s.symbol.replace(".NS", "")))
-    : [];
+  const list = useStockList(1, 8, undefined, "market_cap", "desc");
+  const featured = list.data?.items ?? [];
 
   return (
     <section className="section-alt relative border-b border-line">
@@ -44,10 +31,10 @@ export function UniverseStrip() {
             {list.data ? (
               <>
                 <span className="num font-semibold text-foreground">{list.data.total}</span>{" "}
-                companies · Nifty 250 today, built to scale toward Nifty 500
+                ranked companies, built to scale with the market
               </>
             ) : (
-              "Nifty 250 universe · Yahoo Finance data"
+              "Top-1000 ranked universe · Yahoo Finance data"
             )}
           </p>
         </Reveal>

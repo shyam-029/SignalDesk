@@ -150,6 +150,10 @@ class Financials(Base):
     ebitda: Mapped[Numeric | None] = mapped_column(Numeric(20, 2))
     price_to_book: Mapped[Numeric | None] = mapped_column(Numeric(12, 2))
     price_to_sales: Mapped[Numeric | None] = mapped_column(Numeric(12, 2))
+    # Pre-computed EV/EBITDA ratio (Upstox key ratios, D65): the providers
+    # that carry it never supply EV and EBITDA as separate absolutes, so the
+    # ratio is stored and valuation falls back to it.
+    ev_ebitda: Mapped[Numeric | None] = mapped_column(Numeric(12, 2))
 
     # Profitability fields (normalized to percent before scoring).
     return_on_equity: Mapped[Numeric | None] = mapped_column(Numeric(10, 4))

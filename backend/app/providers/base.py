@@ -62,6 +62,10 @@ class Fundamentals:
     ebitda: float | None = None
     price_to_book: float | None = None
     price_to_sales: float | None = None
+    # Pre-computed EV/EBITDA ratio (D65): stored so relative valuation can
+    # fall back to it when neither provider supplies EV and EBITDA
+    # absolutes. None where no provider carries it.
+    ev_ebitda: float | None = None
     # Profitability (decimals: 0.18 = 18%).
     return_on_equity: float | None = None
     return_on_assets: float | None = None
