@@ -242,22 +242,26 @@ def compute_z_score(
     )
 
 
-def from_stored_snapshot(
-    fundamentals: object | None,
-    sector: str | None = None,
-    industry: str | None = None,
-) -> AltmanResult:
-    """Assess Z'' from what SignalDesk stores today: always unavailable.
+def inputs_from_balance_sheet_row(row) -> AltmanInputs:
+    """Build AltmanInputs from a stored BalanceSheetPeriod row (Plan 5.4).
 
-    The stored snapshot (market cap, margins, D/E, coverage, current ratio)
-    contains NO balance-sheet levels, so no Z'' input is derivable. This
-    function exists so the API has one honest reader to call: it checks the
-    financial-sector gate, then returns missing_balance_sheet with the full
-    missing-input list. `fundamentals` is accepted (and ignored beyond the
-    gate) so M2 can extend this reader without changing the API contract.
+    Decimal columns become floats; None stays None (never zero-filled).
+    ebit rides the same row (carried from the income statement at ingestion).
     """
-    if is_financial_sector(sector, industry):
-        return compute_z_score(AltmanInputs(), sector=sector, industry=industry)
+    def _f(value) -> float | None:
+        return float(value) if value is not None else None
+
+    return AltmanInputs(
+        working_capital=_f(row.working_capital),
+        total_assets=_f(row.total_assets),
+        retained_earnings=_f(row.retained_earnings),
+        ebit=_f(row.ebit),
+        book_equity=_f(row.book_equity),
+        total_liabilities=_f(row.total_liabilities),
+    )
+
+
+def _unavailable_no_balance_sheet() -> AltmanResult:
     return AltmanResult(
         status=STATUS_UNAVAILABLE,
         score=None,
@@ -272,8 +276,33 @@ def from_stored_snapshot(
         ],
         reason=REASON_MISSING_BALANCE_SHEET,
         detail=(
-            "Balance-sheet inputs are not stored by SignalDesk yet (Semester 1 "
-            "keeps income statements only); the score is not estimated from "
-            "income ratios."
+            "No balance-sheet period is stored for this stock yet; the score "
+            "is not estimated from income ratios."
         ),
+    )
+
+
+async def compute_stock_altman(session, stock) -> AltmanResult:
+    """Compute one stock's Z'' from stored data (the API's single reader).
+
+    Reads the latest annual balance_sheet_periods row via the repository and
+    hands explicit inputs to compute_z_score. Pure read: no provider calls,
+    no writes, deterministic per stored rows. Financial-sector companies are
+    gated before the lookup; a stock with no stored balance sheet gets the
+    honest unavailable result with the full missing-input list.
+    """
+    if is_financial_sector(stock.sector, stock.industry):
+        return compute_z_score(
+            AltmanInputs(), sector=stock.sector, industry=stock.industry
+        )
+
+    from app.repositories import balance_sheets as bs_repo
+
+    row = await bs_repo.get_latest(session, stock.id)
+    if row is None:
+        return _unavailable_no_balance_sheet()
+    return compute_z_score(
+        inputs_from_balance_sheet_row(row),
+        sector=stock.sector,
+        industry=stock.industry,
     )

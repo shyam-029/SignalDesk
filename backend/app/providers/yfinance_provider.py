@@ -14,6 +14,7 @@ import yfinance as yf
 logger = logging.getLogger(__name__)
 
 from app.providers.base import (
+    BalanceSheetDraft,
     CompanyProfile,
     FinancialPeriodDraft,
     Fundamentals,
@@ -178,6 +179,79 @@ class YFinanceProvider(MarketDataProvider):
                 interest_coverage=_as_float(info.get("interestCoverage")),
                 current_ratio=_as_float(info.get("currentRatio")),
             )
+
+        return await asyncio.to_thread(_fetch)
+
+    # Annual balance-sheet history (Plan 5.4). yfinance exposes a few annual
+    # columns on the `balance_sheet` DataFrame; EBIT comes from the income
+    # statement (Altman X3 numerator). Banks/NBFCs lack Working Capital: the
+    # field stays None and the Altman layer reports it honestly.
+    async def get_balance_sheet(
+        self, symbol: str
+    ) -> list[BalanceSheetDraft]:
+        def _fetch() -> list[BalanceSheetDraft]:
+            try:
+                ticker = yf.Ticker(symbol)
+                bs = ticker.balance_sheet
+                inc = ticker.income_stmt
+            except Exception as exc:
+                logger.warning(
+                    "provider_failure provider=yfinance op=balance_sheet symbol=%s error=%s",
+                    symbol, exc,
+                )
+                raise MarketDataError(
+                    f"yfinance balance_sheet failed for {symbol}: {exc}"
+                ) from exc
+
+            if bs is None or bs.empty:
+                return []
+
+            def _line(df, *names: str) -> dict:
+                for name in names:
+                    if name in df.index:
+                        return df.loc[name].to_dict()
+                return {}
+
+            working_capital = _line(bs, "Working Capital")
+            # Fallback: working capital = current assets - current liabilities
+            # (only when BOTH are present and finite).
+            if not working_capital:
+                ca = _line(bs, "Current Assets")
+                cl = _line(bs, "Current Liabilities")
+                if ca and cl:
+                    working_capital = {
+                        col: ca.get(col) - cl.get(col)
+                        for col in bs.columns
+                        if ca.get(col) is not None and cl.get(col) is not None
+                    }
+            total_assets = _line(bs, "Total Assets")
+            retained = _line(bs, "Retained Earnings")
+            equity = _line(bs, "Stockholders Equity", "Common Stock Equity")
+            liabilities = _line(
+                bs, "Total Liabilities Net Minority Interest", "Total Liabilities"
+            )
+            ebit = _line(inc, "EBIT", "Operating Income") if inc is not None else {}
+
+            periods: list[BalanceSheetDraft] = []
+            for col in bs.columns:  # yfinance returns columns newest-first
+                try:
+                    end = col.date()
+                except AttributeError:
+                    continue
+                periods.append(
+                    BalanceSheetDraft(
+                        period_end=end,
+                        period_type="annual",
+                        working_capital=_as_float(working_capital.get(col)),
+                        total_assets=_as_float(total_assets.get(col)),
+                        retained_earnings=_as_float(retained.get(col)),
+                        ebit=_as_float(ebit.get(col)),
+                        book_equity=_as_float(equity.get(col)),
+                        total_liabilities=_as_float(liabilities.get(col)),
+                        source="yfinance",
+                    )
+                )
+            return periods
 
         return await asyncio.to_thread(_fetch)
 

@@ -171,8 +171,8 @@ async def list_stocks(
         ).scalars()
     )
 
-    # Total count (respecting sector filter).
-    count_q = select(func.count(Stock.id))
+    # Total count (respecting sector filter; ETFs excluded as a separate domain).
+    count_q = select(func.count(Stock.id)).where(Stock.is_etf.is_(False))
     if sector:
         count_q = count_q.where(Stock.sector == sector)
     total = (await session.execute(count_q)).scalar_one()
@@ -180,7 +180,8 @@ async def list_stocks(
     q = select(Stock)
     if sector:
         q = q.where(Stock.sector == sector)
-    q = q.order_by(Stock.symbol)
+    # ETFs are a separate domain (GET /etfs, Plan 9): never in the equity list.
+    q = q.where(Stock.is_etf.is_(False)).order_by(Stock.symbol)
     stocks = (await session.execute(q)).scalars().all()
 
     # Batch-load the derived columns for ALL matching stocks (bounded by the

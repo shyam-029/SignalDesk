@@ -9,6 +9,8 @@ import { Button } from "@/components/ui/button";
 const NAV = [
   { to: "/markets", label: "Markets" },
   { to: "/screener", label: "Screener" },
+  { to: "/etfs", label: "ETFs" },
+  { to: "/funds", label: "Funds" },
   { to: "/methodology", label: "Methodology" },
 ];
 

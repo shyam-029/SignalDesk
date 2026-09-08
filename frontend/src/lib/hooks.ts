@@ -79,6 +79,34 @@ export function useAltman(symbol: string) {
   });
 }
 
+// --- ETF + fund domains (Plan 8/9 slices) -------------------------------------
+
+export function useEtfs() {
+  return useQuery({
+    queryKey: ["etfs"],
+    queryFn: () => api.etfs(),
+    staleTime: 5 * 60_000,
+  });
+}
+
+export function useFunds() {
+  return useQuery({
+    queryKey: ["funds"],
+    queryFn: () => api.funds(),
+    staleTime: 5 * 60_000,
+  });
+}
+
+export function useFund(fundId: number | undefined) {
+  return useQuery({
+    queryKey: ["fund", fundId],
+    queryFn: () => api.fund(fundId as number),
+    enabled: fundId != null,
+    staleTime: 5 * 60_000,
+    retry: noRetryOn404,
+  });
+}
+
 export const VALUATION_METRICS = ["PE", "EV_EBITDA", "PB", "PS"] as const;
 export type ValuationMetric = (typeof VALUATION_METRICS)[number];
 

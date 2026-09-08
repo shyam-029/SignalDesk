@@ -358,3 +358,56 @@ class MergingProvider(MarketDataProvider):
         if secondary is None:
             secondary = []
         return merge_financial_history(primary, secondary, symbol)
+
+    async def get_balance_sheet(self, symbol: str) -> list["BalanceSheetDraft"]:
+        """Primary's balance sheets, gaps and None fields filled by secondary.
+
+        Keyed by (period_type, period_end). A primary NotImplementedError
+        propagates (callers treat it as "no capability"); a secondary failure
+        degrades to primary-only (logged by _safe).
+        """
+        from dataclasses import replace
+
+        primary = await self._safe(
+            "primary", f"balance sheet {symbol}",
+            lambda: self.primary.get_balance_sheet(symbol),
+        )
+        if primary is None:
+            primary = []
+        secondary = await self._safe(
+            "secondary", f"balance sheet {symbol}",
+            lambda: self.secondary.get_balance_sheet(symbol),
+        )
+        if secondary is None:
+            secondary = []
+
+        by_key: dict[tuple[str, object], BalanceSheetDraft] = {
+            (d.period_type, d.period_end): d for d in primary
+        }
+        for d in secondary:
+            key = (d.period_type, d.period_end)
+            base = by_key.get(key)
+            if base is None:
+                by_key[key] = d
+                continue
+            fields = {}
+            for f in (
+                "working_capital", "total_assets", "retained_earnings",
+                "ebit", "book_equity", "total_liabilities",
+            ):
+                if getattr(base, f) is None and getattr(d, f) is not None:
+                    fields[f] = getattr(d, f)
+            if fields:
+                by_key[key] = replace(base, **fields)
+
+        merged = list(by_key.values())
+        filled = len(merged) - len(primary)
+        if filled > 0:
+            logger.info(
+                "merge_gap_fill op=balance_sheet symbol=%s primary=%d "
+                "secondary_gapfill=%d total=%d",
+                symbol, len(primary), filled, len(merged),
+            )
+        return sorted(
+            merged, key=lambda d: (d.period_type, d.period_end), reverse=True
+        )

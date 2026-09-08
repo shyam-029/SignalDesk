@@ -5,6 +5,7 @@
 from decimal import Decimal
 
 import pytest
+from sqlalchemy import select
 
 from app.models import Financials, Stock
 from app.services import altman as svc
@@ -207,25 +208,95 @@ def test_deterministic_recalculation():
     assert first == second
 
 
-# --- Stored-snapshot reader (today: honestly unavailable) ---------------------
+# --- Stored-row reader (real scores from balance_sheet_periods) --------------
 
 
-def test_from_stored_snapshot_is_unavailable():
-    """Income-statement snapshots carry no balance-sheet levels."""
-    result = svc.from_stored_snapshot(object(), sector="IT")
+def test_inputs_from_balance_sheet_row_maps_decimals():
+    """Decimal columns map to floats; None stays None (never zero)."""
+    from datetime import date
+    from decimal import Decimal
+
+    from app.models import BalanceSheetPeriod
+
+    row = BalanceSheetPeriod(
+        stock_id=1,
+        period_end=date(2026, 3, 31),
+        period_type="annual",
+        working_capital=Decimal("200"),
+        total_assets=Decimal("1000"),
+        retained_earnings=Decimal("300"),
+        ebit=Decimal("150"),
+        book_equity=Decimal("600"),
+        total_liabilities=Decimal("400"),
+        source="yfinance",
+    )
+    inputs = svc.inputs_from_balance_sheet_row(row)
+    assert inputs.working_capital == 200.0
+    assert inputs.total_assets == 1000.0
+    assert inputs.ebit == 150.0
+    row2 = BalanceSheetPeriod(
+        stock_id=1, period_end=date(2025, 3, 31), period_type="annual",
+        source="yfinance",
+    )
+    empty = svc.inputs_from_balance_sheet_row(row2)
+    assert empty.working_capital is None
+    assert empty.total_assets is None
+
+
+async def test_compute_stock_altman_available_with_balance_sheet(
+    session_factory,
+):
+    """A stored balance sheet yields the real hand-computed Z'' score."""
+    from datetime import date
+    from decimal import Decimal
+
+    from app.models import BalanceSheetPeriod
+    from app.services.altman import compute_stock_altman
+
+    async with session_factory() as session:
+        stock = Stock(symbol="ZS.NS", name="Z", sector="IT", industry="IT Services")
+        session.add(stock)
+        await session.flush()
+        # The 4.87 safe case scaled x10: same ratios, same score.
+        session.add(
+            BalanceSheetPeriod(
+                stock_id=stock.id, period_end=date(2026, 3, 31),
+                period_type="annual",
+                working_capital=Decimal("2000"), total_assets=Decimal("10000"),
+                retained_earnings=Decimal("3000"), ebit=Decimal("1500"),
+                book_equity=Decimal("6000"), total_liabilities=Decimal("4000"),
+                source="yfinance",
+            )
+        )
+        await session.commit()
+
+    async with session_factory() as session:
+        stock = await session.scalar(select(Stock).where(Stock.symbol == "ZS.NS"))
+        result = await compute_stock_altman(session, stock)
+    assert result.status == "available"
+    assert result.score == pytest.approx(4.87, abs=0.01)
+    assert result.zone == "safe"
+    assert result.inputs_used["x1"] == pytest.approx(0.2)
+
+
+async def test_compute_stock_altman_unavailable_without_balance_sheet(
+    session_factory,
+):
+    """No stored balance sheet: honest unavailable, full missing-input list."""
+    from app.services.altman import compute_stock_altman
+
+    async with session_factory() as session:
+        stock = Stock(symbol="NB.NS", name="NB", sector="IT", industry="IT")
+        session.add(stock)
+        await session.commit()
+
+    async with session_factory() as session:
+        stock = await session.scalar(select(Stock).where(Stock.symbol == "NB.NS"))
+        result = await compute_stock_altman(session, stock)
     assert result.status == "unavailable"
-    assert result.score is None
     assert result.reason == "missing_balance_sheet"
-    assert result.missing_inputs == [
-        "book_equity", "ebit", "retained_earnings", "total_assets",
-        "total_liabilities", "working_capital",
-    ]
-
-
-def test_from_stored_snapshot_financial_sector():
-    result = svc.from_stored_snapshot(object(), sector="Financial Services")
-    assert result.status == "unavailable"
-    assert result.reason == "non_applicable_financial"
+    assert result.score is None
+    assert "total_assets" in result.missing_inputs
 
 
 # --- API ----------------------------------------------------------------------

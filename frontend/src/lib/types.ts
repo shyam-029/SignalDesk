@@ -321,3 +321,64 @@ export interface FinancialsHistoryResponse {
   items: FinancialPeriodItem[];
   insufficient_data: boolean;
 }
+
+// --- ETF domain (GET /etfs, Plan 9 slice) -------------------------------------
+
+export interface EtfSummary {
+  symbol: string;
+  name: string;
+  last_price: number | null;
+  change_pct: number | null;
+  return_1y_pct: number | null;
+  as_of: string | null;
+}
+
+export interface EtfListResponse {
+  items: EtfSummary[];
+  total: number;
+}
+
+// --- Mutual funds (GET /funds, Plan 8 slice) -----------------------------------
+
+export interface FundSummary {
+  id: number;
+  amfi_code: string;
+  name: string;
+  category: string | null;
+  plan: string | null;
+  option: string | null;
+  latest_nav: number | null;
+  nav_date: string | null;
+  return_1m_pct: number | null;
+  return_3m_pct: number | null;
+  return_6m_pct: number | null;
+}
+
+export interface FundListResponse {
+  items: FundSummary[];
+  total: number;
+}
+
+export interface NavPoint {
+  date: string;
+  nav: number;
+  source: string;
+}
+
+export interface FundDetailResponse {
+  id: number;
+  amfi_code: string;
+  name: string;
+  category: string | null;
+  plan: string | null;
+  option: string | null;
+  latest_nav: number | null;
+  nav_date: string | null;
+  return_1m_pct: number | null;
+  return_3m_pct: number | null;
+  return_6m_pct: number | null;
+  nav_points: number;
+  history_start: string | null;
+  history_end: string | null;
+  items: NavPoint[];
+}

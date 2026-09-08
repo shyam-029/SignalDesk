@@ -14,6 +14,9 @@ import { PageLoader } from "@/components/data/PageLoader";
 const LandingPage = lazy(() => import("@/pages/LandingPage"));
 const MarketsPage = lazy(() => import("@/pages/MarketsPage"));
 const ScreenerPage = lazy(() => import("@/pages/ScreenerPage"));
+const EtfsPage = lazy(() => import("@/pages/EtfsPage"));
+const FundsPage = lazy(() => import("@/pages/FundsPage"));
+const FundDetailPage = lazy(() => import("@/pages/FundDetailPage"));
 const StockDetailPage = lazy(() => import("@/pages/StockDetailPage"));
 const MethodologyPage = lazy(() => import("@/pages/MethodologyPage"));
 const NotFoundPage = lazy(() => import("@/pages/NotFoundPage"));
@@ -52,6 +55,9 @@ export default function App() {
                     <Route path="/" element={<LandingPage />} />
                     <Route path="/markets" element={<MarketsPage />} />
                     <Route path="/screener" element={<ScreenerPage />} />
+                    <Route path="/etfs" element={<EtfsPage />} />
+                    <Route path="/funds" element={<FundsPage />} />
+                    <Route path="/funds/:fundId" element={<FundDetailPage />} />
                     <Route path="/stocks/:symbol" element={<StockDetailPage />} />
                     <Route path="/methodology" element={<MethodologyPage />} />
                     <Route path="*" element={<NotFoundPage />} />

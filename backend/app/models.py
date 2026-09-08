@@ -486,3 +486,96 @@ class BenchmarkPrice(Base):
     volume: Mapped[int] = mapped_column(BigInteger)
 
     benchmark: Mapped["Benchmark"] = relationship()
+
+
+class BalanceSheetPeriod(Base):
+    """One historical annual balance-sheet period for a stock (Plan 5.4).
+
+    Drives the real Altman Z-Score (services/altman.py): working capital,
+    total assets, retained earnings, EBIT (from the income statement), book
+    equity and total liabilities. Every metric column is nullable — banks
+    and NBFCs report non-standard formats and stay honestly missing rather
+    than estimated. source records the provider ("yfinance").
+    """
+
+    __tablename__ = "balance_sheet_periods"
+    __table_args__ = (
+        # One row per stock per period end per period type (annual today).
+        UniqueConstraint(
+            "stock_id", "period_end", "period_type",
+            name="uq_balance_sheet_periods_stock_period",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    stock_id: Mapped[int] = mapped_column(ForeignKey("stocks.id"), index=True)
+    period_end: Mapped[date]
+    period_type: Mapped[str] = mapped_column(String(16))  # "annual"
+
+    working_capital: Mapped[Numeric | None] = mapped_column(Numeric(20, 2))
+    total_assets: Mapped[Numeric | None] = mapped_column(Numeric(20, 2))
+    retained_earnings: Mapped[Numeric | None] = mapped_column(Numeric(20, 2))
+    # Operating EBIT, carried from the income statement (Altman X3 numerator).
+    ebit: Mapped[Numeric | None] = mapped_column(Numeric(20, 2))
+    book_equity: Mapped[Numeric | None] = mapped_column(Numeric(20, 2))
+    total_liabilities: Mapped[Numeric | None] = mapped_column(Numeric(20, 2))
+
+    source: Mapped[str] = mapped_column(String(32))
+    ingested_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+    stock: Mapped["Stock"] = relationship()
+
+
+class MutualFund(Base):
+    """One curated mutual-fund scheme (Plan 8, minimal slice).
+
+    amfi_code is the official AMFI scheme code and the upsert anchor. The
+    catalog is CURATED (about 24 major schemes across categories), not the
+    whole AMFI universe: Plan 29 leaves the full-curation cut rule to M4.
+    latest_nav/nav_date mirror the newest mf_nav_history row for cheap
+    listing; the history rows remain the source of truth.
+    """
+
+    __tablename__ = "mutual_funds"
+    __table_args__ = (
+        UniqueConstraint("amfi_code", name="uq_mutual_funds_amfi_code"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    amfi_code: Mapped[str] = mapped_column(String(16), index=True)
+    # AMFI scheme name stored verbatim (never generated).
+    name: Mapped[str] = mapped_column(Text)
+    # Curated category label ("Flexi Cap", "Small Cap", "Liquid", ...).
+    category: Mapped[str | None] = mapped_column(String(32))
+    plan: Mapped[str | None] = mapped_column(String(16))
+    option: Mapped[str | None] = mapped_column(String(16))
+    latest_nav: Mapped[Numeric | None] = mapped_column(Numeric(12, 4))
+    nav_date: Mapped[date | None]
+    active: Mapped[bool] = mapped_column(default=True, server_default=text("true"))
+    # Which source produced the latest NAV ("amfi" | "mfapi").
+    source: Mapped[str | None] = mapped_column(String(16))
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+
+class MutualFundNav(Base):
+    """One daily NAV point for a fund (idempotent by fund+date).
+
+    source distinguishes the official AMFI daily file ("amfi") from the
+    mfapi.in history backfill ("mfapi") — Plan 13 allows the third-party
+    mirror as a documented fallback only, so provenance is queryable.
+    """
+
+    __tablename__ = "mf_nav_history"
+    __table_args__ = (
+        UniqueConstraint("fund_id", "date", name="uq_mf_nav_history_fund_date"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    fund_id: Mapped[int] = mapped_column(ForeignKey("mutual_funds.id"), index=True)
+    date: Mapped[date]
+    nav: Mapped[Numeric] = mapped_column(Numeric(12, 4))
+    source: Mapped[str] = mapped_column(String(16))
