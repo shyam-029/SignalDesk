@@ -2,7 +2,7 @@
 
 > **Purpose:** The operational companion to `SEMESTER2_PLAN.md`. Read this file FIRST to resume work, then the plan for the what/why.
 > **Rules:** Current state, then active milestone, then next task. Checklists per milestone. Verification results. Risks and pending human decisions stay visible until closed.
-> **Last updated:** 2026-09-08 (M1-T1 CI workflow done: two green runs, backend 348/348 + alembic head, frontend 72/72 + tsc + build).
+> **Last updated:** 2026-09-08 (M1-T2 done: top-1000 ranking live, 384 backend / 72 frontend green, real ranking run 1000 ranked in + full audit trail).
 > **Companion:** `SEMESTER2_PLAN.md` (sections cited as Plan 1-30). Semester 1 record: `PLANNING.md` / `PROGRESS.md`, frozen, unmodified.
 
 ---
@@ -14,15 +14,15 @@
 | Repo / branch / HEAD | `C:\Users\shyam\Desktop\Projects\signaldesk`, `main`, `968a44d` (Phase 8 complete, clean tree) |
 | Semester 1 | COMPLETE (Phases 1-8). Backend 348/348 (zero-network), frontend 72/72, tsc clean, build OK |
 | Semester 2 plan | COMPLETE (`SEMESTER2_PLAN.md`, 30 sections + appendices) |
-| Semester 2 implementation | STARTED (M1-T1 done) |
+| Semester 2 implementation | IN PROGRESS (M1-T1, M1-T2 done) |
 | Active milestone | **M1 - Scale-Up and Ship It** |
-| Next concrete task | **M1-T2:** top-1000 ranking job (eligibility rules E1-E12 with per-symbol audit reasons) |
+| Next concrete task | **M1-T3:** one measured end-to-end chunked ingestion run in Actions; runtime recorded vs 6h cap (includes the nifty250 -> top1000 UNIVERSE_NAME cutover decision) |
 
 ## 2. Milestone Board
 
 | Milestone | Status | Depends on | Definition of done |
 |---|---|---|---|
-| M1 - Scale-Up and Ship It | IN PROGRESS (T1 done) | - | Plan 24/M1 |
+| M1 - Scale-Up and Ship It | IN PROGRESS (T1, T2 done) | - | Plan 24/M1 |
 | M2 - Statements and Depth | NOT STARTED | M1 | Plan 24/M2 |
 | M3 - Accounts and Workspace | NOT STARTED | M1 (parallel with M2) | Plan 24/M3 |
 | M4 - Fund Data Backbone | NOT STARTED | M1 | Plan 24/M4 |
@@ -34,7 +34,7 @@
 ## 3. Active Milestone Checklist (M1)
 
 - [x] M1-T1: `.github/workflows/ci.yml` runs backend pytest (348 baseline), frontend vitest/tsc/build on every push
-- [ ] M1-T2: top-1000 ranking job implements eligibility rules E1-E12 (Plan 7) with per-symbol audit reasons
+- [x] M1-T2: top-1000 ranking job implements eligibility rules E1-E12 (Plan 7) with per-symbol audit reasons
 - [ ] M1-T3: one measured end-to-end chunked ingestion run in Actions; runtime recorded vs 6h cap (Plan 22)
 - [ ] M1-T4: storage projection recorded vs 0.5 GB cap; canary test in place (Plan 22)
 - [ ] M1-T5: production deploy per Plan 21 (Pages + Render + Neon + cron); `/health` and `/status/full` smoke green
@@ -56,6 +56,7 @@
 
 - Semester 1 freeze (2026-09-08 @ `968a44d`): backend pytest **348/348**, frontend vitest **72/72**, `tsc -b` clean, `vite build` OK. Coverage about 78 percent.
 - M1-T1 CI (2026-09-08 @ `9dfd182`): two consecutive green runs (push `34211797445` + `workflow_dispatch` re-run `34212950591`). Backend job: `alembic upgrade head` clean through all 7 migrations to `c1d2e3f4a5b6`, pytest **348 passed** (33.70s / 33.29s). Frontend job: vitest **72 passed** (9 files), `tsc -b` clean, `vite build` OK (4.55s / 4.53s). No env diffs found; zero-network suite ran unchanged against the `postgres:17` service.
+- M1-T2 ranking (2026-09-08 @ `4f08d91`, CI run `34222965567` green): backend **384 passed** (348 existing + 36 new ranking tests, zero regressions), frontend **72/72** + tsc clean + build OK. Migration `c1d2e3f4a5b6` -> `d4e5f6a7b8c9` (head) applied cleanly locally AND in CI on fresh `postgres:17`. Real manual runs (`python -m app.jobs rank`, dev DB): two consecutive runs each ~9.5 min, **identical results** (ranked_in 1000, ranked_out 1416, excluded 7289, errors 0; 9705 audit rows; Upstox secondary 429s degraded to yfinance-primary as designed). Same-day re-run idempotent (one cycle row, audit rebuilt). "Why isn't X in the top 1000" verified live: NIFTYBEES -> `etf`, EMBASSY -> `not_ordinary_equity` (series RR), TATAMOTORS -> `renamed` (shadow of TMPV), ZUARI -> `ranked_out` rank 1471, RELIANCE -> rank 1 (mcap Rs 1.75e13).
 
 ## 6. Known Risks and Blockers
 
@@ -78,6 +79,9 @@
 - GitHub Actions: free unlimited standard minutes on public repos; 6h/job cap.
 - Supabase Free kept as DB fallback (500 MB, 7-day idle pause).
 - Upstox supplies no market cap (Semester 1 data-quality finding): ranking depends on Yahoo mcap alone (Plan 7, rule E6 limitation).
+- **NSE `EQUITY_L.csv` archive URL is dead** (HTTP 404, verified 2026-09-08 via httpx and curl with and without site cookies/Referer). Ranking reads the Upstox NSE instruments master instead (same public no-auth endpoint `upstox_provider` already uses); its `instrument_type` carries the NSE series codes verbatim (EQ/BE/BZ/RR/IV/SG/N*), so E1-E5 semantics are unchanged. Recorded as the approved M1-T2 deviation ("or equivalent" clause).
+- **Provisional curated ETF list is incomplete** (15 majors only): remaining NSE ETFs sit inside EQ series and rank in until M6 ships `etf_metadata` (M1-T2 decision 1).
+- **Stale-stock recovery path is narrow**: E9/E10-deactivated stocks leave the ranked universe, so nightly ingestion (universe-driven) never refreshes them; reactivation requires bars to reappear via `repair_catalog_gaps` or a manual pass. Revisit if a real suspension case appears.
 - No legitimate free NSE real-time feed; no free transcript source; exchange shareholding scraping is terms-gray (not committed without review).
 - Storage estimate at full scale roughly 320-450 MB vs 0.5 GB cap (Plan 22). Runtime estimate roughly 2.5-4.5 h vs 6h cap (Plan 22). Both UNCONFIRMED until M1-T3/T4 measure them.
 
@@ -115,7 +119,11 @@ Not deployed. Target topology: Cloudflare Pages (frontend) + Render free API + N
 
 - 2026-09-08: Semester 2 master plan written (`SEMESTER2_PLAN.md`, 30 sections); this tracker created. No application code changed. Semester 1 `PLANNING.md`/`PROGRESS.md` left untouched. No commit, no push.
 - 2026-09-08: **M1-T1 done** @ `9dfd182` - added `.github/workflows/ci.yml` (two parallel jobs, push/PR to `main` + `workflow_dispatch`; backend: Python 3.12, `postgres:17` service on localhost:5432 with `signaldesk_test` DB matching conftest, pip cache, `alembic upgrade head` then pytest; frontend: Node 22, npm cache, `npm ci`, `npm test`, `npm run typecheck`, `npm run build`). Run 1 (push, `34211797445`) and run 2 (`workflow_dispatch` re-run, `34212950591`) both green: backend 348/348 with migrations to head `c1d2e3f4a5b6`; frontend 72/72, tsc clean, build OK. No flakiness observed; no env diffs found; no application/test code touched. Known cosmetic issue only: GitHub annotations warn that `actions/*` v4/v5 Node 20 targets are force-run on Node 24 (deprecation notice from GitHub, not a failure; revisit when actions v5/v6 replacements stabilize).
+- 2026-09-08: **M1-T2 done** @ `4f08d91` (CI `34222965567` green) - top-1000 universe ranking per Plan 7. New: `services/ranking.py` (pure E1-E12 logic), `repositories/ranking.py`, `providers/nse_master.py`, `data/ranking_exclusions.py` (curated ETF/REIT lists), migration `d4e5f6a7b8c9` (2 tables: `ranking_cycles`, `ranking_audit` + 8 additive `stocks` columns: isin, active, delisted_reason, delisted_at, mcap_rank, mcap_asof, restrict_flag, is_etf; no `active` collision existed). Job pass `rank_universe` via `python -m app.jobs rank` + `rank.yml` (`workflow_dispatch` ONLY, no cron - monthly schedule deferred to M1-T5). Nightly ingestion still reads `nifty250` (cutover is M1-T3). **Approved decisions 1-8 implemented as specified.**
+  **Deviation 1 (pre-authorized "or equivalent" clause):** NSE `EQUITY_L.csv` returns HTTP 404 (dead URL, verified httpx + curl); the ranking reads the Upstox NSE instruments master instead - same endpoint `upstox_provider` already uses, no key, and its `instrument_type` field carries the NSE series codes verbatim, so E1-E5 semantics are unchanged (E4 actually improved: REIT/InvIT/SGB excluded structurally, curated list remains for ETFs).
+  **Deviation 2 (found by the real run, fixed in this commit):** first real run exposed a rename-shadow gap - the catalog held both TATAMOTORS.NS (old seed) and TMPV.NS (current symbol); TMPV ranked while TATAMOTORS was wrongly deactivated as `absent_from_master`. Fixed: an absent catalog row whose alias target is ranked under its newer symbol now audits `renamed` (same live entity, never deactivated); second real run healed the row (active=True) and confirmed idempotency (1 cycle row, 9705 audit rows, identical counts both runs).
+  Verification: backend **384 passed** (36 new tests), frontend **72/72**, tsc clean, build OK; migration applied cleanly locally and in CI; real run: 1000 ranked in / 1416 ranked out / 7289 excluded / 0 errors, `top1000` membership exactly 1000, nifty250 universe untouched; "why isn't X" query verified on real audit data.
 
 ---
 
-*Resume here. Next: M1-T2 (top-1000 ranking job). Plan reference: `SEMESTER2_PLAN.md` section 30.*
+*Resume here. Next: M1-T3 (measured chunked ingestion run in Actions; includes the nifty250 -> top1000 cutover). Plan reference: `SEMESTER2_PLAN.md` section 30.*
