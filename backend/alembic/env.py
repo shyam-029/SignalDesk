@@ -17,8 +17,12 @@ config = context.config
 
 # Override the configured URL with the one from our .env (single source of
 # truth), normalized for asyncpg (sslmode -> ssl; see app.db.asyncpg_ready_url).
+# render_as_string(hide_password=False) is REQUIRED here: str(URL) masks the
+# password as '***' in SQLAlchemy 2, which turns every migration connection
+# into a guaranteed InvalidPasswordError.
 config.set_main_option(
-    "sqlalchemy.url", str(asyncpg_ready_url(settings.database_url))
+    "sqlalchemy.url",
+    asyncpg_ready_url(settings.database_url).render_as_string(hide_password=False),
 )
 
 # Interpret the config file for Python logging.
