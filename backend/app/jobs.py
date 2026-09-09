@@ -1729,24 +1729,39 @@ def start_scheduler():
     firings into one; misfire_grace_time of 2 hours lets a run that was missed
     (e.g. the process restarted around 18:30) still execute shortly after
     instead of silently waiting for the next day.
+
+    Production (Plan 21.2, D79): GitHub Actions is the ONLY scheduler. The
+    scheduler object still STARTS here so /status/full keeps reporting an
+    honest scheduler="running", but NO job is registered — otherwise the
+    Render free instance (0.1 CPU / 512 MB) would run the 1.5-2 h nightly
+    ingestion alongside Actions against the same database. The guard is the
+    is_production() check: APP_ENV=production registers zero jobs; any other
+    APP_ENV keeps the 18:30 IST registration for local use.
     """
     from apscheduler.schedulers.background import BackgroundScheduler
 
     scheduler = BackgroundScheduler(timezone="Asia/Kolkata")
-    # Run once per day at 18:30 IST (after market close).
-    scheduler.add_job(
-        run_daily_ingestion,
-        "cron",
-        id="nightly_ingestion",
-        name="nightly_ingestion",
-        hour=18,
-        minute=30,
-        max_instances=1,
-        coalesce=True,
-        misfire_grace_time=2 * 60 * 60,
-    )
+    if not settings.is_production():
+        # Run once per day at 18:30 IST (after market close).
+        scheduler.add_job(
+            run_daily_ingestion,
+            "cron",
+            id="nightly_ingestion",
+            name="nightly_ingestion",
+            hour=18,
+            minute=30,
+            max_instances=1,
+            coalesce=True,
+            misfire_grace_time=2 * 60 * 60,
+        )
     scheduler.start()
-    logger.info("Background scheduler started (daily ingestion 18:30 Asia/Kolkata).")
+    if settings.is_production():
+        logger.info(
+            "Background scheduler started with NO jobs "
+            "(Actions is the scheduler in production; Plan 21.2/D79)."
+        )
+    else:
+        logger.info("Background scheduler started (daily ingestion 18:30 Asia/Kolkata).")
     return scheduler
 
 
