@@ -7,7 +7,7 @@ from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from app.config import settings
-from app.db import Base
+from app.db import Base, asyncpg_ready_url
 
 # Import models so their tables are registered on Base.metadata.
 import app.models  # noqa: F401
@@ -15,8 +15,11 @@ import app.models  # noqa: F401
 # Alembic Config object, provides access to alembic.ini values.
 config = context.config
 
-# Override the configured URL with the one from our .env (single source of truth).
-config.set_main_option("sqlalchemy.url", settings.database_url)
+# Override the configured URL with the one from our .env (single source of
+# truth), normalized for asyncpg (sslmode -> ssl; see app.db.asyncpg_ready_url).
+config.set_main_option(
+    "sqlalchemy.url", str(asyncpg_ready_url(settings.database_url))
+)
 
 # Interpret the config file for Python logging.
 if config.config_file_name is not None:

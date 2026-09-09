@@ -1554,8 +1554,12 @@ async def _ingest_all_with_job_engine() -> None:
     from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
     from sqlalchemy.pool import NullPool
 
+    from app.db import asyncpg_ready_url
+
     global SessionLocal
-    engine = create_async_engine(settings.database_url, poolclass=NullPool)
+    engine = create_async_engine(
+        asyncpg_ready_url(settings.database_url), poolclass=NullPool
+    )
     original = SessionLocal
     SessionLocal = async_sessionmaker(
         bind=engine, class_=AsyncSession, expire_on_commit=False

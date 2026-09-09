@@ -10,6 +10,8 @@
 
 from collections.abc import AsyncGenerator
 
+from sqlalchemy import make_url
+from sqlalchemy.engine import URL
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
     async_sessionmaker,
@@ -19,8 +21,34 @@ from sqlalchemy.orm import DeclarativeBase
 
 from app.config import settings
 
+
+def asyncpg_ready_url(raw: str) -> URL:
+    """Normalize a Postgres URL for the asyncpg driver.
+
+    Neon's console copy-paste gives a libpq URL (`?sslmode=require`), but
+    SQLAlchemy passes URL query parameters to asyncpg.connect() as kwargs
+    and asyncpg rejects the libpq-style NAME (verified asyncpg 0.31.0:
+    connect() got an unexpected keyword argument 'sslmode') while accepting
+    the libpq-style VALUE on its own `ssl` parameter ('require',
+    'verify-full', ...). The `sslmode` query parameter is therefore renamed
+    to `ssl` (dropped when an explicit `ssl` is already present), so either
+    URL form works everywhere the app builds an asyncpg engine. Non-asyncpg
+    URLs pass through untouched (libpq dialects accept sslmode natively).
+    """
+    url = make_url(raw)
+    if not (url.get_backend_name() == "postgresql" and url.get_driver_name() == "asyncpg"):
+        return url
+    query = dict(url.query)
+    sslmode = query.pop("sslmode", None)
+    if sslmode is not None and "ssl" not in query:
+        query["ssl"] = sslmode
+    if query == dict(url.query):
+        return url
+    return url.set(query=query)
+
+
 # Connection pool to PostgreSQL (lazy — connects on first query).
-engine = create_async_engine(settings.database_url, echo=False)
+engine = create_async_engine(asyncpg_ready_url(settings.database_url), echo=False)
 
 # Factory for per-operation sessions. expire_on_commit=False keeps attribute
 # values accessible after a transaction commits.
