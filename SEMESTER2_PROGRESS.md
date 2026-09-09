@@ -2,7 +2,7 @@
 
 > **Purpose:** The operational companion to `SEMESTER2_PLAN.md`. Read this file FIRST to resume work, then the plan for the what/why.
 > **Rules:** Current state, then active milestone, then next task. Checklists per milestone. Verification results. Risks and pending human decisions stay visible until closed.
-> **Last updated:** 2026-09-09 (round 3: valuation gaps closed with STORED Upstos EV/EBITDA ratios, valuation frame never collapses on gaps, per-section error boundaries end blank pages, sectors backfilled for the full top-1000, markets dashboard (index cards/movers/news/watchlists/recently viewed), funds sorting + windows + NAV chart, landing ticker + real Nifty-50 bar field; backend 431/431, frontend 73/73, tsc clean, build OK).
+> **Last updated:** 2026-09-09 (round 4: M1-T5 production deployment COMPLETE - Render API + Cloudflare Pages + Neon + GitHub Actions crons live, rank 1000/1000 on production, full nightly ingest green, smoke checklist green, storage 383 MB of 512 MB; see Work Log 2026-09-09 for the full credential/connection/429 saga).
 > **Companion:** `SEMESTER2_PLAN.md` (sections cited as Plan 1-30). Semester 1 record: `PLANNING.md` / `PROGRESS.md`, frozen, unmodified.
 
 ---
@@ -14,9 +14,9 @@
 | Repo / branch / HEAD | `C:\Users\shyam\Desktop\Projects\signaldesk`, `main`, `968a44d` (Phase 8 complete, clean tree) |
 | Semester 1 | COMPLETE (Phases 1-8). Backend 348/348 (zero-network), frontend 72/72, tsc clean, build OK |
 | Semester 2 plan | COMPLETE (`SEMESTER2_PLAN.md`, 30 sections + appendices) |
-| Semester 2 implementation | IN PROGRESS (M1-T1, T2, T3, T4, T6 done + ETF/fund/Z-score slices live; T5/T7 remain) |
+| Semester 2 implementation | IN PROGRESS (M1-T1..T6 done + ETF/fund/Z-score slices live + production deployment; T7 remains) |
 | Active milestone | **M1 - Scale-Up and Ship It** |
-| Next concrete task | **M1-T5:** production deploy per Plan 21 (gated by this report's PASS WITH CHANGES) |
+| Next concrete task | **M1-T7:** nightly cron green one full week (first scheduled firing 2026-09-10 ~13:30 UTC), zero-cost itemized and verified |
 
 ## 2. Milestone Board
 
@@ -37,9 +37,9 @@
 - [x] M1-T2: top-1000 ranking job implements eligibility rules E1-E12 (Plan 7) with per-symbol audit reasons
 - [x] M1-T3: measured top-1000 ingestion (local, same chunked architecture; 20-symbol timed slice + full-universe score pass; benchmark + storage measured; see Work Log 2026-09-08)
 - [x] M1-T4: storage measured (104 MB live DB; projected ~230-330 MB at full top-1000 scale, under the 0.5 GB cap; see Work Log 2026-09-08)
-- [ ] M1-T5: production deploy per Plan 21 (Pages + Render + Neon + cron); `/health` and `/status/full` smoke green
+- [x] M1-T5: production deploy per Plan 21 (Pages + Render + Neon + cron); `/health` and `/status/full` smoke green (2026-09-09; see Work Log)
 - [x] M1-T6: benchmark index ingestion (`^NSEI`, `^NSEBANK`, `^CNXIT`, `^CRSLDX`) live (own tables, measured 1.8-3.8s / 0.6 MB)
-- [ ] M1-T7: nightly cron green one full week; zero-cost itemized and verified
+- [ ] M1-T7: nightly cron green one full week; zero-cost itemized and verified (first cron firing 2026-09-10)
 - [ ] News breadth gate: news stays core-500 until the M1-T3 benchmark proves headroom (tiered decision)
 
 ## 4. Upcoming Milestone Checklists (brief; detail in Plan 24)
@@ -87,7 +87,13 @@
 
 ## 8. Deployment Status
 
-Not deployed. Target topology: Cloudflare Pages (frontend) + Render free API + Neon free Postgres + GitHub Actions cron/CI (Plan 21). Runbook: Plan 28. Blocked only on human decisions in section 9 (hosting choice among verified-free options is made; account creation + secrets entry remain).
+DEPLOYED 2026-09-09 (Plan 21 topology, all free tiers):
+- **API:** Render free web service, https://signaldesk-31gt.onrender.com (APP_ENV=production, docs gated off, ops auth fail-closed).
+- **Frontend:** Cloudflare Pages (static build, VITE_API_BASE pointed at the Render API).
+- **Database:** Neon free Postgres (`neondb`, owner `neondb_owner`), connected via the `DATABASE_URL` Actions secret and Render env var; schema at alembic head.
+- **Cron/CI:** GitHub Actions - `ingest.yml` nightly 13:30 UTC (19:00 IST, after close), `rank.yml` monthly 04:00 UTC on the 1st (+ workflow_dispatch), `migrate.yml`, `backup.yml`, `ci.yml` on push; `restore.yml` (Plan 28 restore) and `db-probe.yml` (storage monitoring) are manual runbook tools.
+- Production data: full top-1000 with 1.23M price rows, 461k alpha rows, 22 funds, 16 ETFs, 10 benchmarks (2026-09-09); DB 383 MB of the 512 MB Neon cap.
+Runbook: Plan 28. Remaining human decisions in section 9 (cost snapshot confirmation pending owner check of the four billing dashboards).
 
 ## 9. Human Decisions Still Pending
 
@@ -115,6 +121,9 @@ Not deployed. Target topology: Cloudflare Pages (frontend) + Render free API + N
 - `OPENROUTER_API_KEY` is an alias for `LLM_API_KEY`; empty model disables LLM by design.
 - Scoring must renormalize over missing fields; nulls stay null; no emulator math in the frontend.
 - Copy discipline is a hard rule for anything user-visible (no em dashes, no AI-tell wording, "-" null placeholder, normalized disclaimer).
+- **`pool_pre_ping=True` on the app engine (app/db.py) is REQUIRED for Neon, not cosmetic:** ingestion passes open short-lived sessions then spend 10-30 min on provider fetches; Neon closes the idle pooled connection and the next checkout dies with `asyncpg.InterfaceError: connection is closed`. Removing it as a "simplification" re-breaks rank/ingest after long fetch phases (rank.yml 34347351526 incident, 2026-09-09).
+- **Workflow green is not pass health: judge ingestion by `job_runs` status.** `partial` exits 0 by design (D19 per-symbol isolation); the CLI exits non-zero only on `failed` (commit 6aa8070). Before that commit even a failed pass exited 0 and GitHub painted the run green (rank run 34345215106 was a silent failure) - rank.yml now also prints the last `job_runs` rows so this is visible in the run log.
+- **Neon connection string forms:** the console copy-paste is libpq (`?sslmode=require&channel_binding=require`); asyncpg rejects those parameter NAMES. `app.db.asyncpg_ready_url` normalizes both forms (and bare `postgresql://`) everywhere; the pooler and direct endpoints accept the same credentials (verified by the rank.yml connectivity matrix), so host-form confusion is not a credential problem.
 
 ## 11. Work Log
 
@@ -128,7 +137,22 @@ Not deployed. Target topology: Cloudflare Pages (frontend) + Render free API + N
 
 ---
 
-*Resume here. Next: M1-T5 (production deploy per Plan 21, gated by the 2026-09-08 measurement report below). Plan reference: `SEMESTER2_PLAN.md` section 28.*
+- 2026-09-09: **M1-T5 done - production deployment live** (Plan 21; Render API https://signaldesk-31gt.onrender.com + Cloudflare Pages frontend + Neon free Postgres + GitHub Actions crons). What actually happened, in sequence, with the failures left in:
+  1. **Infra stood up earlier in the round:** Render service live, Pages deployed, Actions secrets (`DATABASE_URL`, `OPS_API_KEY`) configured. The in-process APScheduler duplicate-nightly-job bug in production was found and fixed (scheduler now starts with NO jobs in production; Actions cron is the only scheduler, per D79).
+  2. **The DATABASE_URL credential rounds (several failed dispatches 10:06-10:39 UTC):** rejected libpq kwargs (asyncpg refuses `sslmode`/`channel_binding` as parameter names; fixed permanently by `app.db.asyncpg_ready_url` normalization + `test_db_url.py`), wrong username (`postgres` vs `neondb_owner`), pooler-vs-direct host confusion, and repeated dashboard copy-paste corruption. Diagnostics added to rank.yml along the way (safe credential fingerprint, direct-vs-pooler connectivity matrix, Render `/status/full` probe, URL shape diagnostics). Resolution: correct connection string stored once in the Actions secret; both Neon host forms verified by the connectivity matrix step.
+  3. **Silent-failure finding (important):** rank run 34345215106 (11:22 UTC) showed workflow SUCCESS but its log carries `job_fail job=rank_universe status=failed duration_ms=698372` - at that commit the CLI exited 0 even on a failed pass, so GitHub painted it green. Fix (commit 6aa8070): CLI exits non-zero on `status=failed` (`partial` stays exit 0 by D19 design), rank.yml prints the last `job_runs` rows. Verified in code (`app/jobs.py` exit gate) and by the next run (34347351526) correctly showing FAILURE. The silent-green class of failure is permanently closed.
+  4. **Stale-connection failure:** run 34347351526 (14m40s) failed with `asyncpg.InterfaceError: connection is closed` on the first write-phase query (`SELECT ranking_cycles`): the module-global engine's pool handed the job a connection that idled ~12 min during the throttled Yahoo mcap phase and Neon closed it. Earlier DB queries in the same run succeeded, so credentials were already healthy. Fix: `pool_pre_ping=True` on the app engine (commit 7fd1d14, regression comment in db.py). Backend suite 445/445.
+  5. **Production data population via restore (the local-snapshot path):** production Neon was essentially empty (catalog + one degraded ranking cycle; RELIANCE `/prices` returned 0 rows). To avoid re-typing or exposing the secret: `pg_dump -Fc` of the dev DB (39.5 MB, regex-scanned credential-free), uploaded as a THROWAWAY release asset, one-off `.github/workflows/restore.yml` restored it server-side using the `DATABASE_URL` secret (`--clean --if-exists --no-owner`, schema-qualified verification; note psql needed schema-qualified names + explicit pg client 17 install). Verified restored state: 1,230,732 daily_prices, 453,696 alpha_scores, 9,705 ranking_audit, 2,923 stocks, top1000 exactly 1000 members (healthy 2026-09-08 cycle). Asset deleted after use; `restore.yml` kept as a Plan 28 runbook tool.
+  6. **Yahoo 429 storm (the next real blocker, distinct from credentials):** first completed production rank (34350500127, 16m13s, green) still DEGRADED the data: `ranked_in 728, errors 2051` - 2,051 of ~2,779 fresh mcap fetches 429'd through the old 0.5s/1.0s retries and E7 honestly excluded them (`no_mcap`); live universe total dropped to 728 and RELIANCE's mcap went blank until the next cycle. Fix: paced backoff 5s/15s/30s + 25% jitter in `_fetch_one_mcap` and a 2.0s inter-batch sleep (commit 8d85f80). Re-dispatch 34361637724: **`ranked_in 1000, excluded 8705, errors 2` in 26m53s** (63 min headroom vs the 90-min job timeout). Live verification: universe total 1000, RELIANCE mcap Rs 17.52L Cr, TMPV rename-shadow resolves.
+  7. **Full nightly ingest dispatched** (34364916265): success in 2h27m; per-pass: prices 1000/1000 (463,464 bars, 0 errors), financials 999/1000 (DCBBANK yfinance JSON parse), financial_periods 1000/1000, balance_sheets 1000/1000, profiles 999/1000, benchmarks 10/10, etfs 16/16, funds 21/21, repair_catalog_gaps 17, backfill_alpha_history 452,429 recomputed 0 errors, record_live_alpha_snapshots 1000, news 995/1000. `nightly_ingestion` job_runs status = `partial` (3 isolated symbol failures, D19 design; healed by the next nightly). 330-min timeout ample vs 2h27m.
+  8. **Smoke checklist green (real outputs):** `/health` ok; `/status` ok; `/status/full` verified green via the rank.yml probe step (OPS key); `/stocks` total 1000; RELIANCE detail (mcap Rs 17.52L Cr), technicals (trend 44.1), alpha composite 53.0, valuation P/E with peer median, news latest 2026-09-08, sentiment -0.046 neutral (57 articles), performance windows + 52w range; screener total 1000; funds 22 with full NAV history (Axis Large Cap NAV 69.25, 6m +2.29%, history 2023-08-31 to 2026-09-08); ETFs 16; benchmarks 10 (NIFTY 50 close 23,431.5 as-of 2026-09-09 with 90d sparkline); market news fresh to 16:46Z today.
+  9. **Production storage measured** (`db-probe.yml`, kept as a monitoring tool): **383 MB of the 512 MB Neon cap (75%)**; largest: daily_prices 199 MB (1.23M rows), alpha_scores 126 MB (461k rows), news_articles 30 MB. Growth ~0.6-1 MB/day; headroom holds well past 90 days; first cut unchanged (alpha depth outside top 250, Plan 22).
+  10. **Day-0 cost snapshot:** PENDING OWNER CONFIRMATION - the four billing dashboards (Neon, Render, Cloudflare, GitHub) must be visually checked for "no payment method on file" by the owner; all four services were verified free-tier by Plan 21 Appendix A and no card was entered during setup, but the dashboard check is a human step this session cannot perform.
+  Suites this round: backend 445/445 (then 446/446 with the pacing test), frontend 73/73 unchanged (no frontend changes). Commits: 7fd1d14 (pool_pre_ping), b1f603d/85b7dfa (restore.yml), 8d85f80 (paced mcap backoff), 7773865/56911c6/2b42521/3d19d23 (db-probe.yml).
+
+---
+
+*Resume here. Next: M1-T7 (nightly cron green one full week; first scheduled firing 2026-09-10 ~13:30 UTC) plus the zero-cost itemized verification, gated on the day-0 cost snapshot confirmation. Plan reference: `SEMESTER2_PLAN.md` section 28.*
 
 ## 12. M1-T3/T4/T6 Measurement Report (2026-09-08, local production-scale run)
 
