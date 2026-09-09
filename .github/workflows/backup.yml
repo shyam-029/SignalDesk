@@ -1,0 +1,48 @@
+name: backup
+
+# M1-T5 weekly backup (Plan 28): pg_dump of the Neon database uploaded as a
+# workflow artifact (30-day retention), plus the Plan 22 storage canary —
+# the same job logs pg_database_size and alarms at 450 MB of the 512 MB hard
+# cap. The postgres:17 image pins pg_dump >= the server major (ubuntu's
+# default client is older). The DATABASE_URL secret is the asyncpg form and
+# is rewritten to a libpq URL for the pg tools. Weekly egress is ~50-100 MB
+# compressed, well inside Neon's 5 GB/month.
+
+on:
+  schedule:
+    - cron: "0 2 * * 0" # Sundays 02:00 UTC; far from ingest (13:30) and rank (04:00)
+  workflow_dispatch: {}
+
+concurrency:
+  group: backup
+  cancel-in-progress: false
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+    steps:
+      - name: pg_dump to a custom-format file
+        run: |
+          PGURL=$(echo "$DATABASE_URL" | sed -e 's/^postgresql+asyncpg:/postgresql:/' -e 's/ssl=require/sslmode=require/')
+          docker run --rm -v "$PWD:/out" -e PGURL postgres:17 \
+            sh -c 'pg_dump "$PGURL" -Fc -f /out/signaldesk-$(date +%Y%m%d).dump'
+          ls -lh signaldesk-*.dump
+      - name: Storage canary (Plan 22: alarm at 450 MB of the 512 MB hard cap)
+        run: |
+          PGURL=$(echo "$DATABASE_URL" | sed -e 's/^postgresql+asyncpg:/postgresql:/' -e 's/ssl=require/sslmode=require/')
+          BYTES=$(docker run --rm -e PGURL postgres:17 \
+            sh -c 'psql "$PGURL" -t -A -c "SELECT pg_database_size(current_database())"')
+          echo "Database size: $BYTES bytes"
+          if [ "$BYTES" -ge 450000000 ]; then
+            echo "STORAGE ALARM: at/above 450 MB — apply the Plan 22 first cut (alpha backfill depth 1y outside top 250)."
+            exit 1
+          fi
+      - name: Upload dump artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: signaldesk-db-dump
+          path: signaldesk-*.dump
+          retention-days: 30

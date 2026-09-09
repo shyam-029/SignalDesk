@@ -1,35 +1,29 @@
 name: rank
 
-# M1-T2: manual top-1000 universe ranking. workflow_dispatch ONLY — no
-# schedule here; the monthly cron is wired in M1-T5 (production deploy),
-# which consolidates all ops scheduling.
+# M1-T2: top-1000 universe ranking (E1-E12 eligibility, mcap rank, audit).
+# M1-T5 wires the monthly schedule (workflow_dispatch retained for manual
+# re-runs). 04:00 UTC on the 1st = 09:30 IST: about 9.5 h away from the
+# 13:30 UTC nightly ingestion (no overlap; rank runs ~9.5 min anyway), and
+# the same evening's nightly picks up the refreshed universe. Targets the
+# PRODUCTION database via the DATABASE_URL Actions secret — no scratch
+# Postgres service container.
 
 on:
+  schedule:
+    - cron: "0 4 1 * *"
   workflow_dispatch: {}
+
+concurrency:
+  group: rank-universe
+  cancel-in-progress: false
 
 jobs:
   rank:
     runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:17
-        env:
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: signaldesk_test
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U postgres"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
+    timeout-minutes: 30
     env:
-      # The CI database is a scratch DB; a real ranking run happens against
-      # production in M1-T5. This workflow exists to exercise the ranking
-      # pipeline end to end (master fetch + mcap fetches + audit writes).
-      DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/signaldesk_test
-      APP_ENV: development
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      APP_ENV: production
     defaults:
       run:
         working-directory: backend
@@ -44,5 +38,5 @@ jobs:
         run: pip install -r requirements.txt
       - name: Apply migrations
         run: alembic upgrade head
-      - name: Rank top-1000 universe
+      - name: Rank top-1000 universe (production)
         run: python -m app.jobs rank
