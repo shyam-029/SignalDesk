@@ -358,6 +358,13 @@ async def test_alpha_unclassified_stock_answers_fast_no_network(client, session_
     analysis_mod.settings.upstox_analytics_token = "fake-token-for-test"
     try:
         r = await client.get("/api/v1/stocks/U1/alpha")
+        # M2-T8 extension: the same guard covers the peers + valuation read
+        # paths — the capped get_peers still short-circuits the NULL cohort
+        # and neither surface ever reaches for a provider.
+        r_peers = await client.get("/api/v1/stocks/U1/peers")
+        r_val = await client.get(
+            "/api/v1/stocks/U1/valuation", params={"metric": "PE"}
+        )
     finally:
         upstox_mod.UpstoxProvider = orig_provider  # type: ignore[assignment]
         analysis_mod.settings.upstox_analytics_token = orig_token
@@ -367,3 +374,10 @@ async def test_alpha_unclassified_stock_answers_fast_no_network(client, session_
     assert body["composite"] is None
     assert body["value_signal"] is None
     assert body["insufficient_data"] is True
+    # /peers: empty peer set (never the NULL cohort), served without a provider.
+    assert r_peers.status_code == 200
+    assert r_peers.json()["count"] == 0
+    assert r_peers.json()["items"] == []
+    # /valuation: soft data-gap envelope (no peers / insufficient), no provider.
+    assert r_val.status_code in (409, 422)
+    assert r_val.json()["error"]["code"] in ("NO_PEERS", "INSUFFICIENT_DATA")

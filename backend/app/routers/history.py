@@ -154,6 +154,22 @@ class PeerSummary(BaseModel):
     return_on_equity: float | None
     profit_margin: float | None
     debt_to_equity: float | None
+    # M2-T8 enriched-peer context (Plan 5.14): stored valuation multiples,
+    # size/rank, profitability, 1y return and 3y revenue growth. Every
+    # field nulls honestly where the stored data does not support it.
+    price_to_book: float | None = None
+    price_to_sales: float | None = None
+    ev_ebitda: float | None = None
+    market_cap: float | None = None
+    mcap_rank: int | None = None
+    return_on_assets: float | None = None
+    operating_margin: float | None = None
+    # Percent over exactly three fiscal-year slots; null unless both
+    # endpoint years carry revenue (never a partial-window growth rate).
+    revenue_cagr_3y: float | None = None
+    # Percent over each stock's own last ~1y of stored bars; null when the
+    # history is shorter than the window (never a partial-window rate).
+    return_1y_pct: float | None = None
 
 
 class PeersResponse(BaseModel):
@@ -234,6 +250,30 @@ def _aggregate_period_group(rows: list[FinancialPeriod], group: str) -> Financia
         ingested_at=newest.ingested_at.isoformat() if newest.ingested_at else "",
         aggregated_from=len(rows),
     )
+
+
+def _revenue_cagr_3y(series: list[tuple[date, float]]) -> float | None:
+    """Revenue CAGR in percent over exactly three fiscal-year slots.
+
+    Compares the newest annual revenue with the revenue three fiscal years
+    earlier (same `_fiscal_year_end` bucketing the grouped history views
+    use), so a 4y history still yields the honest 3y rate rather than a
+    mislabeled 4y one. None when either endpoint is missing or non-positive
+    (a growth rate from incomplete data is never invented). Duplicate
+    fiscal years (a company that changed its year-end) resolve to the later
+    period end; inputs arrive ascending from the repository.
+    """
+    if not series:
+        return None
+    by_fy: dict[int, float] = {}
+    for period_end, revenue in sorted(series, key=lambda item: item[0]):
+        by_fy[_fiscal_year_end(period_end)] = revenue
+    newest_fy = max(by_fy)
+    newest = by_fy[newest_fy]
+    base = by_fy.get(newest_fy - 3)
+    if base is None or base <= 0 or newest <= 0:
+        return None
+    return round(((newest / base) ** (1.0 / 3.0) - 1.0) * 100.0, 2)
 
 
 # --- Endpoints -------------------------------------------------------------
@@ -378,9 +418,14 @@ async def get_peers(symbol: str, session: SessionDep) -> PeersResponse:
     stock = await resolve_stock(session, symbol)
     classifier = stock.industry if stock.industry is not None else stock.sector
     peers = await stock_repo.get_peers(session, stock)
+    peer_ids = [p.id for p in peers]
 
-    latest_two = await price_repo.get_two_latest(session, [p.id for p in peers])
+    latest_two = await price_repo.get_two_latest(session, peer_ids)
     financials = await fin_repo.get_financials_batch(session, peers)
+    # M2-T8 enrichment: two more batched reads (no N+1) for the 1y return
+    # and the annual revenue series behind the 3y CAGR. All stored data.
+    returns_1y = await price_repo.get_return_1y(session, peer_ids)
+    revenue_series = await fp_repo.get_annual_revenue(session, peer_ids)
 
     items: list[PeerSummary] = []
     for peer in peers:
@@ -395,6 +440,15 @@ async def get_peers(symbol: str, session: SessionDep) -> PeersResponse:
                     (float(latest.close) - float(prev.close)) / float(prev.close) * 100, 2
                 )
         fin = financials.get(peer.id)
+        ret = returns_1y.get(peer.id)
+        return_1y_pct = None
+        if ret is not None and ret[1] is not None and ret[1] > 0:
+            return_1y_pct = round((ret[0] - ret[1]) / ret[1] * 100.0, 2)
+
+        def _fin(field: str) -> float | None:
+            value = getattr(fin, field) if fin is not None else None
+            return float(value) if value is not None else None
+
         items.append(
             PeerSummary(
                 symbol=peer.symbol,
@@ -403,18 +457,19 @@ async def get_peers(symbol: str, session: SessionDep) -> PeersResponse:
                 industry=peer.industry,
                 last_price=last_price,
                 change_pct=change_pct,
-                trailing_pe=float(fin.trailing_pe)
-                if fin is not None and fin.trailing_pe is not None
-                else None,
-                return_on_equity=float(fin.return_on_equity)
-                if fin is not None and fin.return_on_equity is not None
-                else None,
-                profit_margin=float(fin.profit_margin)
-                if fin is not None and fin.profit_margin is not None
-                else None,
-                debt_to_equity=float(fin.debt_to_equity)
-                if fin is not None and fin.debt_to_equity is not None
-                else None,
+                trailing_pe=_fin("trailing_pe"),
+                return_on_equity=_fin("return_on_equity"),
+                profit_margin=_fin("profit_margin"),
+                debt_to_equity=_fin("debt_to_equity"),
+                price_to_book=_fin("price_to_book"),
+                price_to_sales=_fin("price_to_sales"),
+                ev_ebitda=_fin("ev_ebitda"),
+                market_cap=_fin("market_cap"),
+                mcap_rank=peer.mcap_rank,
+                return_on_assets=_fin("return_on_assets"),
+                operating_margin=_fin("operating_margin"),
+                revenue_cagr_3y=_revenue_cagr_3y(revenue_series.get(peer.id, [])),
+                return_1y_pct=return_1y_pct,
             )
         )
 

@@ -48,6 +48,59 @@ async def get_two_latest(
     return out
 
 
+async def get_return_1y(
+    session: AsyncSession, stock_ids: list[int], days: int = 366
+) -> dict[int, tuple[float, float | None]]:
+    """Return {stock_id: (latest_close, year_ago_close | None)}, batched.
+
+    The anchor is each stock's OWN latest stored bar (the same as-of
+    convention the performance endpoint uses); the year-ago close is the
+    last close on or before (latest_date - days). A stock with no bars is
+    absent from the mapping; a stock whose history is shorter than the
+    window gets None — the caller reports the missing return honestly
+    (never interpolated, never annualized from a partial window).
+
+    Two batched queries (latest pick + year-ago pick) so N stocks cost O(1)
+    queries, honoring the N+1 guard.
+    """
+    if not stock_ids:
+        return {}
+
+    # Latest close per stock: DISTINCT ON keeps the newest bar's close.
+    latest_rows = await session.execute(
+        select(DailyPrice.stock_id, DailyPrice.close)
+        .where(DailyPrice.stock_id.in_(stock_ids))
+        .distinct(DailyPrice.stock_id)
+        .order_by(DailyPrice.stock_id, DailyPrice.date.desc())
+    )
+    out: dict[int, tuple[float, float | None]] = {
+        stock_id: (float(close), None) for stock_id, close in latest_rows.all()
+    }
+
+    # Year-ago close per stock: anchor each stock on its own max(date) and
+    # keep the single newest bar at or before that date minus `days`.
+    anchors = (
+        select(
+            DailyPrice.stock_id.label("stock_id"),
+            func.max(DailyPrice.date).label("max_date"),
+        )
+        .where(DailyPrice.stock_id.in_(stock_ids))
+        .group_by(DailyPrice.stock_id)
+        .subquery()
+    )
+    ago_rows = await session.execute(
+        select(DailyPrice.stock_id, DailyPrice.close)
+        .join(anchors, anchors.c.stock_id == DailyPrice.stock_id)
+        .where(DailyPrice.date <= anchors.c.max_date - days)
+        .distinct(DailyPrice.stock_id)
+        .order_by(DailyPrice.stock_id, DailyPrice.date.desc())
+    )
+    for stock_id, close in ago_rows.all():
+        latest_close, _ = out[stock_id]
+        out[stock_id] = (latest_close, float(close))
+    return out
+
+
 async def get_close_series(
     session: AsyncSession, stock_id: int, limit: int = 200
 ) -> list[float]:

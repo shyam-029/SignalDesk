@@ -36,17 +36,32 @@ async def get_stock(session: AsyncSession, symbol: str) -> Stock | None:
     return await session.scalar(select(Stock).where(Stock.symbol == symbol))
 
 
+# Peer cap (M2-T8, owner decision): the cohort is capped at 15 so no read
+# path can fan out over an unbounded industry — the M1-T3 lesson applied at
+# cohort scale (IT-style industries can hold 100+ same-industry names).
+PEER_CAP = 15
+
+
 async def get_peers(session: AsyncSession, stock: Stock) -> list[Stock]:
-    """Return same-industry peers (excluding the stock itself).
+    """Return same-industry peers (excluding the stock itself), capped and
+    deterministically ordered.
 
-    Peer classification: use `industry` when the target has one; otherwise fall
-    back to `sector` (defensive — a few stocks lack industry after backfill).
+    Selection hierarchy (D18, unchanged): `industry` when the target has
+    one; otherwise `sector` (defensive — a few stocks lack industry after
+    backfill). Unclassified stocks (industry AND sector both NULL) have NO
+    peer set: an `IS NULL` match would group thousands of unrelated
+    companies into one meaningless peer set (M1-T3 500: UTIAMC.NS matched
+    2,655 "peers", fanning one /alpha request into thousands of provider
+    calls). Empty list, never the NULL cohort.
 
-    Unclassified stocks (industry AND sector both NULL — ranking-created
-    catalog rows never enriched) have NO peer set: an `IS NULL` match would
-    group thousands of unrelated companies into one meaningless peer set
-    (M1-T3 500: UTIAMC.NS matched 2,655 "peers", fanning one /alpha request
-    into thousands of provider calls). Empty list, never the NULL cohort.
+    M2-T8 hardening (owner decision, enriched peers):
+      - is_etf rows are never peers (ETFs are a separate domain, Plan 9);
+      - inactive rows (delisted/suspended per ranking E9/E10) are never
+        peers; ranked_out rows stay active=True and remain eligible, so
+        peer selection stays universe-independent (D18);
+      - the cohort is capped at PEER_CAP and ordered mcap_rank ASC NULLS
+        LAST then symbol ASC: the largest names first, and the exact same
+        set on every call, so peer medians and pages are deterministic.
     """
     if stock.industry is not None:
         column, classifier = Stock.industry, stock.industry
@@ -55,7 +70,17 @@ async def get_peers(session: AsyncSession, stock: Stock) -> list[Stock]:
     else:
         return []
 
-    q = select(Stock).where(column == classifier, Stock.id != stock.id)
+    q = (
+        select(Stock)
+        .where(
+            column == classifier,
+            Stock.id != stock.id,
+            Stock.is_etf.is_(False),
+            Stock.active.is_(True),
+        )
+        .order_by(Stock.mcap_rank.asc().nulls_last(), Stock.symbol.asc())
+        .limit(PEER_CAP)
+    )
     result = await session.execute(q)
     return list(result.scalars())
 

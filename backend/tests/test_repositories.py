@@ -68,6 +68,77 @@ async def test_get_peers_unclassified_stock_has_no_peers(session_factory):
         assert await stock_repo.get_peers(session, u1) == []
 
 
+async def test_get_peers_caps_at_15_and_orders_by_rank(session_factory):
+    """M2-T8 (owner decision): cohort capped at 15, ordered mcap_rank ASC
+    NULLS LAST then symbol ASC — deterministic on every call, largest names
+    first, and the NULL-rank row loses the tie for the last slot."""
+    async with session_factory() as session:
+        session.add(Stock(symbol="TGT.NS", name="T", sector="IT", industry="IT Services"))
+        for i in range(1, 21):  # 20 ranked peers: ranks 1..20
+            session.add(
+                Stock(symbol=f"P{i:02d}.NS", name=f"P{i}", sector="IT",
+                      industry="IT Services", mcap_rank=i)
+            )
+        # A NULL-rank stock whose symbol sorts first alphabetically.
+        session.add(
+            Stock(symbol="AAA.NS", name="AAA", sector="IT",
+                  industry="IT Services", mcap_rank=None)
+        )
+        await session.commit()
+
+    async with session_factory() as session:
+        tgt = await stock_repo.get_stock(session, "TGT.NS")
+        peers = await stock_repo.get_peers(session, tgt)
+
+    assert len(peers) == stock_repo.PEER_CAP == 15
+    # The 15 smallest ranks win; P16..P20 and the NULL-rank AAA are cut.
+    assert [p.symbol for p in peers] == [f"P{i:02d}.NS" for i in range(1, 16)]
+
+
+async def test_get_peers_rank_tiebreak_symbol_asc(session_factory):
+    """Equal ranks resolve by symbol ASC — a deterministic total order."""
+    async with session_factory() as session:
+        session.add(Stock(symbol="TGT.NS", name="T", sector="Auto", industry="Cars"))
+        for symbol in ("ZED.NS", "ABLE.NS", "MIKE.NS"):
+            session.add(
+                Stock(symbol=symbol, name=symbol, sector="Auto", industry="Cars",
+                      mcap_rank=7)
+            )
+        await session.commit()
+
+    async with session_factory() as session:
+        tgt = await stock_repo.get_stock(session, "TGT.NS")
+        peers = await stock_repo.get_peers(session, tgt)
+
+    assert [p.symbol for p in peers] == ["ABLE.NS", "MIKE.NS", "ZED.NS"]
+
+
+async def test_get_peers_excludes_etf_and_inactive(session_factory):
+    """M2-T8: ETF rows (separate domain, Plan 9) and inactive rows (ranking
+    E9/E10 delist/suspend) are never peers; active ranked-out rows remain."""
+    async with session_factory() as session:
+        session.add(Stock(symbol="TGT.NS", name="T", sector="Energy", industry="Refineries"))
+        session.add(
+            Stock(symbol="OK.NS", name="Ok", sector="Energy", industry="Refineries",
+                  mcap_rank=500, active=True)
+        )
+        session.add(
+            Stock(symbol="ETF.NS", name="An ETF", sector="Energy", industry="Refineries",
+                  is_etf=True)
+        )
+        session.add(
+            Stock(symbol="DEAD.NS", name="Dead", sector="Energy", industry="Refineries",
+                  active=False, delisted_reason="inactive_proxy")
+        )
+        await session.commit()
+
+    async with session_factory() as session:
+        tgt = await stock_repo.get_stock(session, "TGT.NS")
+        peers = await stock_repo.get_peers(session, tgt)
+
+    assert [p.symbol for p in peers] == ["OK.NS"]
+
+
 async def test_get_financials_returns_fundamentals(session_factory):
     sid = await _seed_stock(session_factory, "RELIANCE.NS", "Reliance", "Energy", "Oil & Gas")
     async with session_factory() as session:

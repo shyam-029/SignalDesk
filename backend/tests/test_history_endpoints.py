@@ -503,7 +503,8 @@ async def test_peers_endpoint(client, session_factory):
     async with session_factory() as session:
         session.add_all([
             Stock(symbol="RELIANCE.NS", name="Reliance", sector="Energy", industry="Refineries"),
-            Stock(symbol="IOC.NS", name="Indian Oil", sector="Energy", industry="Refineries"),
+            Stock(symbol="IOC.NS", name="Indian Oil", sector="Energy", industry="Refineries",
+                  mcap_rank=42),
             Stock(symbol="TCS.NS", name="TCS", sector="IT", industry="Services"),
         ])
         await session.flush()
@@ -517,7 +518,10 @@ async def test_peers_endpoint(client, session_factory):
                        close=105, volume=200),
         ])
         session.add(Financials(stock_id=ioc.id, trailing_pe=12.5, return_on_equity=0.15,
-                               profit_margin=0.08, debt_to_equity=40.0))
+                               profit_margin=0.08, debt_to_equity=40.0,
+                               price_to_book=3.2, price_to_sales=1.1, ev_ebitda=9.5,
+                               market_cap=150000.0, return_on_assets=0.06,
+                               operating_margin=0.12))
         session.add(Financials(stock_id=rel.id, trailing_pe=24.0))
         await session.commit()
 
@@ -534,6 +538,130 @@ async def test_peers_endpoint(client, session_factory):
     assert peer["return_on_equity"] == 0.15
     assert peer["profit_margin"] == 0.08
     assert peer["debt_to_equity"] == 40.0
+    # M2-T8 enriched fields (stored data only).
+    assert peer["price_to_book"] == 3.2
+    assert peer["price_to_sales"] == 1.1
+    assert peer["ev_ebitda"] == 9.5
+    assert peer["market_cap"] == 150000.0
+    assert peer["mcap_rank"] == 42
+    assert peer["return_on_assets"] == 0.06
+    assert peer["operating_margin"] == 0.12
+    # Honest nulls: two bars are shorter than the 1y window, and no annual
+    # revenue periods exist, so both derived rates stay null.
+    assert peer["return_1y_pct"] is None
+    assert peer["revenue_cagr_3y"] is None
+
+
+async def test_peers_enriched_metrics_computed(client, session_factory):
+    """M2-T8: 1y return anchored on the peer's own bars, and 3y revenue
+    CAGR over exactly three fiscal-year slots, both from stored rows."""
+    async with session_factory() as session:
+        session.add_all([
+            Stock(symbol="RELIANCE.NS", name="Reliance", sector="Energy", industry="Refineries"),
+            Stock(symbol="IOC.NS", name="Indian Oil", sector="Energy", industry="Refineries"),
+        ])
+        await session.flush()
+        ioc = await session.scalar(select(Stock).where(Stock.symbol == "IOC.NS"))
+        today = date.today()
+        session.add_all([
+            DailyPrice(stock_id=ioc.id, date=today - timedelta(days=400),
+                       open=99, high=101, low=98, close=100, volume=10),
+            DailyPrice(stock_id=ioc.id, date=today,
+                       open=108, high=111, low=107, close=110, volume=20),
+        ])
+        # Fiscal years via the router's bucketing: 2022-03-31 -> FY2023,
+        # 2025-03-31 -> FY2026. (133.1/100)^(1/3) - 1 = exactly 10 percent.
+        session.add_all([
+            FinancialPeriod(stock_id=ioc.id, period_end=date(2022, 3, 31),
+                            period_type="annual", revenue=100e7, source="fake"),
+            FinancialPeriod(stock_id=ioc.id, period_end=date(2023, 3, 31),
+                            period_type="annual", revenue=110e7, source="fake"),
+            FinancialPeriod(stock_id=ioc.id, period_end=date(2025, 3, 31),
+                            period_type="annual", revenue=133.1e7, source="fake"),
+        ])
+        await session.commit()
+
+    r = await client.get("/api/v1/stocks/RELIANCE/peers")
+    assert r.status_code == 200
+    peer = r.json()["items"][0]
+    assert peer["return_1y_pct"] == pytest.approx(10.0)
+    assert peer["revenue_cagr_3y"] == pytest.approx(10.0)
+
+
+async def test_peers_revenue_cagr_honest_nulls(client, session_factory):
+    """CAGR stays null when the 3-fiscal-year window is not fully covered
+    or the base revenue is unusable — never a partial-window rate."""
+    async with session_factory() as session:
+        session.add_all([
+            Stock(symbol="T.NS", name="T", sector="IT", industry="IT Services"),
+            Stock(symbol="SHORT.NS", name="Short", sector="IT", industry="IT Services"),
+            Stock(symbol="ZEROBASE.NS", name="ZeroBase", sector="IT", industry="IT Services"),
+        ])
+        await session.flush()
+        short = await session.scalar(select(Stock).where(Stock.symbol == "SHORT.NS"))
+        zero = await session.scalar(select(Stock).where(Stock.symbol == "ZEROBASE.NS"))
+        # SHORT: newest FY2026 vs FY2025 — the FY2023 endpoint is missing.
+        session.add_all([
+            FinancialPeriod(stock_id=short.id, period_end=date(2024, 3, 31),
+                            period_type="annual", revenue=100e7, source="fake"),
+            FinancialPeriod(stock_id=short.id, period_end=date(2025, 3, 31),
+                            period_type="annual", revenue=120e7, source="fake"),
+        ])
+        # ZEROBASE: FY2023 revenue is 0 — CAGR from a zero base is undefined.
+        session.add_all([
+            FinancialPeriod(stock_id=zero.id, period_end=date(2022, 3, 31),
+                            period_type="annual", revenue=0.0, source="fake"),
+            FinancialPeriod(stock_id=zero.id, period_end=date(2025, 3, 31),
+                            period_type="annual", revenue=133.1e7, source="fake"),
+        ])
+        await session.commit()
+
+    r = await client.get("/api/v1/stocks/T/peers")
+    assert r.status_code == 200
+    cagrs = {p["symbol"]: p["revenue_cagr_3y"] for p in r.json()["items"]}
+    assert cagrs["SHORT.NS"] is None
+    assert cagrs["ZEROBASE.NS"] is None
+
+
+async def test_peers_read_path_constructs_no_provider(client, session_factory):
+    """M2-T8 fan-out regression extension: /peers over a REAL cohort answers
+    from stored data only — no provider is ever constructed on the request
+    path (the M1-T3 fan-out lesson, now guarded for the enriched surface)."""
+    import app.providers.upstox_provider as upstox_mod
+    import app.services.analysis as analysis_mod
+
+    async with session_factory() as session:
+        session.add_all([
+            Stock(symbol="RELIANCE.NS", name="Reliance", sector="Energy", industry="Refineries"),
+            Stock(symbol="IOC.NS", name="Indian Oil", sector="Energy", industry="Refineries"),
+            Stock(symbol="BPCL.NS", name="BPCL", sector="Energy", industry="Refineries"),
+        ])
+        await session.flush()
+        ioc = await session.scalar(select(Stock).where(Stock.symbol == "IOC.NS"))
+        bpcl = await session.scalar(select(Stock).where(Stock.symbol == "BPCL.NS"))
+        today = date.today()
+        for sid, close in ((ioc.id, 105.0), (bpcl.id, 220.0)):
+            session.add(DailyPrice(stock_id=sid, date=today, open=close,
+                                   high=close, low=close, close=close, volume=1))
+            session.add(Financials(stock_id=sid, trailing_pe=12.5))
+        await session.commit()
+
+    def _boom(token):
+        raise AssertionError("read path must not construct a provider")
+
+    orig_provider = upstox_mod.UpstoxProvider
+    orig_token = analysis_mod.settings.upstox_analytics_token
+    upstox_mod.UpstoxProvider = _boom  # type: ignore[assignment]
+    analysis_mod.settings.upstox_analytics_token = "fake-token-for-test"
+    try:
+        r = await client.get("/api/v1/stocks/RELIANCE/peers")
+    finally:
+        upstox_mod.UpstoxProvider = orig_provider  # type: ignore[assignment]
+        analysis_mod.settings.upstox_analytics_token = orig_token
+    assert r.status_code == 200
+    body = r.json()
+    assert body["count"] == 2
+    assert {p["symbol"] for p in body["items"]} == {"IOC.NS", "BPCL.NS"}
 
 
 async def test_peers_no_peers_returns_empty(client, session_factory):
