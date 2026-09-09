@@ -48,6 +48,16 @@ def test_asyncpg_url_with_ssl_already_set_is_untouched():
     assert asyncpg_ready_url(raw).render_as_string(hide_password=False) == raw
 
 
+def test_sqlalchemy_str_masks_password_render_as_string_does_not():
+    # str(URL) masks the password in SQLAlchemy 2: 'postgresql://u:***@h/db'.
+    # Any consumer that needs the real password (alembic env.py) must use
+    # render_as_string(hide_password=False) — a str() roundtrip is a
+    # guaranteed InvalidPasswordError.
+    u = make_url("postgresql://u:secret@h:5432/db")
+    assert "***" in str(u)
+    assert u.render_as_string(hide_password=False) == "postgresql://u:secret@h:5432/db"
+
+
 def test_bare_postgresql_url_is_upgraded_and_normalized():
     # A verbatim Neon console paste (no +asyncpg) must work everywhere.
     url = asyncpg_ready_url(
