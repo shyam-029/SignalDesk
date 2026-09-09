@@ -36,6 +36,34 @@ jobs:
           cache-dependency-path: backend/requirements.txt
       - name: Install dependencies
         run: pip install -r requirements.txt
+      - name: Credential fingerprint (safe fields only, never the secret)
+        run: |
+          python - <<'EOF'
+          import os
+
+          from sqlalchemy.engine import make_url
+
+          u = make_url(os.environ["DATABASE_URL"])
+          pw = u.password or ""
+          print("driver:", u.drivername)
+          print("user:", u.username)
+          print("host:", u.host)
+          print("port:", u.port)
+          print("database:", u.database)
+          print("ssl_param:", "ssl" in u.query or "sslmode" in u.query)
+          print("password_length:", len(pw))
+          print("password_alnum_underscore:", pw.replace("_", "").isalnum())
+          print("password_npg_prefix:", pw.startswith("npg_"))
+          print("password_has_quotes:", pw[:1] in "\"'" or pw[-1:] in "\"'")
+          print("password_has_edge_whitespace:", pw != pw.strip())
+          EOF
+      - name: Render /status/full probe (is the API's own DB credential healthy?)
+        env:
+          OPS_API_KEY: ${{ secrets.OPS_API_KEY }}
+        run: |
+          curl -sS --max-time 120 --retry 3 --retry-delay 10 \
+            -H "Authorization: Bearer $OPS_API_KEY" \
+            https://signaldesk-31gt.onrender.com/status/full
       - name: Apply migrations
         run: alembic upgrade head
       - name: Rank top-1000 universe (production)
