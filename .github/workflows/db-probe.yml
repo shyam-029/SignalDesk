@@ -11,6 +11,13 @@ jobs:
     env:
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
     steps:
+      - name: Install postgresql-client 17
+        run: |
+          curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo gpg --dearmor -o /usr/share/keyrings/pgdg.gpg
+          echo "deb [signed-by=/usr/share/keyrings/pgdg.gpg] http://apt.postgresql.org/pub/repos/apt noble-pgdg main" | sudo tee /etc/apt/sources.list.d/pgdg.list
+          sudo apt-get update -q
+          sudo apt-get install -y -q postgresql-client-17
+
       - name: Database size and largest tables (read-only)
         run: |
           PGURL=$(echo "$DATABASE_URL" | sed -e 's/^postgresql+asyncpg:/postgresql:/' -e 's/ssl=require/sslmode=require/')
