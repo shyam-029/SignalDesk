@@ -13,6 +13,7 @@
 
 import asyncio
 import logging
+import random
 import time
 from collections.abc import Awaitable, Callable
 from datetime import date, datetime, timezone
@@ -84,12 +85,19 @@ async def _with_retry(
     retries: int = 2,
     base_delay: float = 0.5,
     what: str = "provider call",
+    delays: tuple[float, ...] | None = None,
+    jitter: float = 0.0,
 ) -> T:
     """Retry a provider call with exponential backoff on MarketDataError.
 
     Only MarketDataError (transient provider/network failures) is retried;
     other exceptions propagate immediately. After the final attempt the last
     error is re-raised so callers can isolate it per symbol (D19).
+
+    delays optionally overrides the default base_delay * 2**attempt schedule
+    with an explicit per-retry sequence; jitter (fraction, e.g. 0.25) applies
+    a uniform multiplier in [1-j, 1+j] to each delay. Both default to the
+    historical behavior so existing callers are untouched.
     """
     for attempt in range(retries + 1):
         try:
@@ -97,7 +105,12 @@ async def _with_retry(
         except MarketDataError as exc:
             if attempt >= retries:
                 raise
-            delay = base_delay * (2**attempt)
+            if delays is not None and attempt < len(delays):
+                delay = delays[attempt]
+            else:
+                delay = base_delay * (2**attempt)
+            if jitter > 0.0:
+                delay *= random.uniform(1.0 - jitter, 1.0 + jitter)
             logger.warning(
                 "%s failed (attempt %d/%d): %s; retrying in %.1fs",
                 what,
@@ -1406,6 +1419,12 @@ async def ingest_funds(
 
 # --- Top-1000 universe ranking (M1-T2, Plan 7) -------------------------------
 
+# Pacing for the mcap fetch phase (see _fetch_one_mcap and the rank loop for
+# why). Module-level so tests can shrink them to keep the suite fast.
+_MCAP_RETRY_DELAYS: tuple[float, ...] = (5.0, 15.0, 30.0)
+_MCAP_RETRY_JITTER = 0.25
+_MCAP_BATCH_SLEEP_S = 2.0
+
 async def _fetch_one_mcap(
     provider: MarketDataProvider, bare_symbol: str
 ) -> tuple[str, float | None]:
@@ -1414,10 +1433,18 @@ async def _fetch_one_mcap(
     Takes the CURRENT NSE bare symbol (the master's); provider calls use the
     ".NS" suffixed form. Raises MarketDataError upward so callers isolate
     per-symbol failures (D19); a provider-None stays None (E7 no_mcap).
+
+    Pacing (5s/15s/30s + jitter, NOT the default 0.5s/1s): the Actions
+    runner's shared IP is Yahoo-throttled hard at ~2,800 info calls (rank.yml
+    run 34350500127: 2,051 of the fetches 429'd through all 3 fast retries,
+    shrinking the ranked universe to 728). Slower, jittered retries give the
+    rate limiter room to clear between attempts.
     """
     fundamentals = await _with_retry(
         lambda: provider.get_fundamentals(f"{bare_symbol}.NS"),
         what=f"market-cap fetch for {bare_symbol}",
+        delays=_MCAP_RETRY_DELAYS,
+        jitter=_MCAP_RETRY_JITTER,
     )
     return bare_symbol, fundamentals.market_cap
 
@@ -1496,6 +1523,11 @@ async def rank_universe(
                 mcaps[c.symbol] = (None, f"{type(res).__name__}: {res}")
             else:
                 mcaps[c.symbol] = (res[1], None)
+        # Inter-batch pause: ~556 batches against one shared-runner IP; a
+        # modest gap between batches lowers sustained request pressure on the
+        # Yahoo rate limiter (rank.yml 429 storm, 2026-09-09).
+        if i + batch_size < len(fetch_list):
+            await asyncio.sleep(_MCAP_BATCH_SLEEP_S)
     candidates = [
         ranking_svc.with_mcap(c, *mcaps.get(c.symbol, (c.mcap, c.mcap_error)))
         for c in candidates
