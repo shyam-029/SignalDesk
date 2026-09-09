@@ -30,7 +30,7 @@ jobs:
           docker run --rm -v "$PWD:/out" -e PGURL postgres:17 \
             sh -c 'pg_dump "$PGURL" -Fc -f /out/signaldesk-$(date +%Y%m%d).dump'
           ls -lh signaldesk-*.dump
-      - name: Storage canary (Plan 22: alarm at 450 MB of the 512 MB hard cap)
+      - name: Storage canary (Plan 22, alarm at 450 MB of the 512 MB hard cap)
         run: |
           PGURL=$(echo "$DATABASE_URL" | sed -e 's/^postgresql+asyncpg:/postgresql:/' -e 's/ssl=require/sslmode=require/')
           BYTES=$(docker run --rm -e PGURL postgres:17 \
