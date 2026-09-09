@@ -63,7 +63,17 @@ def asyncpg_ready_url(raw: str) -> URL:
 
 
 # Connection pool to PostgreSQL (lazy — connects on first query).
-engine = create_async_engine(asyncpg_ready_url(settings.database_url), echo=False)
+# pool_pre_ping is REQUIRED for the Neon deployment, not cosmetic: ingestion
+# passes open short-lived sessions and then spend 10-15+ minutes on provider
+# fetches with no DB activity (e.g. rank_universe's Yahoo market-cap loop).
+# Neon closes the idle pooled connection during that gap; without the ping the
+# next SessionLocal() checkout hands the job a dead connection and the pass
+# dies with "asyncpg.InterfaceError: connection is closed" on its first
+# write-phase query (rank.yml run 34347351526, 2026-09-09). Do not remove this
+# as a simplification — it is the stale-connection guard for long fetch phases.
+engine = create_async_engine(
+    asyncpg_ready_url(settings.database_url), echo=False, pool_pre_ping=True
+)
 
 # Factory for per-operation sessions. expire_on_commit=False keeps attribute
 # values accessible after a transaction commits.
