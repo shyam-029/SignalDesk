@@ -25,15 +25,18 @@ from app.config import settings
 def asyncpg_ready_url(raw: str) -> URL:
     """Normalize a Postgres URL for the asyncpg driver.
 
-    Neon's console copy-paste gives a libpq URL (`?sslmode=require`), but
-    SQLAlchemy passes URL query parameters to asyncpg.connect() as kwargs
-    and asyncpg rejects the libpq-style NAME (verified asyncpg 0.31.0:
-    connect() got an unexpected keyword argument 'sslmode') while accepting
-    the libpq-style VALUE on its own `ssl` parameter ('require',
-    'verify-full', ...). The `sslmode` query parameter is therefore renamed
-    to `ssl` (dropped when an explicit `ssl` is already present), so either
-    URL form works everywhere the app builds an asyncpg engine. Non-asyncpg
-    URLs pass through untouched (libpq dialects accept sslmode natively).
+    Neon's console copy-paste gives a libpq URL (`?sslmode=require&channel_
+    binding=require`), but SQLAlchemy passes URL query parameters to
+    asyncpg.connect() as kwargs and asyncpg rejects libpq-style parameter
+    NAMES (verified asyncpg 0.31.0: unexpected keyword argument). Two
+    adjustments keep either URL form working everywhere the app builds an
+    asyncpg engine:
+      - `sslmode` is RENAMED to `ssl` (asyncpg accepts libpq-style VALUES on
+        its own `ssl` parameter: 'require', 'verify-full', ...), dropped
+        when an explicit `ssl` is already present.
+      - `channel_binding` is DROPPED: asyncpg negotiates SCRAM channel
+        binding automatically over TLS and has no such parameter.
+    Non-asyncpg URLs pass through untouched (libpq dialects accept both).
     """
     url = make_url(raw)
     if not (url.get_backend_name() == "postgresql" and url.get_driver_name() == "asyncpg"):
@@ -42,6 +45,7 @@ def asyncpg_ready_url(raw: str) -> URL:
     sslmode = query.pop("sslmode", None)
     if sslmode is not None and "ssl" not in query:
         query["ssl"] = sslmode
+    query.pop("channel_binding", None)
     if query == dict(url.query):
         return url
     return url.set(query=query)

@@ -1,9 +1,9 @@
 # asyncpg_ready_url tests (M1-T5): the Neon console copy gives a libpq URL
-# (?sslmode=require) and SQLAlchemy passes URL query params to
-# asyncpg.connect() as kwargs; asyncpg 0.31.0 rejects the 'sslmode' NAME
-# (verified live: TypeError) while accepting libpq-style VALUES on its own
-# 'ssl' parameter. These tests pin the rename so either secret form works
-# on every asyncpg engine site (app engine, Alembic, NullPool job engine).
+# (?sslmode=require&channel_binding=require) and SQLAlchemy passes URL query
+# params to asyncpg.connect() as kwargs; asyncpg 0.31.0 rejects the libpq
+# NAMES (verified live: unexpected keyword argument). These tests pin the
+# normalization so either secret form works on every asyncpg engine site
+# (app engine, Alembic, NullPool job engine).
 
 from sqlalchemy import make_url
 
@@ -14,6 +14,20 @@ def test_libpq_sslmode_is_renamed_to_ssl():
     url = asyncpg_ready_url("postgresql+asyncpg://u:p@h:5432/db?sslmode=require")
     assert "sslmode" not in url.query
     assert url.query["ssl"] == "require"
+
+
+def test_neon_console_channel_binding_is_dropped():
+    url = asyncpg_ready_url(
+        "postgresql+asyncpg://u:p@h:5432/db?sslmode=require&channel_binding=require"
+    )
+    assert "sslmode" not in url.query
+    assert "channel_binding" not in url.query
+    assert url.query["ssl"] == "require"
+
+
+def test_channel_binding_alone_is_dropped():
+    url = asyncpg_ready_url("postgresql+asyncpg://u:p@h:5432/db?channel_binding=require")
+    assert "channel_binding" not in url.query
 
 
 def test_explicit_ssl_wins_and_sslmode_is_dropped():
