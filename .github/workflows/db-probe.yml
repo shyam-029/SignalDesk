@@ -28,5 +28,5 @@ jobs:
                    pg_size_pretty(pg_total_relation_size(relid)) AS total_size,
                    n_live_tup AS approx_rows
             FROM pg_stat_user_tables
-            ORDER BY pg_total_relation_size(oid) DESC
+            ORDER BY pg_total_relation_size(relid) DESC
             LIMIT 8;"
