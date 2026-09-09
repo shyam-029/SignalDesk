@@ -109,6 +109,26 @@ class Settings(BaseSettings):
     # stays reachable by direct URL.
     active_universe: str = "top1000"
 
+    # --- Storage guardrails (M2-T1, Plan 22 first retention cut) ---
+    # The alpha-history prune fires ONLY when the live database size
+    # (pg_database_size) is at or above this many MB; below it the pass is
+    # a measured no-op (owner decision: shipped inert, never proactive).
+    storage_cut_threshold_mb: int = 450
+    # The keep-set for the prune: stocks ranked in the top N by mcap_rank
+    # keep full alpha history; everything else is cut to the depth below.
+    storage_cut_keep_top: int = 250
+    # Alpha-history depth outside the keep-set, in days (366 = 1y).
+    storage_cut_depth_days: int = 366
+
+    # --- M2 passes feature flag (T7-week protection, M2 plan section 17) ---
+    # New M2 ingestion-path passes land behind this switch. Default OFF so
+    # the production nightly cron (M1-T7 reliability gate, first firing
+    # 2026-09-10) stays unperturbed while the one-week baseline clears.
+    # Nothing scheduled reads this flag yet: the nightly _ingest_passes
+    # tuple is unchanged. M2-T2+ wire their new passes through it, and the
+    # owner flips ENABLE_M2_PASSES=true (env) once T7 is green.
+    enable_m2_passes: bool = False
+
     model_config = SettingsConfigDict(
         # Read values from `.env` in the backend/ directory.
         env_file=BACKEND_DIR / ".env",

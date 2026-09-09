@@ -1,8 +1,23 @@
 # Operational DB probe (Plan 28 monitoring): read-only database size and
 # table counts against the production Neon database. No secrets printed.
+#
+# M2-T1: weekly schedule added. Safety rationale: this workflow contains
+# ONLY read-only psql metadata queries (pg_database_size, pg_stat_user_tables)
+# and shares nothing with the ingestion path — ingest.yml, its passes, and
+# its concurrency group are untouched, so the M1-T7 nightly-cron reliability
+# baseline cannot be affected. The Monday 06:00 UTC slot also avoids the
+# nightly (13:30 UTC) and the monthly rank (04:00 UTC on the 1st). The
+# fresh numbers feed BASELINE_BYTES in app/services/storage.py (the canary)
+# and the retention gate decision.
 name: db-probe
 on:
+  schedule:
+    - cron: "0 6 * * 1"  # weekly, Monday 06:00 UTC (read-only; T7-safe)
   workflow_dispatch:
+
+concurrency:
+  group: db-probe
+  cancel-in-progress: false
 
 jobs:
   probe:

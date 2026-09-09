@@ -16,10 +16,10 @@ import logging
 import random
 import time
 from collections.abc import Awaitable, Callable
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import TypeVar
 
-from sqlalchemy import delete, exists, func, select
+from sqlalchemy import delete, exists, func, or_, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -61,6 +61,7 @@ from app.repositories import company_profiles as profile_repo
 from app.repositories import funds as fund_repo
 from app.repositories import ranking as ranking_repo
 from app.services import ranking as ranking_svc
+from app.services import storage as storage_svc
 
 logger = logging.getLogger(__name__)
 
@@ -1417,6 +1418,100 @@ async def ingest_funds(
     }
 
 
+# --- Retention: gated alpha-history prune (M2-T1, Plan 22 first cut) --------
+#
+# NOT part of the nightly _ingest_passes and never scheduled. This is a
+# gated operational tool: it fires ONLY when the live database size is at
+# or above settings.storage_cut_threshold_mb (450 MB default), and at the
+# current ~383 MB baseline it is a measured no-op (owner decision: ship it
+# inert, never execute the cut proactively). Run manually via
+# `python -m app.jobs prune-alpha` (recorded in job_runs like every pass)
+# when a db-probe run reports the threshold is met.
+
+_PRUNE_BATCH_SIZE = 5000  # short transactions; Neon connection friendly
+
+
+async def prune_alpha_history_outside_top250(threshold_mb: int | None = None) -> dict:
+    """Cut alpha history to 1y outside the top-250 keep-set (Plan 22).
+
+    Gate: measures pg_database_size (a read-only metadata query) and
+    proceeds only at or above `threshold_mb` (settings default 450 MB).
+    Below the gate the function deletes NOTHING and reports fired=False —
+    provably inert at current storage levels.
+
+    Keep-set: stocks with mcap_rank <= storage_cut_keep_top (250) keep full
+    alpha history. Everyone else (rank > 250 or NULL — ranked_out rows stay
+    active but unranked, and rows outside any cycle) is pruned to
+    storage_cut_depth_days (366) before the cutoff date. Deletion is
+    batched (short transactions), idempotent (a re-run deletes 0 rows), and
+    never touches prices, statements, or any table but alpha_scores.
+    """
+    effective_threshold = (
+        settings.storage_cut_threshold_mb if threshold_mb is None else threshold_mb
+    )
+    async with SessionLocal() as session:
+        size_bytes = int(
+            await session.scalar(
+                select(func.pg_database_size(func.current_database()))
+            )
+        )
+
+    if not storage_svc.cut_gate_fires(size_bytes, effective_threshold):
+        logger.info(
+            "prune_alpha_history gate=below_threshold db_mb=%.1f threshold_mb=%d "
+            "deleted=0 (inert by design)",
+            size_bytes / storage_svc.BYTES_PER_MB,
+            effective_threshold,
+        )
+        return {
+            "fired": False,
+            "db_mb": round(size_bytes / storage_svc.BYTES_PER_MB, 1),
+            "threshold_mb": effective_threshold,
+            "deleted": 0,
+        }
+
+    cutoff = date.today() - timedelta(days=settings.storage_cut_depth_days)
+    # Prune target: every symbol NOT in the top-N keep-set. alpha_scores is
+    # keyed by symbol, so the keep-set is resolved from the catalog first.
+    prunable_symbols = select(Stock.symbol).where(
+        or_(
+            Stock.mcap_rank.is_(None),
+            Stock.mcap_rank > settings.storage_cut_keep_top,
+        )
+    )
+
+    total_deleted = 0
+    while True:
+        async with SessionLocal() as session:
+            batch_ids = select(AlphaScore.id).where(
+                AlphaScore.date < cutoff,
+                AlphaScore.symbol.in_(prunable_symbols),
+            ).limit(_PRUNE_BATCH_SIZE)
+            result = await session.execute(
+                delete(AlphaScore).where(AlphaScore.id.in_(batch_ids))
+            )
+            await session.commit()
+            deleted = result.rowcount or 0
+        total_deleted += deleted
+        if deleted < _PRUNE_BATCH_SIZE:
+            break
+
+    logger.info(
+        "prune_alpha_history fired=yes cutoff=%s deleted=%d keep_top=%d depth_days=%d",
+        cutoff.isoformat(), total_deleted,
+        settings.storage_cut_keep_top, settings.storage_cut_depth_days,
+    )
+    return {
+        "fired": True,
+        "db_mb": round(size_bytes / storage_svc.BYTES_PER_MB, 1),
+        "threshold_mb": effective_threshold,
+        "cutoff": cutoff.isoformat(),
+        "keep_top": settings.storage_cut_keep_top,
+        "depth_days": settings.storage_cut_depth_days,
+        "deleted": total_deleted,
+    }
+
+
 # --- Top-1000 universe ranking (M1-T2, Plan 7) -------------------------------
 
 # Pacing for the mcap fetch phase (see _fetch_one_mcap and the rank loop for
@@ -1839,10 +1934,19 @@ if __name__ == "__main__":
     elif command == "balance-sheets":
         # Annual balance sheets for the active universe (Altman Z-Score data).
         status = asyncio.run(_record_pass("ingest_balance_sheets", ingest_balance_sheets))
+    elif command == "prune-alpha":
+        # Gated alpha-history retention cut (M2-T1, Plan 22). NOT scheduled
+        # and NOT part of the nightly passes: manual/gated operational tool
+        # that fires only at or above the storage threshold (450 MB default)
+        # and is a no-op below it.
+        status = asyncio.run(
+            _record_pass("prune_alpha_history", prune_alpha_history_outside_top250)
+        )
     else:
         raise SystemExit(
             f"Unknown command: {command} "
-            "(use 'backfill', 'ingest', 'rank', 'etfs', 'funds' or 'balance-sheets')"
+            "(use 'backfill', 'ingest', 'rank', 'etfs', 'funds', "
+            "'balance-sheets' or 'prune-alpha')"
         )
     # Exit non-zero ONLY on a hard job failure so CI/workflow conclusions
     # reflect reality ('partial' stays exit 0: per-symbol provider blips are

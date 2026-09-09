@@ -2,7 +2,7 @@
 
 > **Purpose:** The operational companion to `SEMESTER2_PLAN.md`. Read this file FIRST to resume work, then the plan for the what/why.
 > **Rules:** Current state, then active milestone, then next task. Checklists per milestone. Verification results. Risks and pending human decisions stay visible until closed.
-> **Last updated:** 2026-09-09 (round 4: M1-T5 production deployment COMPLETE - Render API + Cloudflare Pages + Neon + GitHub Actions crons live, rank 1000/1000 on production, full nightly ingest green, smoke checklist green, storage 383 MB of 512 MB; see Work Log 2026-09-09 for the full credential/connection/429 saga).
+> **Last updated:** 2026-09-10 (M2 started in parallel with M1-T7: M2-T1 storage guardrails + M2-T8 enriched peers COMPLETE; ingestion path untouched, T7 baseline uncontaminated; see Work Log 2026-09-10).
 > **Companion:** `SEMESTER2_PLAN.md` (sections cited as Plan 1-30). Semester 1 record: `PLANNING.md` / `PROGRESS.md`, frozen, unmodified.
 
 ---
@@ -11,19 +11,19 @@
 
 | Item | State |
 |---|---|
-| Repo / branch / HEAD | `C:\Users\shyam\Desktop\Projects\signaldesk`, `main`, `968a44d` (Phase 8 complete, clean tree) |
+| Repo / branch / HEAD | `C:\Users\shyam\Desktop\Projects\signaldesk`, `main`, `4121c19` (M1 complete, clean tree at M2 start) |
 | Semester 1 | COMPLETE (Phases 1-8). Backend 348/348 (zero-network), frontend 72/72, tsc clean, build OK |
 | Semester 2 plan | COMPLETE (`SEMESTER2_PLAN.md`, 30 sections + appendices) |
-| Semester 2 implementation | IN PROGRESS (M1-T1..T6 done + ETF/fund/Z-score slices live + production deployment; T7 remains) |
-| Active milestone | **M1 - Scale-Up and Ship It** |
-| Next concrete task | **M1-T7:** nightly cron green one full week (first scheduled firing 2026-09-10 ~13:30 UTC), zero-cost itemized and verified |
+| Semester 2 implementation | IN PROGRESS (M1 complete incl. ETF/fund/Z-score slices + production; **M2-T1, M2-T8 done**; T7 observing) |
+| Active milestone | **M1-T7 (observation gate) running in parallel with M2** |
+| Next concrete task | M1-T7: nightly cron green one full week (first firing 2026-09-10 ~13:30 UTC). M2 continues with T2 (statements schema + yfinance primary) behind the `enable_m2_passes` flag |
 
 ## 2. Milestone Board
 
 | Milestone | Status | Depends on | Definition of done |
 |---|---|---|---|
-| M1 - Scale-Up and Ship It | IN PROGRESS (T1, T2 done) | - | Plan 24/M1 |
-| M2 - Statements and Depth | NOT STARTED | M1 | Plan 24/M2 |
+| M1 - Scale-Up and Ship It | COMPLETE except T7 observation | - | Plan 24/M1 |
+| M2 - Statements and Depth | IN PROGRESS (T1, T8 done) | M1 | Plan 24/M2 |
 | M3 - Accounts and Workspace | NOT STARTED | M1 (parallel with M2) | Plan 24/M3 |
 | M4 - Fund Data Backbone | NOT STARTED | M1 | Plan 24/M4 |
 | M5 - Fund Research Experience | NOT STARTED | M4 | Plan 24/M5 |
@@ -39,8 +39,22 @@
 - [x] M1-T4: storage measured (104 MB live DB; projected ~230-330 MB at full top-1000 scale, under the 0.5 GB cap; see Work Log 2026-09-08)
 - [x] M1-T5: production deploy per Plan 21 (Pages + Render + Neon + cron); `/health` and `/status/full` smoke green (2026-09-09; see Work Log)
 - [x] M1-T6: benchmark index ingestion (`^NSEI`, `^NSEBANK`, `^CNXIT`, `^CRSLDX`) live (own tables, measured 1.8-3.8s / 0.6 MB)
-- [ ] M1-T7: nightly cron green one full week; zero-cost itemized and verified (first cron firing 2026-09-10)
+- [ ] M1-T7: nightly cron green one full week; zero-cost itemized and verified (first cron firing 2026-09-10). M2 work runs in parallel WITHOUT touching the ingestion path (see Work Log 2026-09-10)
 - [ ] News breadth gate: news stays core-500 until the M1-T3 benchmark proves headroom (tiered decision)
+
+### M2 checklist (started 2026-09-10)
+
+- [x] M2-T1: storage guardrails - canary test (worst-case 90-day projection vs the 512 MB cap), retention pass (alpha depth 1y outside top 250) shipped INERT behind the 450 MB gate, CLI `prune-alpha`, weekly db-probe schedule (read-only, separate workflow)
+- [x] M2-T8: enriched peers - `get_peers` capped at 15 (mcap_rank ASC NULLS LAST, symbol ASC), is_etf/inactive excluded, PeerSummary extended (P/B, P/S, EV/EBITDA, mcap, rank, ROA, op margin, revenue CAGR 3y, 1y return), zero-provider read paths regression-proven
+- [ ] M2-T2: statements schema + yfinance primary (income columns, BS Plan 5.4 fields, cash_flow_periods) - ingestion lands behind `enable_m2_passes`
+- [ ] M2-T3: Upstox secondary statement adapters
+- [ ] M2-T4: statement read APIs + top-1000 backfill
+- [ ] M2-T5: dividends; M2-T6: earnings/events
+- [ ] M2-T7: risk engine
+- [ ] M2-T9: sector indexes + sector-relative medians
+- [ ] M2-T10: Alpha v2 (Quality 40 / Growth 20 / Solvency 25 / Distress 15, owner-confirmed)
+- [ ] M2-T11: screener precompute
+- [ ] M2-T12: frontend sections; M2-T13: pipeline integration + DoD
 
 ## 4. Upcoming Milestone Checklists (brief; detail in Plan 24)
 
@@ -152,7 +166,21 @@ Runbook: Plan 28. Remaining human decisions in section 9 (cost snapshot confirma
 
 ---
 
-*Resume here. Next: M1-T7 (nightly cron green one full week; first scheduled firing 2026-09-10 ~13:30 UTC) plus the zero-cost itemized verification, gated on the day-0 cost snapshot confirmation. Plan reference: `SEMESTER2_PLAN.md` section 28.*
+- 2026-09-10: **M2-T1 + M2-T8 done - storage guardrails + enriched peers** (M2 build starts in parallel with M1-T7 per the M2 plan section 17 interaction rules).
+  1. **T7 protection confirmed first:** the nightly ingestion path is UNTOUCHED by this round - `git diff backend/app/jobs.py` shows only additive changes (imports, one new gated function, one CLI branch); the `_ingest_passes` tuple, pass ordering, and every existing pass's fetch/parse logic are byte-identical. `ingest.yml`/`rank.yml` untouched. The T7 cron baseline (first fire 2026-09-10 ~13:30 UTC) is uncontaminated.
+  2. **M2-T1 canary** (`app/services/storage.py` + `tests/test_storage_canary.py`): pure projection/gate math pinning the measured production facts (Neon cap 512,000,000 bytes; baseline 383 MB @ 2026-09-09 db-probe; growth band 0.6-1.0 MB/day). The CI canary asserts the worst-case 90-day projection (383 + 1.0x90 = 473 MB) stays under the cap - it goes red when a baseline refresh crosses the cap, making the retention cut due. Gate semantics: fires at >= 450 MB, never below.
+  3. **M2-T1 retention pass** (`jobs.prune_alpha_history_outside_top250` + CLI `python -m app.jobs prune-alpha`): alpha backfill depth cut to 1y outside the top-250 keep-set (mcap_rank), per Plan 22. Shipped INERT by owner decision: it measures `pg_database_size` (read-only) and deletes NOTHING below the 450 MB gate (test proves fired=False + 0 rows at real sizes); batched short-transaction deletes; idempotent (re-run deletes 0); never scheduled; recorded in `job_runs` when invoked. Settings: `storage_cut_threshold_mb=450`, `storage_cut_keep_top=250`, `storage_cut_depth_days=366`.
+  4. **enable_m2_passes flag (T7-week protection, confirmed decision):** added `settings.enable_m2_passes` (default **False**; no pre-existing flag under another name - grep-verified). Nothing scheduled reads it yet; M2-T2+ wire new ingestion passes through it and the owner flips it after T7 clears. Default pinned by test.
+  5. **Weekly db-probe schedule:** `db-probe.yml` gains a Monday 06:00 UTC cron (+ concurrency group, workflow_dispatch kept). SAFE for T7 by construction: the workflow contains only read-only psql metadata queries, shares nothing with ingest.yml (different workflow, different concurrency group), and its slot avoids both the nightly (13:30 UTC) and monthly rank (04:00 UTC on the 1st). Fresh numbers feed the canary baseline + gate decision.
+  6. **M2-T8 enriched peers** (owner decision: cap 15): `get_peers` now orders `mcap_rank ASC NULLS LAST, symbol ASC` and caps at `PEER_CAP=15`, excludes `is_etf` and `active=False` rows (ranked_out rows stay active and eligible; D18 universe-independence preserved). Industry-first / sector-fallback / NULL-cohort-returns-empty behavior unchanged with its regression tests.
+  7. **PeerSummary extended** (Plan 5.14): `price_to_book, price_to_sales, ev_ebitda, market_cap, mcap_rank, return_on_assets, operating_margin, revenue_cagr_3y, return_1y_pct`. New batched read helpers (no N+1): `prices.get_return_1y` (each stock anchored on its own latest bar; null when history < window, never partial-window annualized) and `financial_periods.get_annual_revenue` (only periods carrying revenue). `revenue_cagr_3y` = CAGR over exactly three fiscal-year slots via the existing FY bucketing; null unless both endpoints exist and the base is positive. Frontend untouched (additive response fields; UI lands in M2-T12).
+  8. **Valuation peer-set change (deliberate, documented):** the cap changes medians only for industries with >15 same-industry stocks; existing valuation/peers/analysis tests pass unchanged (all peer assertions were membership- or single-peer-based). New tests pin cap/order/tiebreak/ETF-inactive exclusion, honest CAGR/return nulls, and the no-provider read paths.
+  9. **Fan-out regression extended:** the M1-T3 no-network test (`test_alpha_unclassified_stock_answers_fast_no_network`) now also covers `/peers` + `/valuation` on the unclassified stock, and a new test proves the enriched `/peers` over a REAL cohort constructs no provider at all (UpstoxProvider monkeypatched to explode; both surface 200 from stored data).
+  10. Suites: backend **461/461** (446 baseline + 15 new: 9 storage, 3 peers-repo, 3 peers-endpoint), frontend **72/72** + `tsc -b` clean (no frontend changes; the tracker's earlier "73/73" counts predate this round - CI baseline is 72 in 9 files). No migrations (T1/T8 need none: cap/order use existing `mcap_rank`/`is_etf`/`active` columns; all new read helpers read existing tables). Storage impact of this round: ~0 (no new tables; alpha JSONB untouched).
+
+---
+
+*Resume here. M1-T7 continues observing the nightly cron through ~2026-09-17 (zero-cost itemized verification still pending owner confirmation). M2 resumes at M2-T2 (statements schema + yfinance primary), with every new ingestion pass behind `enable_m2_passes` (default OFF) until T7 clears. Plan reference: `SEMESTER2_PLAN.md` section 28; M2 build order in the 2026-09-09 M2 plan.*
 
 ## 12. M1-T3/T4/T6 Measurement Report (2026-09-08, local production-scale run)
 
