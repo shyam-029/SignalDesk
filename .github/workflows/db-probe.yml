@@ -1,0 +1,25 @@
+# Operational DB probe (Plan 28 monitoring): read-only database size and
+# table counts against the production Neon database. No secrets printed.
+name: db-probe
+on:
+  workflow_dispatch:
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+    steps:
+      - name: Database size and largest tables (read-only)
+        run: |
+          PGURL=$(echo "$DATABASE_URL" | sed -e 's/^postgresql+asyncpg:/postgresql:/' -e 's/ssl=require/sslmode=require/')
+          PSQL=/usr/lib/postgresql/17/bin/psql
+          $PSQL "$PGURL" -v ON_ERROR_STOP=1 -c "SELECT pg_size_pretty(pg_database_size(current_database())) AS db_size, current_database() AS db;"
+          $PSQL "$PGURL" -v ON_ERROR_STOP=1 -c "
+            SELECT relname AS table,
+                   pg_size_pretty(pg_total_relation_size(oid)) AS total_size,
+                   n_live_tup AS approx_rows
+            FROM pg_stat_user_tables
+            ORDER BY pg_total_relation_size(oid) DESC
+            LIMIT 8;"
