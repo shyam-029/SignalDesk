@@ -1537,19 +1537,20 @@ async def rank_universe(
     return {"ranked": ranked_count, "excluded": excluded_count, "errors": len(errors)}
 
 
-def run_daily_ingestion() -> None:
+def run_daily_ingestion() -> str:
     """Scheduled entrypoint: run all ingestion passes once.
 
     Runs asyncio.run here because APScheduler calls this synchronously in a
     background thread. A dedicated engine is created for the job (Phase 7 fix):
     the API process's module-global engine is bound to the uvicorn event loop,
     and reusing its asyncpg pool from this thread's fresh loop fails once the
-    API has served traffic.
+    API has served traffic. Returns the recorded pass status ('success' |
+    'partial' | 'failed') so the CLI can exit non-zero on a failed night.
     """
-    asyncio.run(_ingest_all_with_job_engine())
+    return asyncio.run(_ingest_all_with_job_engine())
 
 
-async def _ingest_all_with_job_engine() -> None:
+async def _ingest_all_with_job_engine() -> str:
     """Run the nightly passes on a job-scoped engine, then dispose of it."""
     from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
     from sqlalchemy.pool import NullPool
@@ -1565,7 +1566,7 @@ async def _ingest_all_with_job_engine() -> None:
         bind=engine, class_=AsyncSession, expire_on_commit=False
     )
     try:
-        await _ingest_all()
+        return await _ingest_all()
     finally:
         SessionLocal = original
         await engine.dispose()
@@ -1616,10 +1617,13 @@ async def _record_pass(name: str, run, *args, **kwargs) -> str:
         finished = datetime.now(timezone.utc)
         duration_ms = round((time.perf_counter() - t0) * 1000)
         log = logger.error if status == "failed" else logger.info
+        # The summary MUST appear in the log line: on a failed job it is the
+        # operator's only immediate signal (the full text also lands in the
+        # job_runs.error_summary column, but CI logs are read first).
         log(
-            "%s job=%s status=%s duration_ms=%d processed=%s failed=%s",
+            "%s job=%s status=%s duration_ms=%d processed=%s failed=%s summary=%s",
             "job_fail" if status == "failed" else "job_end",
-            name, status, duration_ms, processed, failed,
+            name, status, duration_ms, processed, failed, summary,
         )
         if record is None:
             return
@@ -1706,7 +1710,7 @@ async def _ingest_passes() -> dict:
     }
 
 
-async def _ingest_all() -> None:
+async def _ingest_all() -> str:
     """Full nightly run.
 
     'failed' when every child pass failed or something outside the passes
@@ -1717,11 +1721,11 @@ async def _ingest_all() -> None:
     calculations (scores are pure reads over the snapshots) -> technical
     calculations (indicators over stored bars) -> sentiment (stored FinBERT
     aggregates) -> SignalDesk scores (backfill + live snapshots, pure writes
-    of computed values) -> Altman Z-Score needs NO nightly pass (pure read
-    over the stored snapshot via from_stored_snapshot; recomputes on every
-    GET /stocks/{s}/altman) -> API serves latest state.
+     of computed values) -> Altman Z-Score needs NO nightly pass (pure read
+     over the stored snapshot via from_stored_snapshot; recomputes on every
+     GET /stocks/{s}/altman) -> API serves latest state.
     """
-    await _record_pass("nightly_ingestion", _ingest_passes)
+    return await _record_pass("nightly_ingestion", _ingest_passes)
 
 
 def start_scheduler():
@@ -1784,27 +1788,31 @@ if __name__ == "__main__":
         # current formula (replaces stored technical-only snapshots per
         # symbol; live snapshots carrying a fundamental score are kept).
         # Recorded like the scheduled passes so /debug/jobs reflects it.
-        asyncio.run(_record_pass("backfill_alpha_history", backfill_alpha_history))
+        status = asyncio.run(_record_pass("backfill_alpha_history", backfill_alpha_history))
     elif command == "ingest":
-        run_daily_ingestion()
+        status = run_daily_ingestion()
     elif command == "rank":
         # Top-1000 universe ranking (M1-T2): fetch the NSE master, apply the
         # E1-E12 eligibility rules, rank by fresh market caps, write the
         # audit trail and the top1000 universe. Monthly cadence is wired in
         # M1-T5; manual here.
-        asyncio.run(_record_pass("rank_universe", rank_universe))
+        status = asyncio.run(_record_pass("rank_universe", rank_universe))
     elif command == "etfs":
         # ETF catalog + price history (Plan 9 slice); recorded like a pass.
-        asyncio.run(_record_pass("ingest_etfs", ingest_etfs))
+        status = asyncio.run(_record_pass("ingest_etfs", ingest_etfs))
     elif command == "funds":
         # Curated fund catalog + AMFI daily NAV, plus the mfapi history
         # backfill (documented fallback) on explicit runs.
-        asyncio.run(_record_pass("ingest_funds", ingest_funds, True))
+        status = asyncio.run(_record_pass("ingest_funds", ingest_funds, True))
     elif command == "balance-sheets":
         # Annual balance sheets for the active universe (Altman Z-Score data).
-        asyncio.run(_record_pass("ingest_balance_sheets", ingest_balance_sheets))
+        status = asyncio.run(_record_pass("ingest_balance_sheets", ingest_balance_sheets))
     else:
         raise SystemExit(
             f"Unknown command: {command} "
             "(use 'backfill', 'ingest', 'rank', 'etfs', 'funds' or 'balance-sheets')"
         )
+    # Exit non-zero ONLY on a hard job failure so CI/workflow conclusions
+    # reflect reality ('partial' stays exit 0: per-symbol provider blips are
+    # recorded in job_runs as partial and must not paint the whole night red).
+    raise SystemExit(1 if status == "failed" else 0)
