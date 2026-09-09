@@ -37,10 +37,21 @@ def asyncpg_ready_url(raw: str) -> URL:
       - `channel_binding` is DROPPED: asyncpg negotiates SCRAM channel
         binding automatically over TLS and has no such parameter.
     Non-asyncpg URLs pass through untouched (libpq dialects accept both).
+    A bare `postgresql://` (no driver) is upgraded to the app's asyncpg
+    driver, so a verbatim Neon paste works in any environment; an
+    explicitly chosen driver (e.g. +psycopg2) is respected, never swapped.
     """
     url = make_url(raw)
-    if not (url.get_backend_name() == "postgresql" and url.get_driver_name() == "asyncpg"):
+    if url.get_backend_name() != "postgresql":
         return url
+    driver = url.get_driver_name()
+    if driver not in (None, "psycopg2", "asyncpg"):
+        return url
+    if url.drivername != "postgresql" and driver != "asyncpg":
+        # Explicitly chosen non-asyncpg driver: libpq semantics, untouched.
+        return url
+    if url.drivername == "postgresql":  # bare default dialect -> app's async driver
+        url = url.set(drivername="postgresql+asyncpg")
     query = dict(url.query)
     sslmode = query.pop("sslmode", None)
     if sslmode is not None and "ssl" not in query:

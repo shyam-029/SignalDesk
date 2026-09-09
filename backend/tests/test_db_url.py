@@ -48,10 +48,25 @@ def test_asyncpg_url_with_ssl_already_set_is_untouched():
     assert asyncpg_ready_url(raw).render_as_string(hide_password=False) == raw
 
 
-def test_non_asyncpg_url_keeps_libpq_sslmode():
-    # psycopg2/libpq accepts sslmode natively; the helper must not touch it.
-    url = asyncpg_ready_url("postgresql://u:p@h:5432/db?sslmode=require")
+def test_bare_postgresql_url_is_upgraded_and_normalized():
+    # A verbatim Neon console paste (no +asyncpg) must work everywhere.
+    url = asyncpg_ready_url(
+        "postgresql://u:p@h:5432/db?sslmode=require&channel_binding=require"
+    )
+    assert url.drivername == "postgresql+asyncpg"
+    assert url.query["ssl"] == "require"
+    assert "sslmode" not in url.query and "channel_binding" not in url.query
+
+
+def test_explicit_psycopg2_driver_is_respected_not_swapped():
+    url = asyncpg_ready_url("postgresql+psycopg2://u:p@h:5432/db?sslmode=require")
+    assert url.drivername == "postgresql+psycopg2"
     assert url.query["sslmode"] == "require"
+
+
+def test_non_postgres_url_is_untouched():
+    url = asyncpg_ready_url("mysql+pymysql://u:p@h/db")
+    assert url.drivername == "mysql+pymysql"
 
 
 def test_make_url_roundtrip_preserves_credentials():
