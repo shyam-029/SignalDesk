@@ -20,7 +20,12 @@ concurrency:
 jobs:
   rank:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # Measured ~9.5 min from a residential IP, but GitHub runners share
+    # egress IPs and Yahoo throttles them hard (429 + 3-attempt backoff per
+    # symbol) — observed ~40 percent through the candidate alphabet at 26
+    # min, projecting ~60-75 min total. 90 min leaves 3x headroom while
+    # staying far under the 6 h job cap and clear of the 13:30 UTC nightly.
+    timeout-minutes: 90
     env:
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
       APP_ENV: production
