@@ -1,0 +1,32 @@
+# Render API image requirements (M1-T5, Plan 21.2): the free instance has
+# 512 MB RAM, and FinBERT (torch + transformers, ~2 GB installed) must stay
+# OUT of the API image. FinBERT is lazy-imported only inside the ingestion
+# runtime (providers/sentiment.py), which runs on GitHub Actions with the
+# full requirements.txt. Everything below IS required at API startup:
+# app.main imports app.jobs, which imports feedparser and the FinBERTScorer
+# CLASS (module import only; the model itself never loads in the API).
+# When requirements.txt gains a runtime dependency, mirror it here too.
+
+# --- Web framework ---
+fastapi
+uvicorn[standard]
+
+# --- Database ---
+sqlalchemy[asyncio]
+asyncpg
+alembic
+pydantic-settings
+
+# --- Data provider ---
+yfinance
+pandas
+numpy
+
+# --- Scheduling (object still starts in production; registers no jobs) ---
+apscheduler
+
+# --- News parsing (RSS provider imported by app.jobs at startup) ---
+feedparser
+
+# --- HTTP client (provider + LLM gateway calls at request time) ---
+httpx

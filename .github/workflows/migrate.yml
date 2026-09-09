@@ -1,0 +1,59 @@
+name: migrate
+
+# M1-T5 rollback tooling (Plan 28): Render free has no shell, so Alembic
+# upgrade/downgrade against production runs here, operator-driven via
+# workflow_dispatch. DEFAULT IS FORWARD-ONLY: every migration so far is
+# additive, so old code runs correctly on the newer schema and app rollbacks
+# (Render -> last good deploy) never need a downgrade. Before ANY downgrade:
+# (1) dispatch backup.yml for a fresh dump, (2) take a manual Neon
+# point-in-time snapshot, (3) downgrade — additive migrations DROP their
+# tables/columns on the way down (data in them is lost).
+
+on:
+  workflow_dispatch:
+    inputs:
+      direction:
+        description: "upgrade | downgrade"
+        required: true
+        default: upgrade
+        type: choice
+        options:
+          - upgrade
+          - downgrade
+      revision:
+        description: "Alembic revision target (head, <hash>, -1, base)"
+        required: true
+        default: head
+
+concurrency:
+  group: migrate
+  cancel-in-progress: false
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      APP_ENV: production
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Apply migration
+        run: |
+          if [ "${{ inputs.direction }}" = "downgrade" ]; then
+            alembic downgrade "${{ inputs.revision }}"
+          else
+            alembic upgrade "${{ inputs.revision }}"
+          fi
+      - name: Show current revision
+        run: alembic current
