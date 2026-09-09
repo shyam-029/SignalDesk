@@ -1,0 +1,62 @@
+# One-off operational restore: rebuild the production Neon database from a
+# pg_dump -Fc release asset (Plan 28 backup/restore item). The dump asset is
+# referenced by release tag; the DATABASE_URL Actions secret supplies the
+# target. The secret is never printed; only row-count verification output.
+name: restore
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag holding the neon_seed.dump asset"
+        required: true
+
+jobs:
+  restore:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download dump asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release download "${{ inputs.tag }}" --repo shyam-029/SignalDesk --pattern "neon_seed.dump" --clobber
+
+      - name: Install postgresql-client 17 (dump was made by pg_dump 17)
+        run: |
+          curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo gpg --dearmor -o /usr/share/keyrings/pgdg.gpg
+          echo "deb [signed-by=/usr/share/keyrings/pgdg.gpg] http://apt.postgresql.org/pub/repos/apt noble-pgdg main" | sudo tee /etc/apt/sources.list.d/pgdg.list
+          sudo apt-get update -q
+          sudo apt-get install -y -q postgresql-client-17
+
+      - name: Restore into production (clean replace)
+        env:
+          NEON_SEED_TAG: ${{ inputs.tag }}
+        run: |
+          PGURL=$(echo "$DATABASE_URL" | sed -e 's/^postgresql+asyncpg:/postgresql:/' -e 's/ssl=require/sslmode=require/')
+          /usr/lib/postgresql/17/bin/pg_restore \
+            --clean --if-exists --no-owner --no-privileges \
+            --dbname="$PGURL" neon_seed.dump
+
+      - name: Verify row counts (numbers only, no secrets)
+        run: |
+          PGURL=$(echo "$DATABASE_URL" | sed -e 's/^postgresql+asyncpg:/postgresql:/' -e 's/ssl=require/sslmode=require/')
+          /usr/lib/postgresql/17/bin/psql "$PGURL" -v ON_ERROR_STOP=1 -c "
+            SELECT 'stocks' AS t, count(*) FROM stocks
+            UNION ALL SELECT 'daily_prices', count(*) FROM daily_prices
+            UNION ALL SELECT 'financials', count(*) FROM financials
+            UNION ALL SELECT 'alpha_scores', count(*) FROM alpha_scores
+            UNION ALL SELECT 'ranking_audit', count(*) FROM ranking_audit
+            UNION ALL SELECT 'benchmark_prices', count(*) FROM benchmark_prices
+            UNION ALL SELECT 'balance_sheet_periods', count(*) FROM balance_sheet_periods
+            UNION ALL SELECT 'mutual_funds', count(*) FROM mutual_funds
+            UNION ALL SELECT 'mf_nav_history', count(*) FROM mf_nav_history
+            ORDER BY 1;"
+          /usr/lib/postgresql/17/bin/psql "$PGURL" -v ON_ERROR_STOP=1 -c "
+            SELECT u.name AS universe, count(*) AS members
+            FROM stock_universe su JOIN universes u ON u.id = su.universe_id
+            GROUP BY u.name ORDER BY 2 DESC;"
+          /usr/lib/postgresql/17/bin/psql "$PGURL" -v ON_ERROR_STOP=1 -c "
+            SELECT max(cycle_date) AS latest_cycle, count(*) AS cycles FROM ranking_cycles;"
