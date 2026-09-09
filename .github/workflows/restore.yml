@@ -43,20 +43,23 @@ jobs:
       - name: Verify row counts (numbers only, no secrets)
         run: |
           PGURL=$(echo "$DATABASE_URL" | sed -e 's/^postgresql+asyncpg:/postgresql:/' -e 's/ssl=require/sslmode=require/')
-          /usr/lib/postgresql/17/bin/psql "$PGURL" -v ON_ERROR_STOP=1 -c "
-            SELECT 'stocks' AS t, count(*) FROM stocks
-            UNION ALL SELECT 'daily_prices', count(*) FROM daily_prices
-            UNION ALL SELECT 'financials', count(*) FROM financials
-            UNION ALL SELECT 'alpha_scores', count(*) FROM alpha_scores
-            UNION ALL SELECT 'ranking_audit', count(*) FROM ranking_audit
-            UNION ALL SELECT 'benchmark_prices', count(*) FROM benchmark_prices
-            UNION ALL SELECT 'balance_sheet_periods', count(*) FROM balance_sheet_periods
-            UNION ALL SELECT 'mutual_funds', count(*) FROM mutual_funds
-            UNION ALL SELECT 'mf_nav_history', count(*) FROM mf_nav_history
+          PSQL=/usr/lib/postgresql/17/bin/psql
+          $PSQL "$PGURL" -v ON_ERROR_STOP=1 -c "SELECT current_database() AS db, current_user AS usr, current_setting('search_path') AS search_path;"
+          $PSQL "$PGURL" -v ON_ERROR_STOP=1 -c "SELECT table_schema, count(*) AS tables FROM information_schema.tables WHERE table_schema NOT IN ('pg_catalog','information_schema') GROUP BY table_schema ORDER BY 1;"
+          $PSQL "$PGURL" -v ON_ERROR_STOP=1 -c "
+            SELECT 'stocks' AS t, count(*) FROM public.stocks
+            UNION ALL SELECT 'daily_prices', count(*) FROM public.daily_prices
+            UNION ALL SELECT 'financials', count(*) FROM public.financials
+            UNION ALL SELECT 'alpha_scores', count(*) FROM public.alpha_scores
+            UNION ALL SELECT 'ranking_audit', count(*) FROM public.ranking_audit
+            UNION ALL SELECT 'benchmark_prices', count(*) FROM public.benchmark_prices
+            UNION ALL SELECT 'balance_sheet_periods', count(*) FROM public.balance_sheet_periods
+            UNION ALL SELECT 'mutual_funds', count(*) FROM public.mutual_funds
+            UNION ALL SELECT 'mf_nav_history', count(*) FROM public.mf_nav_history
             ORDER BY 1;"
-          /usr/lib/postgresql/17/bin/psql "$PGURL" -v ON_ERROR_STOP=1 -c "
+          $PSQL "$PGURL" -v ON_ERROR_STOP=1 -c "
             SELECT u.name AS universe, count(*) AS members
-            FROM stock_universe su JOIN universes u ON u.id = su.universe_id
+            FROM public.stock_universe su JOIN public.universes u ON u.id = su.universe_id
             GROUP BY u.name ORDER BY 2 DESC;"
-          /usr/lib/postgresql/17/bin/psql "$PGURL" -v ON_ERROR_STOP=1 -c "
-            SELECT max(cycle_date) AS latest_cycle, count(*) AS cycles FROM ranking_cycles;"
+          $PSQL "$PGURL" -v ON_ERROR_STOP=1 -c "
+            SELECT max(cycle_date) AS latest_cycle, count(*) AS cycles FROM public.ranking_cycles;"
