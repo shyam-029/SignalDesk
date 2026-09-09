@@ -555,6 +555,34 @@ def _stub_provider():
     )
 
 
+async def test_mcap_retry_uses_paced_backoff(monkeypatch):
+    """The 5s/15s/30s mcap schedule is honored exactly (jitter disabled).
+
+    Pins the pacing added after rank.yml 34350500127 (2,051 Yahoo 429s at the
+    old 0.5s/1s backoff shrank the ranked universe to 728).
+    """
+    sleeps: list[float] = []
+
+    async def fake_sleep(delay: float) -> None:
+        sleeps.append(delay)
+
+    monkeypatch.setattr(jobs_module.asyncio, "sleep", fake_sleep)
+    calls = {"n": 0}
+
+    async def fetch() -> str:
+        calls["n"] += 1
+        if calls["n"] < 3:
+            raise MarketDataError("throttled")
+        return "ok"
+
+    result = await jobs_module._with_retry(
+        fetch, what="test", delays=(5.0, 15.0, 30.0), jitter=0.0
+    )
+    assert result == "ok"
+    assert calls["n"] == 3
+    assert sleeps == [5.0, 15.0]
+
+
 async def _audit_rows(session_factory, cycle_id):
     async with session_factory() as s:
         return list(
@@ -717,6 +745,8 @@ async def test_catalog_rows_never_deleted_and_history_retained(session_factory, 
 
 async def test_mcap_fetch_failure_is_isolated_and_audited(session_factory, monkeypatch):
     monkeypatch.setattr(jobs_module, "SessionLocal", session_factory)
+    monkeypatch.setattr(jobs_module, "_MCAP_RETRY_DELAYS", (0.01, 0.01, 0.01))
+    monkeypatch.setattr(jobs_module, "_MCAP_BATCH_SLEEP_S", 0.0)
     await _seed_catalog(session_factory)
     provider = StubRankProvider(
         mcaps={"RELIANCE": 100.0, "TCS": 50.0}, fail={"NEWIPO"}
