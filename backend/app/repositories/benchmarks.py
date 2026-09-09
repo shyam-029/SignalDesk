@@ -14,12 +14,16 @@ from app.providers.base import OHLCV
 
 
 async def get_or_create_benchmark(
-    session: AsyncSession, symbol: str, name: str | None, source: str | None = None
+    session: AsyncSession,
+    symbol: str,
+    name: str | None,
+    source: str | None = None,
+    kind: str = "index",
 ) -> Benchmark:
     """Get-or-create the benchmarks row for an index symbol (seed.py pattern)."""
     row = await session.scalar(select(Benchmark).where(Benchmark.symbol == symbol))
     if row is None:
-        row = Benchmark(symbol=symbol, name=name, kind="index", source=source)
+        row = Benchmark(symbol=symbol, name=name, kind=kind, source=source)
         session.add(row)
         await session.flush()
         return row

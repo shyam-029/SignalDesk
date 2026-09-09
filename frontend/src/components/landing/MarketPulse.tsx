@@ -1,106 +1,111 @@
-﻿import { Link } from "react-router-dom";
-import { Activity } from "lucide-react";
+﻿import { Activity } from "lucide-react";
 
-import { useStockList } from "@/lib/hooks";
-import type { StockSummary } from "@/lib/types";
+import { useBenchmarks } from "@/lib/hooks";
+import type { BenchmarkCard } from "@/lib/types";
 import { DataState } from "@/components/data/DataState";
 import { useReducedMotionSafe } from "@/components/motion/Reveal";
 import { cn } from "@/lib/utils";
 
-export interface Mover {
-  symbol: string;
-  name: string;
-  lastPrice: number | null;
-  changePct: number;
-}
-
 /**
- * Largest absolute daily moves first, capped at `count`. Reads only the real
- * /stocks response; nothing is estimated, padded, or fabricated. Stocks with
- * no price bars (null change) are excluded rather than treated as 0%.
+ * Display order for the tape: headline indexes, then macro (fx/commodity),
+ * then sectors and breadth - matching how a trading terminal orders its
+ * strip. Benchmarks missing from the stored set are skipped; anything else
+ * stored appends at the end.
  */
-export function pickTopMovers(items: StockSummary[], count = 7): Mover[] {
-  return items
-    .filter((s): s is StockSummary & { change_pct: number; last_price: number } =>
-      s.change_pct != null && s.last_price != null && Number.isFinite(s.change_pct),
-    )
-    .slice()
-    .sort((a, b) => Math.abs(b.change_pct) - Math.abs(a.change_pct))
-    .slice(0, count)
-    .map((s) => ({
-      symbol: s.symbol,
-      name: s.name,
-      lastPrice: s.last_price,
-      changePct: s.change_pct,
-    }));
+const ORDER = [
+  "^NSEI",      // NIFTY 50
+  "^BSESN",     // SENSEX
+  "INR=X",      // USD/INR
+  "GC=F",       // GOLD (USD)
+  "^INDIAVIX",  // INDIA VIX
+  "^NSEMDCP50", // NIFTY MIDCAP 50
+  "^NSEBANK",   // NIFTY BANK
+  "^CNXIT",     // NIFTY IT
+  "^CNXPHARMA", // NIFTY PHARMA
+  "^CRSLDX",    // broad market
+];
+
+export function orderBenchmarks(items: BenchmarkCard[]): BenchmarkCard[] {
+  const bySymbol = new Map(items.map((b) => [b.symbol, b]));
+  const ordered: BenchmarkCard[] = [];
+  for (const sym of ORDER) {
+    const hit = bySymbol.get(sym);
+    if (hit) {
+      ordered.push(hit);
+      bySymbol.delete(sym);
+    }
+  }
+  return [...ordered, ...bySymbol.values()];
 }
 
-function PulseChip({ s }: { s: StockSummary }) {
+function IndexChip({ b }: { b: BenchmarkCard }) {
+  const up = (b.change_pct ?? 0) >= 0;
   return (
-    <Link
-      to={`/stocks/${s.symbol.replace(".NS", "")}`}
-      title={s.name}
-      className="flex shrink-0 items-baseline gap-2 border border-cobalt/20 bg-surface px-2.5 py-1 transition-colors hover:border-cobalt/70 hover:bg-surface-2"
+    <span
+      className="flex shrink-0 items-baseline gap-2 border border-cobalt/20 bg-surface px-2.5 py-1"
+      title={b.name ?? b.symbol}
     >
-      <span className="num text-xs font-semibold text-cobalt dark:text-cobalt-strong">
-        {s.symbol.replace(".NS", "")}
+      <span className="label-caps text-xs text-muted">{b.name ?? b.symbol}</span>
+      <span className="num text-xs font-semibold text-foreground">
+        {b.latest_close != null
+          ? b.latest_close.toLocaleString("en-IN", { maximumFractionDigits: 2 })
+          : "-"}
       </span>
       <span
         className={cn(
           "num text-xs font-medium",
-          s.change_pct == null
-            ? "text-faint"
-            : s.change_pct >= 0
-              ? "text-band-positive"
-              : "text-band-weak",
+          b.change_pct == null ? "text-faint" : up ? "text-band-positive" : "text-band-weak",
         )}
       >
-        {s.change_pct == null ? "-" : `${s.change_pct > 0 ? "+" : ""}${s.change_pct.toFixed(2)}%`}
+        {b.change_pct == null ? "-" : `${up ? "+" : ""}${b.change_pct.toFixed(2)}%`}
       </span>
-    </Link>
+    </span>
   );
 }
 
 const skeletonRow = (
   <div className="flex gap-2 overflow-hidden">
     {Array.from({ length: 6 }).map((_, i) => (
-      <div key={i} className="h-7 w-28 shrink-0 animate-pulse bg-surface-2" />
+      <div key={i} className="h-7 w-32 shrink-0 animate-pulse bg-surface-2" />
     ))}
   </div>
 );
 
 /**
- * Continuous strip of EVERY catalog constituent (the Nifty 250), auto-scrolling
- * through the real /stocks response. Pauses on hover; under reduced motion it
- * renders as a plain scrollable row. Static chips, not a fabricated ticker.
+ * MarketPulse: the landing's index-and-macro tape - NIFTY 50, SENSEX,
+ * USD/INR, Gold, India VIX, midcap breadth and the sector indexes
+ * (Bank/IT/Pharma), each against its PREVIOUS stored close. Reads only the
+ * stored benchmark tables; a macro row with no reliable free source
+ * (smallcap) stays absent rather than stale. Auto-scrolls; pauses on hover;
+ * a plain scrollable row under reduced motion.
  */
 export function MarketPulse() {
-  const list = useStockList(1, 200);
+  const query = useBenchmarks();
   const reduced = useReducedMotionSafe();
-  const stocks = list.data?.items.filter((s) => Number.isFinite(s.change_pct)) ?? [];
+  const cards = orderBenchmarks(query.data?.items ?? []);
 
   return (
-    <aside aria-label="Market pulse" className="border-b border-cobalt/20 bg-cobalt/[0.045]">
+    <aside aria-label="Market pulse: indexes, currency, gold and sectors" className="border-b border-cobalt/20 bg-cobalt/[0.045]">
       <div className="mx-auto flex max-w-6xl items-center gap-4 px-4 py-2.5 md:px-6">
         <p className="label-caps flex shrink-0 items-center gap-1.5" style={{ color: "var(--cobalt)" }}>
           <Activity className="size-3.5" />
           Market pulse
         </p>
         <DataState
-          loading={list.isLoading}
-          error={list.error}
-          onRetry={list.refetch}
-          empty={Boolean(list.data) && stocks.length === 0}
-          emptyTitle="No market data"
-          emptyMessage="No stored quotes to show yet."
+          loading={query.isLoading}
+          error={query.error}
+          onRetry={query.refetch}
+          empty={Boolean(query.data) && cards.length === 0}
+          emptyTitle="No index data"
+          emptyMessage="No stored benchmark quotes to show yet."
           skeleton={skeletonRow}
           compact
           className="min-w-0 flex-1"
         >
           {reduced ? (
             <div className="flex min-w-0 items-center gap-2 overflow-x-auto">
-              {stocks.map((s) => (
-                <PulseChip key={s.symbol} s={s} />
+              {cards.map((b) => (
+                <IndexChip key={b.symbol} b={b} />
               ))}
             </div>
           ) : (
@@ -112,8 +117,8 @@ export function MarketPulse() {
                     className="flex items-center gap-2"
                     aria-hidden={dup === 1}
                   >
-                    {stocks.map((s) => (
-                      <PulseChip key={`${dup}-${s.symbol}`} s={s} />
+                    {cards.map((b) => (
+                      <IndexChip key={`${dup}-${b.symbol}`} b={b} />
                     ))}
                   </div>
                 ))}
@@ -121,11 +126,10 @@ export function MarketPulse() {
             </div>
           )}
           <span className="num hidden shrink-0 pl-1 text-xs text-faint lg:inline">
-            {stocks.length} constituents · latest close
+            indexes · macro · sectors · vs previous close
           </span>
         </DataState>
       </div>
     </aside>
   );
 }
-

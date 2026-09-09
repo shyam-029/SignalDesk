@@ -1,55 +1,47 @@
 ﻿import { describe, expect, it } from "vitest";
 
-import { pickTopMovers } from "@/components/landing/MarketPulse";
-import type { StockSummary } from "@/lib/types";
+import { orderBenchmarks } from "@/components/landing/MarketPulse";
+import type { BenchmarkCard } from "@/lib/types";
 
-function stock(symbol: string, changePct: number, lastPrice = 100): StockSummary {
-  return { symbol, name: symbol, sector: null, industry: null, market_cap: null, last_price: lastPrice, change_pct: changePct };
+function card(symbol: string, changePct: number | null = 0.5): BenchmarkCard {
+  return {
+    symbol,
+    name: symbol,
+    latest_close: 100,
+    change_pct: changePct,
+    as_of: "2026-09-09",
+    sparkline: [99, 100],
+  };
 }
 
-describe("pickTopMovers", () => {
-  it("ranks by absolute daily move, not by sign", () => {
-    const movers = pickTopMovers([
-      stock("A.NS", 0.4),
-      stock("B.NS", -2.1),
-      stock("C.NS", 1.2),
-      stock("D.NS", 5.8),
-      stock("E.NS", -3.3),
+describe("orderBenchmarks", () => {
+  it("orders the tape: headline indexes, macro, then sectors/breadth", () => {
+    const shuffled = [
+      card("^CNXIT"),
+      card("GC=F"),
+      card("^NSEI"),
+      card("^NSEBANK"),
+      card("INR=X"),
+      card("^BSESN"),
+    ];
+    expect(orderBenchmarks(shuffled).map((b) => b.symbol)).toEqual([
+      "^NSEI", "^BSESN", "INR=X", "GC=F", "^NSEBANK", "^CNXIT",
     ]);
-    expect(movers.map((m) => m.symbol)).toEqual(["D.NS", "E.NS", "B.NS", "C.NS", "A.NS"]);
   });
 
-  it("caps the strip at the requested count", () => {
-    const items = Array.from({ length: 30 }, (_, i) => stock(`S${i}.NS`, (i % 7) - 3));
-    expect(pickTopMovers(items, 7)).toHaveLength(7);
-    expect(pickTopMovers(items)).toHaveLength(7);
+  it("appends benchmarks outside the known order at the end", () => {
+    const extra = card("^MYSTERY");
+    const ordered = orderBenchmarks([extra, card("^NSEI")]);
+    expect(ordered.map((b) => b.symbol)).toEqual(["^NSEI", "^MYSTERY"]);
   });
 
-  it("keeps the real price and change values untouched", () => {
-    const movers = pickTopMovers([stock("RELIANCE.NS", -1.05, 1322)]);
-    expect(movers[0]).toEqual({
-      symbol: "RELIANCE.NS",
-      name: "RELIANCE.NS",
-      lastPrice: 1322,
-      changePct: -1.05,
-    });
+  it("skips benchmarks missing from the stored set", () => {
+    const ordered = orderBenchmarks([card("^NSEI"), card("^CNXIT")]);
+    expect(ordered.map((b) => b.symbol)).toEqual(["^NSEI", "^CNXIT"]);
   });
 
-  it("drops non-finite changes instead of guessing", () => {
-    const broken = {
-      symbol: "X.NS",
-      name: "X",
-      sector: null, industry: null, market_cap: null,
-      last_price: 10,
-      change_pct: Number.NaN,
-    };
-    const movers = pickTopMovers([broken, stock("OK.NS", 0.9)]);
-    expect(movers).toHaveLength(1);
-    expect(movers[0].symbol).toBe("OK.NS");
-  });
-
-  it("returns an empty list for an empty catalog", () => {
-    expect(pickTopMovers([])).toEqual([]);
+  it("passes the real change values through untouched", () => {
+    const [nifty] = orderBenchmarks([card("^NSEI", -0.61)]);
+    expect(nifty.change_pct).toBe(-0.61);
   });
 });
-

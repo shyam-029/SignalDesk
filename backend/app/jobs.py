@@ -1036,30 +1036,48 @@ async def repair_catalog_gaps(provider: MarketDataProvider | None = None) -> dic
 # --- Benchmark index ingestion (M1-T6, Plan 13) ------------------------------
 
 # Required benchmark symbols (Plan 13): Nifty 50 + sector/index breadth.
-# Verified 2026-09-08: every symbol below serves 5d of daily bars from
-# yfinance with quoteType INDEX; .info carries NO fundamentals for indexes
-# (no marketCap/trailingPE/sector), so benchmarks ingest PRICES ONLY.
-# The list is a module constant (not DB-driven): indexes are stable
-# symbols, not a ranked universe; adding one is a one-line diff + test.
+# Verified 2026-09-08/09: every symbol below serves daily bars from yfinance
+# (quoteType INDEX for the NSE/BSE series, CURRENCY for INR=X, FUTURE for
+# GC=F); .info carries NO fundamentals for these, so benchmarks ingest
+# PRICES ONLY. The list is a module constant (not DB-driven): adding one is
+# a one-line diff + test.
 BENCHMARK_SYMBOLS: tuple[str, ...] = (
-    "^NSEI",      # Nifty 50
-    "^BSESN",     # BSE Sensex
-    "^INDIAVIX",  # India VIX
-    "^NSEBANK",   # Nifty Bank
-    "^CNXIT",     # Nifty IT
-    "^CRSLDX",    # CRISIL Broad Market Index
+    "^NSEI",       # NIFTY 50
+    "INR=X",       # USD/INR
+    "GC=F",        # Gold futures (USD)
+    "^BSESN",      # BSE SENSEX
+    "^INDIAVIX",   # India VIX
+    "^NSEBANK",    # NIFTY BANK
+    "^CNXIT",      # NIFTY IT
+    "^CNXPHARMA",  # NIFTY PHARMA
+    "^NSEMDCP50",  # NIFTY MIDCAP 50
+    "^CRSLDX",     # CRISIL broad market
 )
+# Documented limitation: no reliable free smallcap index symbol exists on
+# Yahoo (^CNXSC serves zero current bars, verified 2026-09-09), so the
+# smallcap segment stays absent rather than stale.
 BENCHMARK_PERIOD = "2y"  # same stored depth as the equity price history
 
 # Provider display names for the benchmarks table (yfinance .info shortName
 # was read live 2026-09-08; kept as the creation default, refreshed on write).
 BENCHMARK_NAMES: dict[str, str] = {
     "^NSEI": "NIFTY 50",
+    "INR=X": "USD/INR",
+    "GC=F": "GOLD (USD)",
     "^BSESN": "BSE SENSEX",
     "^INDIAVIX": "INDIA VIX",
     "^NSEBANK": "NIFTY BANK",
     "^CNXIT": "NIFTY IT",
-    "^CRSLDX": "CRISIL Broad Market Index",
+    "^CNXPHARMA": "NIFTY PHARMA",
+    "^NSEMDCP50": "NIFTY MIDCAP 50",
+    "^CRSLDX": "CRISIL BROAD MARKET",
+}
+
+# kind distinguishes equity indexes from macro rows (fx/commodity) so the
+# UI can order and label them correctly. kind is set at creation only.
+BENCHMARK_KINDS: dict[str, str] = {
+    "INR=X": "fx",
+    "GC=F": "commodity",
 }
 
 
@@ -1088,6 +1106,7 @@ async def _fetch_one_benchmark(
             symbol=symbol,
             name=BENCHMARK_NAMES.get(symbol),
             source=getattr(provider, "name", None) or "yfinance",
+            kind=BENCHMARK_KINDS.get(symbol, "index"),
         )
         benchmark_id = row.id
         offered = await benchmark_repo.upsert_bars(session, benchmark_id, bars)
