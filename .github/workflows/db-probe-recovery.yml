@@ -102,3 +102,22 @@ jobs:
             FROM alpha_scores a
             JOIN stocks s ON s.symbol = a.symbol
             GROUP BY 1;"
+
+      - name: Gap analysis — dead-tuple bytes + WAL accounting (read-only)
+        run: |
+          PGURL=$(echo "$DATABASE_URL" | sed -e 's/^postgresql+asyncpg:/postgresql:/' -e 's/ssl=require/sslmode=require/')
+          PSQL=/usr/lib/postgresql/17/bin/psql
+          # Dead-tuple byte estimates: dead rows x (total bytes per live row)
+          $PSQL "$PGURL" -v ON_ERROR_STOP=1 -c "
+            SELECT relname AS table, n_live_tup, n_dead_tup,
+                   pg_size_pretty(pg_total_relation_size(relid)) AS total_size,
+                   pg_size_pretty((n_dead_tup * (pg_total_relation_size(relid)::numeric / GREATEST(n_live_tup,1)))::bigint) AS dead_bytes_est
+            FROM pg_stat_user_tables
+            WHERE n_dead_tup > 0
+            ORDER BY pg_total_relation_size(relid) DESC LIMIT 8;"
+          # Cumulative WAL since stats reset (Neon History meter = WAL within the 6h window)
+          $PSQL "$PGURL" -v ON_ERROR_STOP=1 -c "SELECT wal_records, wal_fpi, pg_size_pretty(wal_bytes) AS wal_bytes_total, stats_reset FROM pg_stat_wal;"
+          # Current WAL position (pair with a later probe to derive bytes/hour)
+          $PSQL "$PGURL" -v ON_ERROR_STOP=1 -c "SELECT pg_current_wal_lsn() AS now_lsn, now() AS measured_at;"
+          # WAL directory listing (may be restricted on Neon; failure is fine)
+          $PSQL "$PGURL" -c "SELECT count(*) AS wal_files, pg_size_pretty(sum(size)) AS wal_dir_size FROM pg_ls_waldir();" || true
