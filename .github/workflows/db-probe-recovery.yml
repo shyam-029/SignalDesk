@@ -1,0 +1,98 @@
+# TEMPORARY extended probe (M2-T1 storage reclaim, Plan 22) — read-only.
+# One-off, workflow_dispatch only, runs from the ops/m2-t1-storage-reclaim
+# branch. Extends db-probe.yml with: dead tuples, alembic head, NaN-row
+# check, alpha_scores depth, components_json key census, and the exact
+# prunable-row projection of the retention keep-set (read-only SELECTs
+# only — same T7-safety argument as db-probe.yml; nothing here touches
+# the ingestion path or its concurrency group). Delete after the task.
+name: db-probe-recovery
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: db-probe
+  cancel-in-progress: false
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+    steps:
+      - name: Install postgresql-client 17
+        run: |
+          curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo gpg --dearmor -o /usr/share/keyrings/pgdg.gpg
+          echo "deb [signed-by=/usr/share/keyrings/pgdg.gpg] http://apt.postgresql.org/pub/repos/apt noble-pgdg main" | sudo tee /etc/apt/sources.list.d/pgdg.list
+          sudo apt-get update -q
+          sudo apt-get install -y -q postgresql-client-17
+
+      - name: Database size + per-table breakdown (read-only)
+        run: |
+          PGURL=$(echo "$DATABASE_URL" | sed -e 's/^postgresql+asyncpg:/postgresql:/' -e 's/ssl=require/sslmode=require/')
+          PSQL=/usr/lib/postgresql/17/bin/psql
+          $PSQL "$PGURL" -v ON_ERROR_STOP=1 -c "SELECT pg_size_pretty(pg_database_size(current_database())) AS db_size, pg_database_size(current_database()) AS db_bytes, current_database() AS db, now() AS measured_at;"
+          $PSQL "$PGURL" -v ON_ERROR_STOP=1 -c "
+            SELECT relname AS table,
+                   pg_size_pretty(pg_total_relation_size(relid)) AS total_size,
+                   pg_total_relation_size(relid) AS total_bytes,
+                   n_live_tup AS approx_rows,
+                   n_dead_tup AS dead_rows,
+                   COALESCE(to_char(last_autovacuum, 'YYYY-MM-DD HH24:MI'), 'never') AS last_autovac
+            FROM pg_stat_user_tables
+            ORDER BY pg_total_relation_size(relid) DESC
+            LIMIT 12;"
+
+      - name: Migration head + NaN-row check (read-only)
+        run: |
+          PGURL=$(echo "$DATABASE_URL" | sed -e 's/^postgresql+asyncpg:/postgresql:/' -e 's/ssl=require/sslmode=require/')
+          PSQL=/usr/lib/postgresql/17/bin/psql
+          $PSQL "$PGURL" -v ON_ERROR_STOP=1 -c "SELECT version_num AS alembic_head FROM alembic_version;"
+          $PSQL "$PGURL" -v ON_ERROR_STOP=1 -c "
+            SELECT 'daily_prices' AS t, count(*) AS nan_rows
+            FROM daily_prices
+            WHERE 'NaN' IN (open::text, high::text, low::text, close::text)
+            UNION ALL
+            SELECT 'benchmark_prices', count(*)
+            FROM benchmark_prices
+            WHERE 'NaN' IN (open::text, high::text, low::text, close::text);"
+          $PSQL "$PGURL" -v ON_ERROR_STOP=1 -c "SELECT count(*) AS daily_prices_rows, min(date) AS min_date, max(date) AS max_date FROM daily_prices;"
+
+      - name: alpha_scores depth + components_json census (read-only)
+        run: |
+          PGURL=$(echo "$DATABASE_URL" | sed -e 's/^postgresql+asyncpg:/postgresql:/' -e 's/ssl=require/sslmode=require/')
+          PSQL=/usr/lib/postgresql/17/bin/psql
+          $PSQL "$PGURL" -v ON_ERROR_STOP=1 -c "
+            SELECT count(*) AS rows, min(date) AS min_date, max(date) AS max_date,
+                   count(*) FILTER (WHERE components_json IS NULL) AS comp_null,
+                   count(*) FILTER (WHERE components_json::text = '{}') AS comp_empty,
+                   pg_size_pretty(sum(octet_length(components_json::text))::bigint) AS comp_text_total,
+                   pg_size_pretty(avg(octet_length(components_json::text))::numeric(12,1)) AS comp_text_avg
+            FROM alpha_scores;"
+          $PSQL "$PGURL" -v ON_ERROR_STOP=1 -c "
+            SELECT k AS key, count(*) AS n
+            FROM alpha_scores, jsonb_object_keys(components_json) k
+            GROUP BY k ORDER BY n DESC;"
+          $PSQL "$PGURL" -v ON_ERROR_STOP=1 -c "
+            SELECT (SELECT string_agg(k, ',' ORDER BY k) FROM jsonb_object_keys(components_json) k) AS keyset,
+                   count(*) AS rows
+            FROM alpha_scores
+            WHERE components_json IS NOT NULL
+            GROUP BY 1 ORDER BY 2 DESC LIMIT 20;"
+
+      - name: Retention keep-set projection (read-only)
+        run: |
+          PGURL=$(echo "$DATABASE_URL" | sed -e 's/^postgresql+asyncpg:/postgresql:/' -e 's/ssl=require/sslmode=require/')
+          PSQL=/usr/lib/postgresql/17/bin/psql
+          $PSQL "$PGURL" -v ON_ERROR_STOP=1 -c "
+            SELECT count(*) AS prunable_rows
+            FROM alpha_scores a
+            JOIN stocks s ON s.symbol = a.symbol
+            WHERE a.date < (current_date - 366)
+              AND (s.mcap_rank IS NULL OR s.mcap_rank > 250);"
+          $PSQL "$PGURL" -v ON_ERROR_STOP=1 -c "
+            SELECT CASE WHEN s.mcap_rank IS NOT NULL AND s.mcap_rank <= 250 THEN 'keep_top250' ELSE 'prunable' END AS bucket,
+                   count(*) AS rows, min(a.date) AS min_date, max(a.date) AS max_date
+            FROM alpha_scores a
+            JOIN stocks s ON s.symbol = a.symbol
+            GROUP BY 1;"
