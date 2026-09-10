@@ -2,7 +2,7 @@
 
 > **Purpose:** The operational companion to `SEMESTER2_PLAN.md`. Read this file FIRST to resume work, then the plan for the what/why.
 > **Rules:** Current state, then active milestone, then next task. Checklists per milestone. Verification results. Risks and pending human decisions stay visible until closed.
-> **Last updated:** 2026-09-10 (M2 started in parallel with M1-T7: M2-T1 storage guardrails + M2-T8 enriched peers COMPLETE; ingestion path untouched, T7 baseline uncontaminated; see Work Log 2026-09-10).
+> **Last updated:** 2026-09-10 (production incident 2026-09-09 diagnosed and fixed: NaN overwrite destroying stored prices/fundamentals/profiles; 5 fixes + data-repair migration shipped, see Work Log 2026-09-10 second entry and section 16).
 > **Companion:** `SEMESTER2_PLAN.md` (sections cited as Plan 1-30). Semester 1 record: `PLANNING.md` / `PROGRESS.md`, frozen, unmodified.
 
 ---
@@ -71,6 +71,7 @@
 - Semester 1 freeze (2026-09-08 @ `968a44d`): backend pytest **348/348**, frontend vitest **72/72**, `tsc -b` clean, `vite build` OK. Coverage about 78 percent.
 - M1-T1 CI (2026-09-08 @ `9dfd182`): two consecutive green runs (push `34211797445` + `workflow_dispatch` re-run `34212950591`). Backend job: `alembic upgrade head` clean through all 7 migrations to `c1d2e3f4a5b6`, pytest **348 passed** (33.70s / 33.29s). Frontend job: vitest **72 passed** (9 files), `tsc -b` clean, `vite build` OK (4.55s / 4.53s). No env diffs found; zero-network suite ran unchanged against the `postgres:17` service.
 - M1-T2 ranking (2026-09-08 @ `4f08d91`, CI run `34222965567` green): backend **384 passed** (348 existing + 36 new ranking tests, zero regressions), frontend **72/72** + tsc clean + build OK. Migration `c1d2e3f4a5b6` -> `d4e5f6a7b8c9` (head) applied cleanly locally AND in CI on fresh `postgres:17`. Real manual runs (`python -m app.jobs rank`, dev DB): two consecutive runs each ~9.5 min, **identical results** (ranked_in 1000, ranked_out 1416, excluded 7289, errors 0; 9705 audit rows; Upstox secondary 429s degraded to yfinance-primary as designed). Same-day re-run idempotent (one cycle row, audit rebuilt). "Why isn't X in the top 1000" verified live: NIFTYBEES -> `etf`, EMBASSY -> `not_ordinary_equity` (series RR), TATAMOTORS -> `renamed` (shadow of TMPV), ZUARI -> `ranked_out` rank 1471, RELIANCE -> rank 1 (mcap Rs 1.75e13).
+- Incident fixes (2026-09-10 @ this commit): backend **472 passed** (461 baseline + 11 new incident regression tests, zero regressions), frontend untouched (72/72 CI baseline). Migration `a3b4c5d6e7f8` -> `b2c3d4e5f6a7` (head) rendered clean via `alembic upgrade --sql` and its SQL semantics verified against a real 2,259-row NaN population in a rolled-back transaction.
 
 ## 6. Known Risks and Blockers
 
@@ -177,6 +178,14 @@ Runbook: Plan 28. Remaining human decisions in section 9 (cost snapshot confirma
   8. **Valuation peer-set change (deliberate, documented):** the cap changes medians only for industries with >15 same-industry stocks; existing valuation/peers/analysis tests pass unchanged (all peer assertions were membership- or single-peer-based). New tests pin cap/order/tiebreak/ETF-inactive exclusion, honest CAGR/return nulls, and the no-provider read paths.
   9. **Fan-out regression extended:** the M1-T3 no-network test (`test_alpha_unclassified_stock_answers_fast_no_network`) now also covers `/peers` + `/valuation` on the unclassified stock, and a new test proves the enriched `/peers` over a REAL cohort constructs no provider at all (UpstoxProvider monkeypatched to explode; both surface 200 from stored data).
   10. Suites: backend **461/461** (446 baseline + 15 new: 9 storage, 3 peers-repo, 3 peers-endpoint), frontend **72/72** + `tsc -b` clean (no frontend changes; the tracker's earlier "73/73" counts predate this round - CI baseline is 72 in 9 files). No migrations (T1/T8 need none: cap/order use existing `mcap_rank`/`is_etf`/`active` columns; all new read helpers read existing tables). Storage impact of this round: ~0 (no new tables; alpha JSONB untouched).
+
+---
+
+- 2026-09-10: **Production incident fixed - fields going null (NaN overwrite regression).** Owner-reported "previously-populated fields in stocks/funds/ETFs sporadically going empty + yesterday's data intermittently missing." Full diagnosis + fix + remediation in **section 16**; summary: yfinance ex-dividend rows return all-NaN OHLC with real volume, and every upsert on the write path unconditionally overwrote stored values with what the provider returned that night. 2,257 stored NaN closes across 2,257 symbols (all 16 ETFs' latest bars) serialized as null through pydantic -> empty last_price/returns. Fixed: provider NaN-row guard, field-level COALESCE on every affected upsert, empty-article-list no-op, fund share-class tiered matching + 3 dead funds retired, API NaN scrub middleware, data-repair migration `b2c3d4e5f6a7` (purges 2,259 NaN bars, deactivates the dead funds). Backend 472/472. **T7 exemption note:** this is a production correctness fix (stops active data destruction), not new M2 feature work - the changed code paths only narrow what existing passes write; it ships immediately rather than behind `enable_m2_passes`, explicitly flagged here per the T7-week rule.
+
+---
+
+*Resume here. M1-T7 continues observing the nightly cron through ~2026-09-17 (zero-cost itemized verification still pending owner confirmation). M2 resumes at M2-T2 (statements schema + yfinance primary), with every new ingestion pass behind `enable_m2_passes` (default OFF) until T7 clears. Plan reference: `SEMESTER2_PLAN.md` section 28; M2 build order in the 2026-09-09 M2 plan.*
 
 ---
 
@@ -313,3 +322,64 @@ The nightly profiles pass now also fills stocks.sector/industry (NULL only, neve
 
 - The long-running nightly process lazily imported the NEW financials repo against the OLD cached models after my live migration -> both alpha passes failed 1000/1000 ('Financials' object has no attribute 'ev_ebitda'). Re-ran both with fresh code: backfill 732s + snapshots 855s, full top-1000 history under Alpha v1.5. Lesson recorded: re-run affected passes after migrating alongside a running job process.
 - Suites: backend **431/431**, frontend **73/73**, tsc clean, vite build OK.
+
+## 16. Incident 2026-09-09/10: fields going null - NaN overwrite regression
+
+**Symptom:** previously-correct fields (stock last_price/returns, ETF latest quotes, profile text, statement figures) sporadically empty in the API; historical/"yesterday's" data intermittently missing.
+
+### 16.1 Diagnosis (evidence-based, four hypotheses tested)
+
+- **H1 CONFIRMED (the bug):** `daily_prices` had **2,259 rows with NaN in numeric columns across 2,257 distinct symbols** (lineage DB), concentrated on the freshest trading days (2,257 on 2026-09-08), all with valid volume - the provider-partial signature. All 12 sampled ETFs had a NaN LATEST bar (NIFTYBEES, GOLDBEES, LIQUIDBEES, MAFANG, ...); zero top-50-mcap stocks - which is why landing surfaces looked fine while ETF/stock pages emptied. Live Yahoo repro: `GEECEE.NS` 2026-09-07 returns all-NaN OHLC with `Dividends=2.0` - an ex-dividend row Yahoo's auto-adjusted history serves as NaN. Mechanism: `yfinance_provider.get_price_history` did `float(row["Open"])` with no NaN guard; `jobs._fetch_one_symbol` upserted unconditionally (`set_={col: stmt.excluded.col}`), so a bar that was good when first fetched was overwritten by NaN on the next 2y refetch, and vice versa - values rotated good/empty nightly. Proven surfacing: pydantic v2 renders NaN floats as **null with HTTP 200**, so `last_price`/`change_pct`/`return_1y_pct` silently emptied.
+  - Same unconditional-overwrite pattern (COALESCE absent) in `financial_periods`, `balance_sheet_periods`, `company_profiles` - and prod logs prove the threat was live for profiles (repeated yfinance 429/garbage responses DURING the profiles pass). `financials` was already protected (jobs.py coalesce, verified: its two prod partial-failure symbols DCBBANK/CARERATING kept stored mcap, rows merely stale).
+- **H2 RULED OUT:** `ranking_audit` contains **zero** `inactive_proxy`/`absent_from_master` rows ever; no E9/E10 dropout occurred.
+- **H3 RULED OUT with numbers:** zero `prune_alpha_history*` rows in `job_runs`; production 383 MB vs the 450 MB gate; `alpha_scores` full depth (453,696 snapshots, 2024-09-06..2026-09-09).
+- **H4 real but not the mechanism:** prod partials (financials DCBBANK/CARERATING, profiles YATHARTH, news 4-5/night) all RAISED before writing - old data survived. The news failures exposed a separate bug: `_upsert_articles` on an empty list rendered `INSERT INTO news_articles DEFAULT VALUES` -> NotNullViolation (no data destroyed thanks to NOT NULL).
+- **Funds bonus finding:** 22 fund rows for 21 curated entries - `match_curated` first-matched by name substring, and AMFI carries legacy rows with empty plan/option, so 3 entries matched dead schemes (100878 HDFC Liquid last NAV 2015-04-14; 108467 ICICI Pru Large Cap 2020-04-24; 100357 ICICI Pru Liquid 2022-09-16), unstably across nights. NAV data itself clean (0 null/NaN of 16,518 points).
+
+### 16.2 Fixes (this commit)
+
+1. **Provider NaN guard** (`yfinance_provider.get_price_history`): rows with any NaN O/H/L/C are dropped (logged `provider_nan_dropped`); NaN volume coerces to 0. The provider guard is the primary fix; SQL COALESCE is defense-in-depth.
+2. **Field-level COALESCE in every affected upsert:** `daily_prices` (jobs), `benchmark_prices` (benchmarks repo), `financial_periods` (jobs), `balance_sheet_periods`, `company_profiles` (source moves only when something was supplied). Mirrors the existing `financials` snapshot guard; new value wins when present, stored value survives provider omissions. Note: `daily_prices` columns are NOT NULL, so the price COALESCE is belt-and-braces; the provider guard is what closes the NaN vector (SQL-level COALESCE does NOT catch NaN - numeric NaN is not null).
+3. **`_upsert_articles` returns early on an empty list** (kills the DEFAULT VALUES NotNullViolation).
+4. **`match_curated` share-class tiering** (0: plan+option match; 1: one of them; 2: row unclassified - FoF shape; 3: explicit mismatch = no match; file order breaks ties), plus `parse_navall` normalizes AMFI's "-" placeholders to None. Dead schemes can no longer shadow live share classes. Migration retires the 3 dead funds (`active=false`, NAV history KEPT, direct URLs stay honest).
+5. **API NaN scrub middleware** (`app/nan_guard.py`): every JSON response is byte-passed through unless it contains NaN/Infinity literals, which are rewritten to null (honest-null convention) with a warning log. On this Starlette the default JSONResponse already refuses NaN (500), so this is the layer for other renderers.
+
+### 16.3 Production remediation (explicit)
+
+- **Migration `b2c3d4e5f6a7` (ships in this commit; prod applies automatically - `ingest.yml` runs `alembic upgrade head` before each nightly):**
+  - DELETE NaN bars from `daily_prices` and `benchmark_prices` (2,259 rows on the lineage; expect the same on Neon). Deletion is the honest repair: the overwritten good values are unrecoverable from the DB, the date becomes a gap like any unpriced day, and dates Yahoo serves correctly today are re-fetched good by the next nightly (verified live: LIQUIDBEES 2026-09-07/08 now serve good bars). **Important:** the new provider guard alone would NOT heal these rows - it drops NaN rows, so the stored garbage would sit forever; hence the one-off migration.
+  - UPDATE the 3 dead funds to `active=false` (list visibility only; history kept).
+- **Self-healing (no one-off needed), verified by COALESCE semantics:** all-null `company_profiles` (~335 non-ETF rows on the lineage; spot-check with the SQL in section 16.6) and all-null `financial_periods` (1,096) / partial `balance_sheet_periods` (892) fill on the next nightly pass - stored-NULL fields accept the first non-null value the provider supplies.
+- **One-off manual after deploy:** `python -m app.jobs funds` (CLI funds command runs with `backfill_history=True`) so the re-matched live share classes (e.g. ICICI Prudential Large Cap's current Direct-Growth code) gain their 750-point mfapi history; without it the new rows have only daily AMFI points and short windows show None until covered.
+- Verified clean, nothing to repair: `alpha_scores` (453,696 rows, full depth), `benchmark_prices` (0 NaN), `mf_nav_history` (0 null/NaN).
+- Post-fix watch item: next nightly's `job_runs` should show `ingest_prices`/`ingest_etfs` green with `provider_nan_dropped` log lines and zero NaN bars (`SELECT count(*) FROM daily_prices WHERE close::text='NaN'` -> 0 after the migration + nightly).
+
+### 16.4 Regression tests (11 new)
+
+`tests/test_null_nan_regressions.py`: provider drops NaN rows; **end-to-end** `_fetch_one_symbol` over a canned ex-div DataFrame - the stored good bar for the ex-div date survives and only good bars land; financial_periods COALESCE keeps stored revenue/net_income under a sparse re-fetch; balance_sheet_periods likewise; company_profiles coalesce + source semantics; `_upsert_articles([])` no-op; NaN scrub unit + middleware tests. `tests/test_statements_funds.py`: match_curated prefers the live share class over a dead generic row; unclassified FoF rows still match; wrong-plan rows never match. Backend **472/472**.
+
+### 16.5 T7-week rule disposition (explicit)
+
+M1-T7's cron observation week IS in progress (first firing 2026-09-10). The protection rule gates NEW M2 ingestion passes behind `enable_m2_passes`. This round is a **production correctness bugfix on existing passes** (guards that only narrow what they write), not new M2 feature work - every changed code path makes the existing nightly write LESS, never more. Shipping it behind the flag would leave prod destroying data nightly for a week. Exemption applied deliberately and recorded here; `enable_m2_passes` remains False and still gates M2-T2+.
+
+### 16.6 Prod spot-check SQL (run against Neon to confirm scope before/after the migration)
+
+```sql
+-- NaN bars currently stored (expect ~2,259 before, 0 after migration)
+SELECT count(*) FROM daily_prices WHERE open::text='NaN' OR close::text='NaN';
+
+-- symbols whose LATEST bar is NaN (these showed null last_price pre-fix)
+WITH latest AS (SELECT DISTINCT ON (stock_id) stock_id, date, close
+                FROM daily_prices ORDER BY stock_id, date DESC)
+SELECT s.symbol, s.is_etf FROM latest l JOIN stocks s ON s.id=l.stock_id
+WHERE l.close::text='NaN' ORDER BY s.is_etf DESC NULLS LAST, s.mcap_rank NULLS LAST;
+
+-- all-null profiles outside ETFs (self-heal candidates)
+SELECT s.symbol FROM company_profiles cp JOIN stocks s ON s.id=cp.stock_id
+WHERE cp.business_summary IS NULL AND cp.ceo IS NULL
+  AND cp.employees IS NULL AND cp.website IS NULL AND NOT s.is_etf;
+
+-- retired dead funds (expect active=false after migration)
+SELECT amfi_code, name, nav_date, active FROM mutual_funds
+WHERE amfi_code IN ('100878','108467','100357');
+```

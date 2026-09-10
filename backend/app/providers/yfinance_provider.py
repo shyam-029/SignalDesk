@@ -74,17 +74,42 @@ class YFinanceProvider(MarketDataProvider):
                 return []
 
             bars: list[OHLCV] = []
+            skipped_nan = 0
             for idx, row in hist.iterrows():
+                o = _as_float(row["Open"])
+                h = _as_float(row["High"])
+                l = _as_float(row["Low"])
+                c = _as_float(row["Close"])
+                if o is None or h is None or l is None or c is None:
+                    # Ex-dividend / corporate-action rows sometimes come back
+                    # all-NaN with a real Volume column (verified live
+                    # 2026-09-10: GEECEE.NS 2026-09-07, Dividends=2.0). A
+                    # priceless bar upserted over a previously-good stored
+                    # bar silently destroyed it (incident 2026-09-09:
+                    # 2,257 NaN close bars across 2,257 symbols). Dropping
+                    # the row here leaves any stored good bar untouched.
+                    skipped_nan += 1
+                    continue
+                try:
+                    volume = int(row["Volume"])
+                except (TypeError, ValueError):
+                    volume = 0
                 bars.append(
                     OHLCV(
                         date=idx.date(),
-                        open=float(row["Open"]),
-                        high=float(row["High"]),
-                        low=float(row["Low"]),
-                        close=float(row["Close"]),
-                        volume=int(row["Volume"]),
+                        open=o,
+                        high=h,
+                        low=l,
+                        close=c,
+                        volume=volume,
                         source="yfinance",
                     )
+                )
+            if skipped_nan:
+                logger.info(
+                    "provider_nan_dropped provider=yfinance op=price_history "
+                    "symbol=%s rows=%d",
+                    symbol, skipped_nan,
                 )
             return bars
 

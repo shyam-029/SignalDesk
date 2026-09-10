@@ -34,15 +34,18 @@ async def upsert_periods(
         for d in drafts
     ]
     stmt = pg_insert(BalanceSheetPeriod).values(rows)
+    # Field-level COALESCE on conflict (incident 2026-09-09): a sparse
+    # provider response must keep previously-good stored figures instead of
+    # nulling them; only columns the provider actually supplied change.
     stmt = stmt.on_conflict_do_update(
         constraint="uq_balance_sheet_periods_stock_period",
         set_={
-            "working_capital": stmt.excluded.working_capital,
-            "total_assets": stmt.excluded.total_assets,
-            "retained_earnings": stmt.excluded.retained_earnings,
-            "ebit": stmt.excluded.ebit,
-            "book_equity": stmt.excluded.book_equity,
-            "total_liabilities": stmt.excluded.total_liabilities,
+            "working_capital": func.coalesce(stmt.excluded.working_capital, BalanceSheetPeriod.working_capital),
+            "total_assets": func.coalesce(stmt.excluded.total_assets, BalanceSheetPeriod.total_assets),
+            "retained_earnings": func.coalesce(stmt.excluded.retained_earnings, BalanceSheetPeriod.retained_earnings),
+            "ebit": func.coalesce(stmt.excluded.ebit, BalanceSheetPeriod.ebit),
+            "book_equity": func.coalesce(stmt.excluded.book_equity, BalanceSheetPeriod.book_equity),
+            "total_liabilities": func.coalesce(stmt.excluded.total_liabilities, BalanceSheetPeriod.total_liabilities),
             "source": stmt.excluded.source,
             "ingested_at": func.now(),
         },

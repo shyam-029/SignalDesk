@@ -159,6 +159,50 @@ def test_match_curated_prefers_plan_and_option():
     assert match_curated(rows, debt[0]) is None
 
 
+# Incident 2026-09-09: AMFI carries BOTH live share-class rows and legacy
+# rows with an empty plan/option — including discontinued schemes whose last
+# NAV is years old. Name-substring first-match was not stable across nights
+# and spawned dead catalog rows (100878 HDFC Liquid last NAV 2015, etc.).
+
+
+DEAD_VS_LIVE_SAMPLE = """Scheme Code;ISIN Div Payout/ ISIN Growth;ISIN Div Reinvestment;Scheme Name;Plan;Option;Net Asset Value;Date
+
+100878;INF179M01XQ0;-;HDFC Liquid Fund;-;-;20.0000;01-Jan-2015
+119091;INF179M01ZC2;-;HDFC Liquid Fund;Direct Plan;Growth Option;25.3100;07-Sep-2026
+"""
+
+
+def test_match_curated_prefers_share_class_over_dead_generic_row():
+    """A dead generic row (empty plan/option) never shadows the live class."""
+    rows = parse_navall(DEAD_VS_LIVE_SAMPLE)
+    entry = next(c for c in CURATED_FUNDS if c.match == "HDFC Liquid")
+    hit = match_curated(rows, entry)
+    assert hit is not None
+    assert hit.code == "119091"  # the live Direct-Growth row, NOT dead 100878
+
+
+FOF_NO_CLASS_SAMPLE = """145552;INF191K01GH4;-;Motilal Oswal Nasdaq 100 Fund of Fund;-;-;40.0000;07-Sep-2026
+"""
+
+
+def test_match_curated_matches_scheme_without_plan_option():
+    """Schemes AMFI does not classify (FoF shape) still match via fallback."""
+    rows = parse_navall(FOF_NO_CLASS_SAMPLE)
+    entry = next(c for c in CURATED_FUNDS if c.match == "Motilal Oswal Nasdaq 100")
+    hit = match_curated(rows, entry)
+    assert hit is not None
+    assert hit.code == "145552"
+
+
+def test_match_curated_rejects_wrong_share_class():
+    rows = parse_navall(
+        "149999;X;Y;Some Fund;Regular Plan;Growth;10.0;07-Sep-2026\n"
+    )
+    entry = next(c for c in CURATED_FUNDS if c.match == "Parag Parikh Flexi Cap")
+    # Only a Regular Plan row exists; a Direct Plan entry must not match it.
+    assert match_curated(rows, entry) is None
+
+
 def test_parse_navall_old_six_column_shape():
     rows = parse_navall(OLD_SHAPE_SAMPLE)
     assert rows["119813"].nav == 25.31
