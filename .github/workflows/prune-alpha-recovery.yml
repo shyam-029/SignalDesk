@@ -1,0 +1,71 @@
+# TEMPORARY one-off (M2-T1 storage reclaim): runs the gated
+# prune_alpha_history_outside_top250 pass (Plan 22, jobs.py) against
+# production. The pass itself is gated by pg_database_size >= 450 MB
+# (settings.storage_cut_threshold_mb) and deletes NOTHING below the gate —
+# this workflow adds no new policy, it is just the documented manual
+# trigger path (python -m app.jobs prune-alpha) wired to CI. Push-trigger
+# only while on the ops branch (workflow_dispatch needs the file on the
+# default branch). Shares no concurrency group with ingest.yml and runs
+# nowhere near the 13:30 UTC nightly (M1-T7 observation week respected).
+name: prune-alpha-recovery
+on:
+  push:
+    branches:
+      - ops/m2-t1-storage-reclaim
+    paths:
+      - ".github/workflows/prune-alpha-recovery.yml"
+
+concurrency:
+  group: prune-alpha-recovery
+  cancel-in-progress: false
+
+jobs:
+  prune:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      APP_ENV: production
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Gate check + prune (deletes nothing below the 450 MB gate)
+        run: python -m app.jobs prune-alpha
+      - name: Pass outcome from job_runs
+        continue-on-error: true
+        run: |
+          python - <<'EOF'
+          import asyncio
+          import os
+
+          import asyncpg
+          from sqlalchemy.engine import make_url
+
+          async def main() -> None:
+              u = make_url(os.environ["DATABASE_URL"])
+              conn = await asyncpg.connect(
+                  host=u.host, port=u.port or 5432, user=u.username,
+                  password=u.password, database=u.database,
+                  ssl="require", timeout=15,
+              )
+              rows = await conn.fetch(
+                  "SELECT job_name, status, items_processed, items_failed, "
+                  "error_summary, started_at, finished_at FROM job_runs "
+                  "WHERE job_name = 'prune_alpha_history' "
+                  "ORDER BY started_at DESC LIMIT 3"
+              )
+              for r in rows:
+                  print(dict(r))
+              await conn.close()
+
+          asyncio.run(main())
+          EOF
