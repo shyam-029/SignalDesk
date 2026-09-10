@@ -76,12 +76,17 @@ def parse_navall(text: str) -> dict[str, AmfiNavRow]:
         except ValueError:
             continue
         name = parts[3] if len(parts) >= 4 else ""
-        plan = parts[4] if len(parts) >= 7 else None
-        option = parts[5] if len(parts) >= 7 else None
+        # AMFI writes "-" (and blank) for N/A plan/option: normalize to None
+        # so the matcher's share-class tiering sees "unclassified", not a
+        # literal plan named "-".
+        plan_raw = parts[4] if len(parts) >= 7 else ""
+        option_raw = parts[5] if len(parts) >= 7 else ""
+        plan = plan_raw if plan_raw not in ("", "-") else None
+        option = option_raw if option_raw not in ("", "-") else None
         if not name:
             continue
         row = AmfiNavRow(
-            code=code, name=name, plan=plan or None, option=option or None,
+            code=code, name=name, plan=plan, option=option,
             nav=nav, nav_date=nav_date,
         )
         rows.setdefault(code, row)
@@ -96,22 +101,51 @@ def match_curated(
     Matching is substring-based and case-insensitive because the official
     file writes options inconsistently ("Growth", "Growth Option",
     "GROWTH OPTION") and renames funds periodically (the curated list is
-    verified against the live file, 2026-09-08). Returns None when the fund
-    is absent from today's file — the catalog simply does not gain a row
-    (honest, logged upstream).
+    verified against the live file, 2026-09-08).
+
+    Share-class tiering (incident 2026-09-09): AMFI's file carries BOTH live
+    share-class rows ("... - Direct Plan - Growth") and legacy rows with an
+    EMPTY plan/option — including discontinued schemes whose last NAV is
+    years old (HDFC Liquid 100878 last NAV 2015, ICICI Prudential Large Cap
+    108467 last NAV 2020, ICICI Prudential Liquid 100357 last NAV 2022).
+    First-match on name alone could land on either, and the choice was not
+    stable night to night, so one curated entry spawned two fund rows — one
+    of them dead. Ranking fix, deterministic across nights:
+      0. plan AND option match the entry (the real share class),
+      1. exactly one of plan/option matches,
+      2. the row carries no plan/option at all (Fund-of-Fund shape — the
+         only way to match schemes AMFI does not classify), kept as a
+         fallback so such schemes still sync,
+      3. the row HAS a plan/option but neither matches (a Regular Plan row
+         can never satisfy a Direct Plan entry) — never a match.
+    Rows are ordered by file order within a tier (stable sort), so a dead
+    generic row can no longer shadow the live share class.
+    Returns None when no row qualifies — the catalog simply does not gain a
+    row (honest, logged upstream).
     """
     want_name = _norm(curated.match)
     want_plan = _norm(curated.plan)
     want_option = _norm(curated.option)
-    for row in rows.values():
-        if want_name not in _norm(row.name):
-            continue
-        if row.plan is not None and want_plan not in _norm(row.plan):
-            continue
-        if row.option is not None and want_option not in _norm(row.option):
-            continue
-        return row
-    return None
+
+    def rank(row: AmfiNavRow) -> int:
+        plan_hit = row.plan is not None and want_plan in _norm(row.plan)
+        opt_hit = row.option is not None and want_option in _norm(row.option)
+        if (row.plan is not None and not plan_hit) or (
+            row.option is not None and not opt_hit
+        ):
+            return 3
+        if plan_hit and opt_hit:
+            return 0
+        if plan_hit or opt_hit:
+            return 1
+        return 2
+
+    candidates = sorted(
+        (row for row in rows.values() if want_name in _norm(row.name)), key=rank
+    )
+    if not candidates or rank(candidates[0]) == 3:
+        return None
+    return candidates[0]
 
 
 async def fetch_amfi_navall(

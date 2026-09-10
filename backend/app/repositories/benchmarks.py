@@ -5,7 +5,7 @@
 # equity patterns: get-or-create for the index row, bulk upsert for bars
 # (UNIQUE(benchmark_id, date) keeps reruns idempotent).
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -41,8 +41,10 @@ async def upsert_bars(
 ) -> int:
     """Bulk-upsert one index's bars; returns the number of bars offered.
 
-    On conflict with (benchmark_id, date) the stored bar is overwritten —
-    same idempotent shape as the equity price upsert in jobs._fetch_one_symbol.
+    On conflict with (benchmark_id, date) the stored bar is overwritten with
+    field-level COALESCE — same defensive shape as the equity price upsert in
+    jobs._fetch_one_symbol (incident 2026-09-09): a column the provider did
+    not supply must never blank a previously-good stored value.
     """
     if not bars:
         return 0
@@ -63,11 +65,11 @@ async def upsert_bars(
     stmt = stmt.on_conflict_do_update(
         constraint="uq_benchmark_prices_benchmark_date",
         set_={
-            "open": stmt.excluded.open,
-            "high": stmt.excluded.high,
-            "low": stmt.excluded.low,
-            "close": stmt.excluded.close,
-            "volume": stmt.excluded.volume,
+            "open": func.coalesce(stmt.excluded.open, BenchmarkPrice.open),
+            "high": func.coalesce(stmt.excluded.high, BenchmarkPrice.high),
+            "low": func.coalesce(stmt.excluded.low, BenchmarkPrice.low),
+            "close": func.coalesce(stmt.excluded.close, BenchmarkPrice.close),
+            "volume": func.coalesce(stmt.excluded.volume, BenchmarkPrice.volume),
         },
     )
     await session.execute(stmt)

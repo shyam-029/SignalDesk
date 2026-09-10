@@ -190,15 +190,19 @@ async def _fetch_one_symbol(
                 for b in bars
             ]
         )
-        # On conflict with (stock_id, date), overwrite the existing bar.
+        # On conflict with (stock_id, date), overwrite the existing bar —
+        # but field-level COALESCE (mirrors the financials snapshot guard):
+        # a column the provider did not supply tonight must never blank a
+        # previously-good stored value. Defense-in-depth under the provider's
+        # NaN-row guard (incident 2026-09-09).
         stmt = stmt.on_conflict_do_update(
             constraint="uq_daily_prices_stock_date",
             set_={
-                "open": stmt.excluded.open,
-                "high": stmt.excluded.high,
-                "low": stmt.excluded.low,
-                "close": stmt.excluded.close,
-                "volume": stmt.excluded.volume,
+                "open": func.coalesce(stmt.excluded.open, DailyPrice.open),
+                "high": func.coalesce(stmt.excluded.high, DailyPrice.high),
+                "low": func.coalesce(stmt.excluded.low, DailyPrice.low),
+                "close": func.coalesce(stmt.excluded.close, DailyPrice.close),
+                "volume": func.coalesce(stmt.excluded.volume, DailyPrice.volume),
             },
         )
         await session.execute(stmt)
@@ -430,14 +434,17 @@ async def _fetch_one_financial_periods(
         stmt = pg_insert(FinancialPeriod).values(rows)
         # One row per (stock, period_end, period_type): overwrite on conflict
         # and refresh ingested_at so re-ingestion stays idempotent and fresh.
+        # Field-level COALESCE (incident 2026-09-09): a sparse provider
+        # response must never null out a previously-good stored figure —
+        # a None revenue the provider omits tonight keeps its stored value.
         stmt = stmt.on_conflict_do_update(
             constraint="uq_financial_periods_stock_period",
             set_={
-                "revenue": stmt.excluded.revenue,
-                "net_income": stmt.excluded.net_income,
-                "operating_margin": stmt.excluded.operating_margin,
-                "net_margin": stmt.excluded.net_margin,
-                "eps": stmt.excluded.eps,
+                "revenue": func.coalesce(stmt.excluded.revenue, FinancialPeriod.revenue),
+                "net_income": func.coalesce(stmt.excluded.net_income, FinancialPeriod.net_income),
+                "operating_margin": func.coalesce(stmt.excluded.operating_margin, FinancialPeriod.operating_margin),
+                "net_margin": func.coalesce(stmt.excluded.net_margin, FinancialPeriod.net_margin),
+                "eps": func.coalesce(stmt.excluded.eps, FinancialPeriod.eps),
                 "source": stmt.excluded.source,
                 "ingested_at": func.now(),
             },
@@ -512,7 +519,14 @@ async def _upsert_articles(
     Idempotency anchor is the article URL (unique). Uses a single
     ON CONFLICT DO NOTHING statement, which is safe under concurrent inserts
     (the same Google News article may be fetched for multiple symbols at once).
+
+    An empty article list returns before building the statement: the values
+    list would otherwise be empty and SQLAlchemy renders
+    INSERT INTO news_articles DEFAULT VALUES, which trips the symbol NOT NULL
+    constraint and fails the symbol's news pass (incident 2026-09-09).
     """
+    if not articles:
+        return {"inserted": 0, "existing": 0}
     stmt = pg_insert(NewsArticle).values(
         [
             {
