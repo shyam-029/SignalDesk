@@ -7,6 +7,12 @@
 # the ingestion path or its concurrency group). Delete after the task.
 name: db-probe-recovery
 on:
+  # workflow_dispatch only works for workflows on the default branch, so
+  # while this temporary file lives on the ops branch we trigger runs by
+  # pushing (empty commits are fine) to this branch only.
+  push:
+    branches:
+      - ops/m2-t1-storage-reclaim
   workflow_dispatch:
 
 concurrency:
