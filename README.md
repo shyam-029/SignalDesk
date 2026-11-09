@@ -5,10 +5,10 @@
 SignalDesk ingests daily market data and company fundamentals for the Nifty 250
 catalog plus a ranked top-1000 universe, computes relative valuation, fundamental
 scores, technical indicators, an Altman Z-score, a composite **Alpha Score**, and
-FinBERT news sentiment — then serves it all through a FastAPI backend and a React
+FinBERT news sentiment, then serves it all through a FastAPI backend and a React
 frontend with grounded LLM explanations on top.
 
-One rule governs every layer: **missing data stays missing — nothing is
+One rule governs every layer: **missing data stays missing nothing is
 fabricated.** If a provider doesn't supply a field, the API returns `null` (or an
 explicit `NO_PEERS` / `INSUFFICIENT_DATA` error), never an estimate. When the LLM
 is unavailable, deterministic rule-based narratives take over.
