@@ -19,7 +19,8 @@ alembic
 pydantic-settings
 
 # --- Data provider ---
-yfinance
+# yfinance pinned in lockstep with requirements.txt (see the 1.8 note there).
+yfinance>=1.6,<1.7
 pandas
 numpy
 

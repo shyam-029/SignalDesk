@@ -12,7 +12,11 @@ alembic
 pydantic-settings
 
 # --- Data provider ---
-yfinance
+# Pinned <1.7: yfinance 1.8.0 on the Actions runner silently returns
+# truncated history frames for some liquid symbols (verified twice:
+# 2026-11-09 runs, RELIANCE.NS/TCS.NS cut at 2026-09-08 with no error);
+# 1.6.0 returns the full frame. Upgrade deliberately, not by drift.
+yfinance>=1.6,<1.7
 pandas
 numpy
 
