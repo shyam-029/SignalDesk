@@ -40,18 +40,25 @@ def asyncpg_ready_url(raw: str) -> URL:
     A bare `postgresql://` (no driver) is upgraded to the app's asyncpg
     driver, so a verbatim Neon paste works in any environment; an
     explicitly chosen driver (e.g. +psycopg2) is respected, never swapped.
+    Bare detection uses `drivername == "postgresql"` — the literal scheme —
+    NOT `get_driver_name()`: SQLAlchemy 2.0.x reports the default driver
+    ('psycopg2') and 2.1.x reports 'psycopg' for a bare URL, so a
+    driver-name whitelist misclassifies the bare form and passes it through
+    un-upgraded (which then fails with ModuleNotFoundError: psycopg on the
+    Actions runners, 2026-09-25). Only the drivername tells "no driver
+    chosen" apart from "driver chosen".
     """
     url = make_url(raw)
     if url.get_backend_name() != "postgresql":
         return url
-    driver = url.get_driver_name()
-    if driver not in (None, "psycopg2", "asyncpg"):
-        return url
-    if url.drivername != "postgresql" and driver != "asyncpg":
-        # Explicitly chosen non-asyncpg driver: libpq semantics, untouched.
-        return url
     if url.drivername == "postgresql":  # bare default dialect -> app's async driver
         url = url.set(drivername="postgresql+asyncpg")
+    else:
+        driver = url.get_driver_name()
+        if driver != "asyncpg":
+            # Explicitly chosen non-asyncpg driver (psycopg2, psycopg, ...):
+            # libpq semantics, untouched.
+            return url
     query = dict(url.query)
     sslmode = query.pop("sslmode", None)
     if sslmode is not None and "ssl" not in query:

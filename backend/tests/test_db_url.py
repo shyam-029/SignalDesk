@@ -74,6 +74,22 @@ def test_explicit_psycopg2_driver_is_respected_not_swapped():
     assert url.query["sslmode"] == "require"
 
 
+def test_explicit_psycopg_driver_is_respected_not_swapped():
+    # SQLAlchemy 2.1 reports 'psycopg' as the default driver name for a bare
+    # URL; an EXPLICIT +psycopg choice must stay untouched regardless.
+    url = asyncpg_ready_url("postgresql+psycopg://u:p@h:5432/db?sslmode=require")
+    assert url.drivername == "postgresql+psycopg"
+    assert url.query["sslmode"] == "require"
+
+
+def test_bare_url_upgrades_even_when_21_reports_psycopg_as_default():
+    # Regression (2026-09-25 outage): on SQLAlchemy 2.1 get_driver_name()
+    # answers 'psycopg' for a bare URL, which the old whitelist treated as an
+    # explicit choice and passed through. Bare is identified by drivername.
+    url = asyncpg_ready_url("postgresql://u:p@h:5432/db")
+    assert url.drivername == "postgresql+asyncpg"
+
+
 def test_non_postgres_url_is_untouched():
     url = asyncpg_ready_url("mysql+pymysql://u:p@h/db")
     assert url.drivername == "mysql+pymysql"

@@ -12,7 +12,8 @@ fastapi
 uvicorn[standard]
 
 # --- Database ---
-sqlalchemy[asyncio]
+# Pinned in lockstep with requirements.txt (see the 2.1 note there).
+sqlalchemy[asyncio]>=2.0,<2.1
 asyncpg
 alembic
 pydantic-settings

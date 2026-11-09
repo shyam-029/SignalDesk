@@ -3,7 +3,10 @@ fastapi
 uvicorn[standard]
 
 # --- Database ---
-sqlalchemy[asyncio]
+# Pinned <2.1: SQLAlchemy 2.1 changed URL/driver resolution semantics
+# (get_driver_name on a bare postgresql:// reports 'psycopg'); the fleet
+# upgrades together, not by drift (2026-09-25 ingestion outage).
+sqlalchemy[asyncio]>=2.0,<2.1
 asyncpg
 alembic
 pydantic-settings
