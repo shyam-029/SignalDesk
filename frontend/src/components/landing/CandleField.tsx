@@ -14,7 +14,8 @@ const EASE = [0.22, 1, 0.36, 1] as const;
  * 50 in spirit) as one bar each, sized by the day's absolute move and
  * colored by its sign - red below, green above, exactly like the price
  * charts. Real stored data, hover for the readout; illustrative framing
- * removed now that the bars are the market itself.
+ * removed now that the bars are the market itself. Bar interaction supports
+ * pointer and keyboard input.
  */
 export function CandleField({ className }: { className?: string }) {
   const reduced = useReducedMotionSafe();
@@ -44,7 +45,7 @@ export function CandleField({ className }: { className?: string }) {
           viewBox={`0 0 ${W} ${H}`}
           className="h-auto w-full"
           role="img"
-          aria-label="The 50 largest ranked companies, one bar each, sized by today's absolute move and colored by its sign."
+          aria-label="The 50 largest ranked companies, one bar each, sized by today's absolute move and colored by its sign. Use Tab to inspect values."
         >
           {/* Zero line + hairline grid */}
           <line x1="0" y1={BASE} x2={W} y2={BASE} stroke="var(--line)" strokeWidth="1" />
@@ -72,8 +73,20 @@ export function CandleField({ className }: { className?: string }) {
                 fillOpacity={isActive ? 0.95 : 0.55}
                 stroke={up ? "var(--band-positive)" : "var(--band-weak)"}
                 strokeOpacity={isActive ? 1 : 0.7}
+                role="button"
+                tabIndex={0}
+                aria-label={`${s.symbol.replace(".NS", "")} ${fmtSignedPct(s.change_pct)} today`}
                 onMouseEnter={() => setActive(i)}
                 onMouseLeave={() => setActive((cur) => (cur === i ? null : cur))}
+                onFocus={() => setActive(i)}
+                onBlur={() => setActive((cur) => (cur === i ? null : cur))}
+                onClick={() => setActive((cur) => (cur === i ? null : i))}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    setActive((cur) => (cur === i ? null : i));
+                  }
+                }}
                 style={{ cursor: "crosshair" }}
                 {...(reduced
                   ? {}
@@ -89,7 +102,7 @@ export function CandleField({ className }: { className?: string }) {
         </svg>
 
         {/* Readout */}
-        <div className="num absolute right-3 top-3 border border-line bg-background/90 px-2.5 py-1.5 text-xs text-muted">
+        <div className="num absolute right-3 top-3 border border-line bg-background/90 px-2.5 py-1.5 text-xs text-muted" aria-live="polite">
           {activeItem ? (
             <>
               <span className="text-foreground">{activeItem.symbol.replace(".NS", "")}</span>
@@ -103,7 +116,7 @@ export function CandleField({ className }: { className?: string }) {
               </span>
             </>
           ) : (
-            "Hover a bar - the 50 largest, today's move"
+            "Hover or focus a bar - the 50 largest, today's move"
           )}
         </div>
       </DataState>

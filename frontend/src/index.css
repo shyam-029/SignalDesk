@@ -54,7 +54,8 @@
   --section-alt: #eef2fb;
   --ink: #0b1c30;
   --muted: #47536b;
-  --faint: #7d8698;
+  /* >= 4.5:1 against the light background for small label text. */
+  --faint: #647087;
   --line: #ccd5e6;
   --rule: #b7c5de;
 
@@ -64,12 +65,15 @@
   --accent-jade: #167a4e;
   --accent-amber: #9a6a10;
   --accent-coral: #b8491f;
-  --accent-teal: #0891b2;
+  /* Darkened so white text on stock marks remains readable. */
+  --accent-teal: #087d99;
 
   --band-strong: #17724a;
-  --band-positive: #2d8a68;
-  --band-moderate: #a9761d;
-  --band-weak: #bd5327;
+  /* AA-checked band tones: raised contrast for small text on the light
+     background (compliance audit 2026-09-07). */
+  --band-positive: #267657;
+  --band-moderate: #8a5f0d;
+  --band-weak: #a84b22;
   --band-veryweak: #a02b21;
 }
 
