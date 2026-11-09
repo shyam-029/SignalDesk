@@ -22,6 +22,12 @@ Thumbs.db
 # --- Logs ---
 *.log
 
+# --- Private working docs (local reference only, not for the public repo) ---
+/PLANNING.md
+/PROGRESS.md
+/SEMESTER2_PLAN.md
+/SEMESTER2_PROGRESS.md
+
 # --- Design reference material (local only, never part of the app) ---
 /Refine design concept/
 /Refine design concept(1)/

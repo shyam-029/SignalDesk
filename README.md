@@ -1,75 +1,98 @@
 # SignalDesk
 
-Fundamental valuation & research platform for Indian equities ("Alpha Spread for India").
-Nifty 250 catalog, daily provider-sourced prices and fundamentals, relative valuation,
-fundamental scores, technical indicators, a composite Alpha Score, FinBERT news sentiment,
-and evidence-grounded LLM explanations — with an explicit rule: **missing data stays
-missing; nothing is fabricated.**
+**Fundamental research & valuation platform for Indian equities.**
 
-Stack: **FastAPI + PostgreSQL** (async SQLAlchemy, Alembic) backend, **React 19 +
-TypeScript + Vite + Tailwind v4** frontend, APScheduler nightly ingestion,
-OpenRouter-compatible LLM for narratives (with deterministic fallback).
+SignalDesk ingests daily market data and company fundamentals for the Nifty 250
+catalog plus a ranked top-1000 universe, computes relative valuation, fundamental
+scores, technical indicators, an Altman Z-score, a composite **Alpha Score**, and
+FinBERT news sentiment — then serves it all through a FastAPI backend and a React
+frontend with grounded LLM explanations on top.
 
----
+One rule governs every layer: **missing data stays missing — nothing is
+fabricated.** If a provider doesn't supply a field, the API returns `null` (or an
+explicit `NO_PEERS` / `INSUFFICIENT_DATA` error), never an estimate. When the LLM
+is unavailable, deterministic rule-based narratives take over.
 
-## Features (implemented)
+## Features
 
-- **Catalog & market data** — Nifty 250 universe (seeded from DB, not hardcoded), 2y daily
-  OHLCV, dual providers (yfinance primary, Upstox secondary) merged with gap-fill and
-  disagreement logging; primary always wins conflicts.
-- **Fundamentals** — snapshot ratios (P/E, P/B, P/S, ROE/ROA, margins, solvency) with
-  field-level coalesce on nightly refresh; annual + quarterly income-statement history.
-- **Valuation** — relative valuation vs same-industry peers (P/E, P/B, P/S, EV/EBITDA),
-  with honest `NO_PEERS` / `INSUFFICIENT_DATA` errors instead of invented answers.
+- **Equity universe & market data** — Nifty 250 catalog (seeded, not hardcoded),
+  ranked top-1000 universe with eligibility rules and audit trail, 2 years of
+  daily OHLCV, dual providers (yfinance primary, Upstox optional) merged with
+  gap-fill; the primary provider always wins conflicts.
+- **Fundamentals** — snapshot ratios (P/E, P/B, P/S, ROE/ROA, margins, solvency)
+  with field-level coalesce on refresh, plus annual & quarterly income-statement
+  history.
+- **Valuation** — relative multiples vs same-industry peers (P/E, P/B, P/S,
+  EV/EBITDA) with honest errors instead of invented answers.
 - **Scores & Alpha** — profitability/solvency scores (0–100) and a 40/30/30
   fundamental/technical/sentiment Alpha composite with daily history.
-- **News & sentiment** — Google News RSS ingestion, FinBERT scoring, 60-day relevance window.
-- **LLM surfaces** — `/alpha/explanation`, `/explain` (5 question types) and `/ask`
-  (single-shot Q&A). Prompts carry only allow-listed computed facts; every failure path
-  falls back to a deterministic rule-based narrative; `source` marks provenance.
-- **Observability** — structured request/job/provider logging with request ids, durable
-  `job_runs` history, `/debug/jobs`, `/status` (DB/scheduler/ingestion freshness/LLM),
-  staleness flags, uniform error envelope.
+- **Technicals & Altman Z** — indicator series (EMA, RSI, ATR, Bollinger bands,
+  …) and a bankruptcy-risk Z-score per stock.
+- **News & sentiment** — Google News RSS ingestion, FinBERT scoring, 60-day
+  relevance window, market-wide news feed.
+- **ETFs & mutual funds** — curated ETF surface (kept out of the equity
+  screens), fund catalog with NAV history and trailing returns (1m → 3y).
+- **Benchmarks dashboard** — index cards with sparklines, read only from stored
+  rows — no provider calls on request paths.
+- **LLM surfaces** — `/ask` (grounded Q&A) and `/explain` (5 question types).
+  Prompts carry only allow-listed computed facts; every failure path falls back
+  to a deterministic rule-based narrative; `source` marks provenance.
+- **Observability** — structured logging with request ids, durable `job_runs`
+  history, `/debug/jobs`, `/status`, staleness flags, and a uniform error
+  envelope on every route.
 
 ## Architecture
 
 ```
-frontend/   React 19 + Vite (TanStack Query, Tailwind v4, lightweight-charts)
-backend/    FastAPI app
-  app/routers/       HTTP layer (error envelope convention)
-  app/services/      business logic (valuation, scores, alpha, indicators, narratives)
+frontend/            React 19 + TypeScript + Vite (TanStack Query/Table,
+                     Tailwind v4, lightweight-charts, Radix UI)
+backend/             FastAPI (Python 3.12)
+  app/routers/       HTTP layer (uniform error envelope)
+  app/services/      business logic — valuation, scores, alpha, indicators,
+                     ranking, narratives (pure, testable decision logic)
   app/repositories/  SQL only (SQLAlchemy 2.0 async)
-  app/providers/     source adapters: yfinance, upstox, merging facade, RSS, FinBERT, OpenRouter
-  app/jobs.py        nightly ingestion passes (APScheduler 18:30 Asia/Kolkata) + job recording
+  app/providers/     source adapters: yfinance, Upstox, NSE master, RSS,
+                     FinBERT, OpenRouter — behind a merging facade
+  app/jobs.py        ingestion passes (dev: APScheduler 18:30 Asia/Kolkata;
+                     prod: GitHub Actions cron is the only scheduler)
   alembic/           migrations
+.github/workflows/   CI, nightly ingest, migrations, ranking, backup/restore,
+                     storage probes
 ```
 
-Design rules worth knowing: providers never fabricate fields they lack; primary provider
-wins disagreements; scheduled jobs record every run (`job_runs`); `/health` is liveness,
-`/status` is readiness; every error returns `{error: {code, message, detail, request_id}}`.
+Design rules worth knowing:
 
-## Setup
+- Providers never fabricate fields they lack; the primary provider wins
+  disagreements and every conflict is logged.
+- Scheduled jobs record every run (`job_runs`); a NaN-guard middleware blocks
+  non-finite values from ever reaching the database or the API.
+- `/health` is liveness, `/status` is readiness.
+- Every error returns `{error: {code, message, detail, request_id}}`.
 
-### Prereqs
-- PostgreSQL running locally (databases `signaldesk` and `signaldesk_test`)
-- Python 3.12+, Node 20+
+## Getting started
+
+**Prerequisites:** Python 3.12+, Node 20+, PostgreSQL with two databases
+(`signaldesk` and `signaldesk_test`).
 
 ### Backend
+
 ```powershell
 cd backend
-python -m venv .venv; .\.venv\Scripts\Activate.ps1
-pip install -r requirements.txt   # if missing: see PROGRESS.md cheatsheet
-copy .env.example .env            # then edit
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+copy .env.example .env        # then edit — see Configuration below
 .venv\Scripts\python -m alembic upgrade head
-.venv\Scripts\python -m app.seed  # seed the Nifty 250 universe (idempotent)
+.venv\Scripts\python -m app.seed    # seed the Nifty 250 catalog (idempotent)
 .venv\Scripts\python -m uvicorn app.main:app --reload
 ```
 
 ### Frontend
+
 ```powershell
 cd frontend
 npm install
-npm run dev    # http://localhost:5173, proxies /api to the backend
+npm run dev    # http://localhost:5173 — proxies /api to the backend
 ```
 
 ## Configuration (`backend/.env`, never committed)
@@ -77,51 +100,70 @@ npm run dev    # http://localhost:5173, proxies /api to the backend
 | Variable | Purpose |
 |---|---|
 | `DATABASE_URL` | `postgresql+asyncpg://user:pass@host:5432/signaldesk` |
-| `CORS_ORIGINS` | comma-separated browser origins (default Vite dev server; empty disables CORS) |
-| `UPSTOX_ANALYTICS_TOKEN` | optional; enables the secondary data provider. Absent = yfinance-only |
-| `LLM_API_KEY` / `OPENROUTER_API_KEY` | optional; empty = LLM disabled (rule-based explanations always work) |
-| `LLM_BASE_URL` / `LLM_MODEL` | OpenAI-compatible endpoint + model id. `LLM_BASE_URL` is trusted config — it receives prompts |
-| `LLM_DAILY_CAP` | shared in-process LLM call budget (pre-warm + /ask + /explain) |
+| `APP_ENV` | `development` or `production` (production enables hardening) |
+| `CORS_ORIGINS` | comma-separated browser origins; `*` is rejected in production |
+| `UPSTOX_ANALYTICS_TOKEN` | optional; enables the secondary data provider |
+| `LLM_API_KEY` / `OPENROUTER_API_KEY` | optional; empty = LLM disabled (rule-based narratives always work) |
+| `LLM_BASE_URL` / `LLM_MODEL` | OpenAI-compatible endpoint + model id (must be `https://` in production) |
+| `LLM_DAILY_CAP` | in-process LLM call budget shared across pre-warm, `/ask` and `/explain` |
+| `OPS_API_KEY` | required in production; gates `/debug/jobs` and full `/status` (fail closed) |
+| `RATE_LIMIT_*` | per-IP limits: LLM routes strictest, expensive fan-out medium, reads highest |
 
 ## API overview
 
-Under `/api/v1`: `/stocks` (+ `/prices`, `/technicals`, `/fundamentals`, `/scores`,
-`/valuation(+ /explanation)`, `/alpha` (+ `/explanation`, `/history`), `/news`,
-`/sentiment`, `/peers`, `/performance`, `/technicals/series`, `/financials/history`,
-`/profile`, `POST /explain`, `POST /ask`), `/screener`.
+All research endpoints live under `/api/v1`:
 
-Operational (root, unauthenticated — **restrict before public deployment**):
-`/health` (liveness), `/status` (readiness: db, scheduler, ingestion freshness, llm),
-`/debug/jobs` (last run per job, durations, counts, errors, next scheduled run).
+- `/stocks` — catalog, quotes, profile, prices, technicals (+ series),
+  fundamentals, financials history, scores, Altman Z, valuation (+ explanation),
+  alpha (+ explanation & history), news, sentiment, peers, performance;
+  `POST /stocks/{symbol}/explain`, `POST /stocks/{symbol}/ask`
+- `/screener` — filter/sort the ranked universe
+- `/etfs` — curated ETF list & returns
+- `/funds` — mutual-fund catalog, NAV history, trailing returns
+- `/benchmarks`, `/market/news` — dashboard index cards and market-wide news
 
-## Testing
+Operational (root-level, OPS_API_KEY-gated in production):
+`/health`, `/status`, `/debug/jobs`.
+
+In development the interactive docs are at `/docs`; they are disabled in
+production so the route surface isn't served to scanners.
+
+## Testing & CI
 
 ```powershell
-cd backend;  .venv\Scripts\python -m pytest          # 322 tests, no network, uses signaldesk_test
-cd frontend; npm test                                # vitest (69)
-             npm run typecheck                       # tsc -b
-             npm run build                           # production build
+cd backend
+.venv\Scripts\python -m pytest      # offline suite, uses signaldesk_test
+cd ..\frontend
+npm test                            # vitest
+npm run typecheck                   # tsc -b
+npm run build                       # production build
 ```
+
+GitHub Actions runs the backend suite (Postgres 17 service container) and the
+frontend suite on every push/PR to `main`. Production ingestion is driven
+entirely by Actions workflows — nightly ingest (13:30 UTC, after market close),
+ranking, migrations, and DB backup/restore/probe jobs. Workflows are idempotent:
+cron drift is tolerated by upsert-based ingestion.
+
+## Production notes
+
+Deployed as a static frontend (Cloudflare Pages) + FastAPI backend (Render) +
+managed Postgres (Neon), with GitHub Actions as the only scheduler. Hardening:
+ops endpoints fail closed without `OPS_API_KEY`, per-IP rate limiting, CORS
+prefix enforcement, https-only LLM gateway check at startup, API docs disabled,
+and secrets only ever in service env vars / Actions secrets.
 
 ## Limitations
 
-- In-process scheduler, caches and LLM budget are single-process; production deployment
-  (Phase 8) moves ingestion to CI cron. Data advances only while the process is alive.
+- Data advances only while ingestion runs; the in-process scheduler (dev only)
+  stops with the process. In production, Actions cron drifts by minutes.
 - Fundamentals refresh nightly; `updated_at` marks the attempted refresh, not a
   per-field change guarantee.
-- No authentication anywhere (including the LLM-spending POST endpoints) — local/
-  development deployment only.
-- Some provider fields are inherently unavailable (e.g. interest coverage for most
-  stocks); the API returns null rather than estimating.
+- Some provider fields are inherently unavailable (e.g. interest coverage for
+  most stocks) — the API returns `null` rather than estimating.
+- LLM narratives are grounded in computed facts only; they are not investment
+  advice.
 
-## Roadmap (summary)
+## License
 
-- **Semester 1 (done):** equity research core + observability (Phases 1–7).
-- **Phase 8:** deployment (static frontend, autosuspend DB, CI cron ingestion, endpoint restriction).
-- **Semester 2:** multi-stock comparison, ETFs + mutual funds (research/holdings/overlap),
-  DCF, backtesting vs forward returns, PDF reports, service split + Docker + CI/CD.
-- **Deferred/exploratory:** portfolio simulation/paper trading, watchlists/auth,
-  bull/base/bear scenarios (methodology undefined), ML forecasting.
-
-Full decision log, methodology and roadmap: `PLANNING.md`. Operational status, commands
-and gotchas: `PROGRESS.md`.
+[MIT](LICENSE)
