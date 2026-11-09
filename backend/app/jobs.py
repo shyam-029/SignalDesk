@@ -41,7 +41,7 @@ from app.models import (
     Universe,
     stock_universe,
 )
-from app.providers.base import Fundamentals, MarketDataProvider
+from app.providers.base import Fundamentals, MarketDataProvider, OHLCV
 from app.providers.factory import build_default_market_provider
 from app.providers.funds_data import (
     fetch_amfi_navall,
@@ -136,6 +136,35 @@ async def _get_universe_symbols(session: AsyncSession) -> list[str]:
     return list(result.scalars())
 
 
+# A fetched price frame ending this many days before today is treated as a
+# transient provider failure and retried by _with_retry; persistence becomes
+# a visible per-symbol error instead of a silently frozen series.
+STALE_FRAME_MAX_AGE_DAYS = 5
+
+
+def _assert_frame_fresh(symbol: str, bars: list[OHLCV]) -> None:
+    """Reject a silently truncated provider frame.
+
+    yfinance can return a history frame that just... stops months ago, with
+    no exception and no empty frame (verified on the Actions runner 2026-11-09:
+    RELIANCE.NS/TCS.NS served bars ending 2026-09-08 through three full
+    nightly runs while other symbols were current). Such a frame upserts
+    idempotently over already-stored rows, freezing the symbol's series with
+    zero errors and zero skips — the worst kind of failure: invisible. A
+    frame older than the tolerance raises MarketDataError so the existing
+    retry/backoff machinery handles it and the outcome is recorded honestly.
+    """
+    if not bars:
+        return  # empty frames keep the caller's explicit "No price data" path
+    last = max(b.date for b in bars)
+    if last < date.today() - timedelta(days=STALE_FRAME_MAX_AGE_DAYS):
+        raise MarketDataError(
+            f"stale price frame for {symbol}: last bar {last.isoformat()} "
+            f"(older than {STALE_FRAME_MAX_AGE_DAYS} days; provider likely "
+            "served a truncated or cached frame)"
+        )
+
+
 async def _get_universe_symbols_and_names(
     session: AsyncSession,
 ) -> list[tuple[str, str | None]]:
@@ -159,10 +188,12 @@ async def _fetch_one_symbol(
 
     Raises MarketDataError upward so callers can isolate failures per symbol.
     """
-    bars = await _with_retry(
-        lambda: provider.get_price_history(symbol, PERIOD),
-        what=f"price fetch for {symbol}",
-    )
+    async def _fetch() -> list[OHLCV]:
+        bars = await provider.get_price_history(symbol, PERIOD)
+        _assert_frame_fresh(symbol, bars)
+        return bars
+
+    bars = await _with_retry(_fetch, what=f"price fetch for {symbol}")
     if not bars:
         logger.warning("No price data for %s; skipping.", symbol)
         return symbol, 0
