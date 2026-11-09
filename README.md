@@ -8,7 +8,7 @@ scores, technical indicators, an Altman Z-score, a composite **Alpha Score**, an
 FinBERT news sentiment, then serves it all through a FastAPI backend and a React
 frontend with grounded LLM explanations on top.
 
-One rule governs every layer: **missing data stays missing nothing is
+One rule governs every layer: **missing data stays missing; nothing is
 fabricated.** If a provider doesn't supply a field, the API returns `null` (or an
 explicit `NO_PEERS` / `INSUFFICIENT_DATA` error), never an estimate. When the LLM
 is unavailable, deterministic rule-based narratives take over.
