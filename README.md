@@ -95,20 +95,6 @@ npm install
 npm run dev    # http://localhost:5173 — proxies /api to the backend
 ```
 
-## Configuration (`backend/.env`, never committed)
-
-| Variable | Purpose |
-|---|---|
-| `DATABASE_URL` | `postgresql+asyncpg://user:pass@host:5432/signaldesk` |
-| `APP_ENV` | `development` or `production` (production enables hardening) |
-| `CORS_ORIGINS` | comma-separated browser origins; `*` is rejected in production |
-| `UPSTOX_ANALYTICS_TOKEN` | optional; enables the secondary data provider |
-| `LLM_API_KEY` / `OPENROUTER_API_KEY` | optional; empty = LLM disabled (rule-based narratives always work) |
-| `LLM_BASE_URL` / `LLM_MODEL` | OpenAI-compatible endpoint + model id (must be `https://` in production) |
-| `LLM_DAILY_CAP` | in-process LLM call budget shared across pre-warm, `/ask` and `/explain` |
-| `OPS_API_KEY` | required in production; gates `/debug/jobs` and full `/status` (fail closed) |
-| `RATE_LIMIT_*` | per-IP limits: LLM routes strictest, expensive fan-out medium, reads highest |
-
 ## API overview
 
 All research endpoints live under `/api/v1`:
