@@ -1,0 +1,62 @@
+name: db-forensics
+
+# One-off read-only diagnostic: prints catalog rows + max price dates for
+# given bare symbol prefixes. No secret values are printed; only symbols,
+# ids, dates, and row counts. Dispatch with: symbols = "RELIANCE,TCS,TMPV"
+
+on:
+  workflow_dispatch:
+    inputs:
+      symbols:
+        description: "Comma-separated bare symbol prefixes (no .NS)"
+        default: "RELIANCE,TCS,TATAMOTORS,TMPV"
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install minimal deps
+        run: pip install "sqlalchemy[asyncio]>=2.0,<2.1" asyncpg
+      - name: Probe catalog + price freshness
+        run: |
+          python - <<'PY'
+          import asyncio, os
+          from sqlalchemy import text
+          from sqlalchemy.ext.asyncio import create_async_engine
+
+          async def main():
+              url = os.environ["DATABASE_URL"]
+              if url.startswith("postgresql://"):
+                  url = url.replace("postgresql://", "postgresql+asyncpg://", 1)
+              engine = create_async_engine(url)
+              prefixes = [s.strip().upper() for s in
+                          "${{ inputs.symbols }}".split(",") if s.strip()]
+              async with engine.connect() as conn:
+                  for p in prefixes:
+                      rows = (await conn.execute(text(
+                          "SELECT s.id, s.symbol, s.active, s.name, "
+                          "       (SELECT max(dp.date) FROM daily_prices dp "
+                          "         WHERE dp.stock_id = s.id) AS last_bar, "
+                          "       (SELECT count(*) FROM daily_prices dp "
+                          "         WHERE dp.stock_id = s.id) AS bars "
+                          "FROM stocks s WHERE upper(s.symbol) LIKE :pat",
+                      ), {"pat": p + "%"})).fetchall()
+                      print(f"== {p} ==")
+                      for r in rows:
+                          print(f"  id={r[0]} symbol={r[1]} active={r[2]} "
+                                f"name={r[3]!r} last_bar={r[4]} bars={r[5]}")
+                      if not rows:
+                          print("  (no catalog rows)")
+              await engine.dispose()
+
+          asyncio.run(main())
+          PY
