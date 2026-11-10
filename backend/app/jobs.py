@@ -1590,24 +1590,27 @@ async def ingest_funds(
 
 # --- Retention: gated alpha-history prune (M2-T1, Plan 22 first cut) --------
 #
-# NOT part of the nightly _ingest_passes and never scheduled. This is a
-# gated operational tool: it fires ONLY when the live database size is at
-# or above settings.storage_cut_threshold_mb (450 MB default), and at the
-# current ~383 MB baseline it is a measured no-op (owner decision: ship it
-# inert, never execute the cut proactively). Run manually via
-# `python -m app.jobs prune-alpha` (recorded in job_runs like every pass)
-# when a db-probe run reports the threshold is met.
+# NOT part of the nightly _ingest_passes and never scheduled. Owner rule
+# (2026-11): alpha-score pruning is NOT enabled. The function deletes nothing
+# unless the caller passes the exact confirmation phrase below. There is no
+# size gate on purpose: pg_database_size includes dead-tuple bloat, so any
+# size threshold can be crossed without live data having grown, and a size
+# gate fires unattended. Size is reported for the record only. Run manually
+# via `python -m app.jobs prune-alpha --confirm DELETE-ALPHA-HISTORY`
+# (recorded in job_runs like every pass), only after the owner approves.
 
 _PRUNE_BATCH_SIZE = 5000  # short transactions; Neon connection friendly
 
+# The exact text an operator must type. Deliberately long and specific so it
+# cannot be supplied by accident or by a default argument.
+PRUNE_CONFIRM_PHRASE = "DELETE-ALPHA-HISTORY"
 
-async def prune_alpha_history_outside_top250(threshold_mb: int | None = None) -> dict:
+
+async def prune_alpha_history_outside_top250(confirm: str | None = None) -> dict:
     """Cut alpha history to 1y outside the top-250 keep-set (Plan 22).
 
-    Gate: measures pg_database_size (a read-only metadata query) and
-    proceeds only at or above `threshold_mb` (settings default 450 MB).
-    Below the gate the function deletes NOTHING and reports fired=False —
-    provably inert at current storage levels.
+    Refuses (deletes NOTHING, reads nothing, reports fired=False) unless
+    `confirm` equals PRUNE_CONFIRM_PHRASE. There is no automatic trigger.
 
     Keep-set: stocks with mcap_rank <= storage_cut_keep_top (250) keep full
     alpha history. Everyone else (rank > 250 or NULL — ranked_out rows stay
@@ -1616,29 +1619,24 @@ async def prune_alpha_history_outside_top250(threshold_mb: int | None = None) ->
     batched (short transactions), idempotent (a re-run deletes 0 rows), and
     never touches prices, statements, or any table but alpha_scores.
     """
-    effective_threshold = (
-        settings.storage_cut_threshold_mb if threshold_mb is None else threshold_mb
-    )
+    if confirm != PRUNE_CONFIRM_PHRASE:
+        logger.info(
+            "prune_alpha_history refused reason=confirmation_required deleted=0 "
+            "(alpha pruning is not enabled; see jobs.py retention note)"
+        )
+        return {
+            "fired": False,
+            "reason": "confirmation_required",
+            "deleted": 0,
+        }
+
+    # Size is recorded for the audit trail only; it never decides anything.
     async with SessionLocal() as session:
         size_bytes = int(
             await session.scalar(
                 select(func.pg_database_size(func.current_database()))
             )
         )
-
-    if not storage_svc.cut_gate_fires(size_bytes, effective_threshold):
-        logger.info(
-            "prune_alpha_history gate=below_threshold db_mb=%.1f threshold_mb=%d "
-            "deleted=0 (inert by design)",
-            size_bytes / storage_svc.BYTES_PER_MB,
-            effective_threshold,
-        )
-        return {
-            "fired": False,
-            "db_mb": round(size_bytes / storage_svc.BYTES_PER_MB, 1),
-            "threshold_mb": effective_threshold,
-            "deleted": 0,
-        }
 
     cutoff = date.today() - timedelta(days=settings.storage_cut_depth_days)
     # Prune target: every symbol NOT in the top-N keep-set. alpha_scores is
@@ -1674,7 +1672,6 @@ async def prune_alpha_history_outside_top250(threshold_mb: int | None = None) ->
     return {
         "fired": True,
         "db_mb": round(size_bytes / storage_svc.BYTES_PER_MB, 1),
-        "threshold_mb": effective_threshold,
         "cutoff": cutoff.isoformat(),
         "keep_top": settings.storage_cut_keep_top,
         "depth_days": settings.storage_cut_depth_days,
@@ -2106,12 +2103,18 @@ if __name__ == "__main__":
         # Annual balance sheets for the active universe (Altman Z-Score data).
         status = asyncio.run(_record_pass("ingest_balance_sheets", ingest_balance_sheets))
     elif command == "prune-alpha":
-        # Gated alpha-history retention cut (M2-T1, Plan 22). NOT scheduled
-        # and NOT part of the nightly passes: manual/gated operational tool
-        # that fires only at or above the storage threshold (450 MB default)
-        # and is a no-op below it.
+        # Alpha-history retention cut (M2-T1, Plan 22). NOT scheduled and NOT
+        # part of the nightly passes. Refuses unless run as
+        #   python -m app.jobs prune-alpha --confirm DELETE-ALPHA-HISTORY
+        # and only with the owner's approval (alpha pruning is not enabled).
+        confirm = None
+        if "--confirm" in sys.argv:
+            idx = sys.argv.index("--confirm")
+            confirm = sys.argv[idx + 1] if idx + 1 < len(sys.argv) else None
         status = asyncio.run(
-            _record_pass("prune_alpha_history", prune_alpha_history_outside_top250)
+            _record_pass(
+                "prune_alpha_history", prune_alpha_history_outside_top250, confirm
+            )
         )
     else:
         raise SystemExit(
