@@ -404,7 +404,7 @@ class RankingAudit(Base):
         # One audit row per master symbol per cycle (idempotency anchor).
         UniqueConstraint("cycle_id", "symbol", name="uq_ranking_audit_cycle_symbol"),
         Index("ix_ranking_audit_cycle_outcome", "cycle_id", "outcome"),
-        Index("ix_ranking_audit_stock", "stock_id"),
+        Index("ix_ranking_audit_stock_id", "stock_id"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
