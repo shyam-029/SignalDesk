@@ -30,8 +30,18 @@ while the canary alarms; read the `backup` job status for backup health.
 
 **Verification.** YAML parsed; TOC table-match logic exercised against a
 sample `pg_restore --list` listing (exact-name match, no prefix false
-positives). Not verifiable locally (no Docker / no production access): the
-real proof is a dispatched run producing a downloadable artifact.
+positives). Then dispatched on branch `ops/phase0-backup-first`
+(run 42803216508, 2026-11-10 10:55 UTC):
+
+- `backup` job: **success**. `signaldesk-20261110-1055.dump`, 55 MB, archive
+  TOC readable (173 entries), TABLE DATA present for all 9 checked tables.
+  Artifact `signaldesk-db-dump` stored (57,422,447 bytes zipped), expires
+  2026-12-10.
+- `storage-canary` job: failure as designed — 561,414,144 bytes (unchanged
+  from the 06:45 UTC reading the same day).
+
+First stored backup since at least 2026-10-04. Not yet proven restorable:
+a TOC read is not a restore.
 
 **Open after Phase 0.**
 
