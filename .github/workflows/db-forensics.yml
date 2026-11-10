@@ -51,6 +51,11 @@ jobs:
               prefixes = [s.strip().upper() for s in
                           "${{ inputs.symbols }}".split(",") if s.strip()]
               async with engine.connect() as conn:
+                  print("== universes ==")
+                  for r in (await conn.execute(text(
+                      "SELECT id, name, active FROM universes",
+                  ))).fetchall():
+                      print(f"  universe id={r[0]} name={r[1]!r} active={r[2]}")
                   for p in prefixes:
                       rows = (await conn.execute(text(
                           "SELECT s.id, s.symbol, s.active, s.name, "
@@ -62,8 +67,20 @@ jobs:
                       ), {"pat": p + "%"})).fetchall()
                       print(f"== {p} ==")
                       for r in rows:
+                          in_uni = (await conn.execute(text(
+                              "SELECT su.universe_id, u.name FROM stock_universe su "
+                              "JOIN universes u ON u.id = su.universe_id "
+                              "WHERE su.stock_id = :sid"
+                          ), {"sid": r[0]})).fetchall()
+                          audit = (await conn.execute(text(
+                              "SELECT a.outcome, c.cycle_date, c.id FROM ranking_audit a "
+                              "JOIN ranking_cycles c ON c.id = a.cycle_id "
+                              "WHERE a.stock_id = :sid ORDER BY c.cycle_date DESC LIMIT 3"
+                          ), {"sid": r[0]})).fetchall()
                           print(f"  id={r[0]} symbol={r[1]} active={r[2]} "
                                 f"name={r[3]!r} last_bar={r[4]} bars={r[5]}")
+                          print(f"    universes: {[(x[0], x[1]) for x in in_uni]}")
+                          print(f"    audit: {[(x[0], str(x[1]), x[2]) for x in audit]}")
                       if not rows:
                           print("  (no catalog rows)")
               await engine.dispose()
