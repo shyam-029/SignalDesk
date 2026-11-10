@@ -53,9 +53,9 @@ jobs:
               async with engine.connect() as conn:
                   print("== universes ==")
                   for r in (await conn.execute(text(
-                      "SELECT id, name, active FROM universes",
+                      "SELECT id, name FROM universes",
                   ))).fetchall():
-                      print(f"  universe id={r[0]} name={r[1]!r} active={r[2]}")
+                      print(f"  universe id={r[0]} name={r[1]!r}")
                   for p in prefixes:
                       rows = (await conn.execute(text(
                           "SELECT s.id, s.symbol, s.active, s.name, "
