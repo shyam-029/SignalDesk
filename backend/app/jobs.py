@@ -181,6 +181,69 @@ async def _get_universe_symbols_and_names(
     return [(row.symbol, row.name) for row in result]
 
 
+def _alias_fetch_symbol(symbol: str) -> str | None:
+    """Return the renamed fetch symbol for a catalog symbol, if any.
+
+    Catalog rows keep their seed symbol; demergers/renames change the NSE
+    trading symbol underneath (SYMBOL_ALIASES, bare forms). The Upstox
+    provider resolves renames through its instruments master, but yfinance
+    does not — a renamed catalog symbol hits a dead Yahoo ticker (0 rows, or
+    a frame frozen at the rename) forever. Returns the full-qualified alias
+    symbol with the catalog suffix preserved, or None.
+    """
+    bare = symbol.split(".")[0]
+    target = SYMBOL_ALIASES.get(bare)
+    if not target:
+        return None
+    return target + symbol[len(bare):]
+
+
+async def _fetch_bars_with_alias(
+    provider: MarketDataProvider, symbol: str
+) -> list[OHLCV]:
+    """Fetch price bars for a catalog symbol, falling back to its rename.
+
+    Order of attempts: the catalog symbol (retried by _with_retry; a stale
+    frame raises per _assert_frame_fresh), then — when the catalog symbol
+    yields nothing usable (empty frame or exhausted retries) and the symbol
+    has a rename alias — the aliased master symbol, which carries the same
+    entity's continued series (verified 2026-11-10: TMPV.NS serves the full
+    pre-demerger history that dead TATAMOTORS.NS no longer does).
+    """
+    async def _one(sym: str) -> list[OHLCV]:
+        bars = await provider.get_price_history(sym, PERIOD)
+        if bars:
+            _assert_frame_fresh(sym, bars)
+        return bars
+
+    alias = _alias_fetch_symbol(symbol)
+    try:
+        bars = await _with_retry(
+            lambda: _one(symbol), what=f"price fetch for {symbol}"
+        )
+        if bars:
+            return bars
+        if alias is None:
+            return []
+    except MarketDataError as primary_exc:
+        if alias is None:
+            raise
+        logger.info(
+            "price fetch for %s unusable (%s); falling back to renamed symbol %s",
+            symbol, primary_exc, alias,
+        )
+        return await _with_retry(
+            lambda: _one(alias), what=f"price fetch for {symbol} via {alias}"
+        )
+    logger.info(
+        "no price data for %s under the catalog symbol; trying renamed symbol %s",
+        symbol, alias,
+    )
+    return await _with_retry(
+        lambda: _one(alias), what=f"price fetch for {symbol} via {alias}"
+    )
+
+
 async def _fetch_one_symbol(
     provider: MarketDataProvider, symbol: str
 ) -> tuple[str, int]:
@@ -188,12 +251,7 @@ async def _fetch_one_symbol(
 
     Raises MarketDataError upward so callers can isolate failures per symbol.
     """
-    async def _fetch() -> list[OHLCV]:
-        bars = await provider.get_price_history(symbol, PERIOD)
-        _assert_frame_fresh(symbol, bars)
-        return bars
-
-    bars = await _with_retry(_fetch, what=f"price fetch for {symbol}")
+    bars = await _fetch_bars_with_alias(provider, symbol)
     if not bars:
         logger.warning("No price data for %s; skipping.", symbol)
         return symbol, 0

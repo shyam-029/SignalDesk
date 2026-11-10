@@ -132,6 +132,20 @@ class BalanceSheetDraft:
     source: str = ""
 
 
+# Catalog symbol -> current NSE trading symbol (bare forms). The catalog
+# keeps the symbol a stock was seeded with; demergers/renames change the NSE
+# trading symbol underneath it and data sources only know the NEW one.
+#   TATAMOTORS -> TMPV: Tata Motors renamed post-demerger; same ISIN
+#   (INE155A01022), so data under TMPV is the same entity (verified against
+#   the live instruments master 2026-09-06; Yahoo continues TMPV.NS's series
+#   through the pre-demerger period, so it is also the yfinance fetch symbol).
+# Shared by every provider that resolves renames (Upstox instruments lookup,
+# yfinance fallback) and by the ranking pass.
+SYMBOL_ALIASES: dict[str, str] = {
+    "TATAMOTORS": "TMPV",
+}
+
+
 class MarketDataProvider(ABC):
     """Contract every market data source must implement."""
 

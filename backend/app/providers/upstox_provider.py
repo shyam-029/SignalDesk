@@ -41,6 +41,8 @@ from urllib.parse import quote
 import httpx
 
 from app.providers.base import (
+    SYMBOL_ALIASES,
+    BalanceSheetDraft,
     FinancialPeriodDraft,
     Fundamentals,
     MarketDataError,
@@ -140,18 +142,6 @@ def parse_instruments(payload: bytes) -> dict[str, tuple[str, str]]:
             continue
         out.setdefault(str(symbol).upper(), (str(key), str(isin)))
     return out
-
-
-# Catalog symbol -> current NSE trading symbol. The catalog keeps the symbol
-# a stock was seeded with; demergers/renames change the NSE trading symbol
-# underneath it and the instruments master only knows the NEW one.
-#   TATAMOTORS -> TMPV: Tata Motors renamed post-demerger; same ISIN
-#   (INE155A01022), so Upstox data under TMPV is the same entity. Verified
-#   against the live instruments master 2026-09-06 (1 of 251 catalog symbols
-#   affected).
-SYMBOL_ALIASES: dict[str, str] = {
-    "TATAMOTORS": "TMPV",
-}
 
 
 class UpstoxProvider(MarketDataProvider):
