@@ -41,3 +41,7 @@ Thumbs.db
 node_modules/
 dist/
 *.local
+
+# --- Local log archives and private notes (never part of the repo) ---
+/logs_*/
+/problems encountered in signal desk.txt
