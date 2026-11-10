@@ -27,13 +27,13 @@ jobs:
       - name: pg_dump to a custom-format file
         run: |
           PGURL=$(echo "$DATABASE_URL" | sed -e 's/^postgresql+asyncpg:/postgresql:/' -e 's/ssl=require/sslmode=require/')
-          docker run --rm -v "$PWD:/out" -e PGURL postgres:17 \
+          docker run --rm -v "$PWD:/out" -e PGURL="$PGURL" postgres:17 \
             sh -c 'pg_dump "$PGURL" -Fc -f /out/signaldesk-$(date +%Y%m%d).dump'
           ls -lh signaldesk-*.dump
       - name: Storage canary (Plan 22, alarm at 450 MB of the 512 MB hard cap)
         run: |
           PGURL=$(echo "$DATABASE_URL" | sed -e 's/^postgresql+asyncpg:/postgresql:/' -e 's/ssl=require/sslmode=require/')
-          BYTES=$(docker run --rm -e PGURL postgres:17 \
+          BYTES=$(docker run --rm -e PGURL="$PGURL" postgres:17 \
             sh -c 'psql "$PGURL" -t -A -c "SELECT pg_database_size(current_database())"')
           echo "Database size: $BYTES bytes"
           if [ "$BYTES" -ge 450000000 ]; then
