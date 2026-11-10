@@ -103,6 +103,44 @@ Legend: `[x]` merged to main · `[~]` in progress · `[ ]` not started ·
 - [ ] **16** Keep-warm ping on `/health`; persist TanStack Query cache to
       `localStorage` for repeat visits
 
+## Ingest speed
+
+Owner request (2026-11-10): start the nightly right after market close, or
+as soon as Yahoo and Upstox have published the day's final values, and make
+it shorter. Target: from ~2 h today to ~45-55 min, or ~15-25 min on
+weeknights with parallel jobs plus weekly heavy passes. Order: 25 first;
+everything that changes the nightly waits for 2a (the post-Phase-2
+baseline). Each item touches `ingest.yml` / `jobs.py`, so one branch each.
+
+- [~] **25** Measure first: `bar-publish-probe.yml` records, every 15 min
+      from 14:30 to 23:15 IST on weekdays, whether today's bar exists on
+      Yahoo and its values, for RELIANCE, TCS, HDFCBANK and ^NSEI. Read-only
+      (no database). Upstox is not covered yet: it needs an
+      `UPSTOX_ANALYTICS_TOKEN` Actions secret (it exists only in Render)
+- [ ] **26** Event-driven start from 25's results: an earlier cron (about
+      16:30 IST = 11:00 UTC, final time from the data) plus a first step that
+      polls the sentinels until today's bar exists and is unchanged across
+      two reads, with a timeout fallback (run anyway, flag as late). Keep the
+      stale-frame and NaN-row guards. The gate must not assume the start
+      time (GitHub cron drifts). Item 8's alerting is already in place
+- [ ] **27** Incremental price fetch (last ~10 days; full 2y refetch only
+      after a detected split/dividend). Depends on the adjusted-price seam
+      decision. Biggest saving (~11-19 min to ~4)
+- [ ] **28** Batched multi-ticker Yahoo download and a gradual BATCH_SIZE
+      increase while watching 429s (related: 22)
+- [ ] **29** Tiered schedule: financial periods, balance sheets and profiles
+      weekly (plus after earnings season); nightly keeps the price-linked
+      passes. Saves ~30 min
+- [ ] **30** Weekday-only runs plus an NSE holiday skip (pairs with 17)
+- [ ] **31** Independent passes as parallel jobs (check Neon connection
+      limits and shared-IP Yahoo throttling first)
+- [ ] **32** Alpha: recompute only symbols whose inputs or formula version
+      changed (or the derive-on-demand storage decision)
+- [ ] **33** News: fetch only articles newer than the last run, skip FinBERT
+      for already-scored articles, cache the model between runs
+- [ ] **34** Funds on their own schedule after AMFI publishes NAVs (verify
+      the publish time with a probe like 25), not tied to the equity run
+
 ## Product
 
 - [ ] Quick UI fixes: About as a dropdown; remove internal descriptions
@@ -119,6 +157,5 @@ Legend: `[x]` merged to main · `[~]` in progress · `[ ]` not started ·
 
 ## Suggested order
 
-2a (tonight's nightly) → merge the 7/8/9/20/21/23 PR, then run the
-restore test and the watchdog once
-→ 12-16 → 6 → 17-23 → product items.
+2a (tonight's nightly) → 25 runs for a week → 26-34 in order of saving
+→ 6 → remaining 17-23 → product items.
