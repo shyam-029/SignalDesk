@@ -4,6 +4,47 @@ Running record of the 2026-11 audit remediation: what changed, why, how it was
 verified, and what risk remains open. Newest entries first. Production numbers
 come from workflow logs; nothing here contains credentials or hostnames.
 
+## Phases 4 and 5 — Migrations only by hand; no connection details in public logs (2026-11-10)
+
+**Problem.**
+
+- `ingest.yml` and `rank.yml` ran `alembic upgrade head` against production
+  before every job, so any merged migration reached the production schema
+  unreviewed and un-backed-up, on whatever night ran next.
+- `rank.yml` carried three temporary credential-debugging steps (credential
+  fingerprint, direct-vs-pooler connectivity matrix) that print the database
+  host, user, database name and port into public Actions logs.
+
+**Change (workflows only; no application code, no migration).**
+
+- Removed the fingerprint and connectivity-matrix steps from `rank.yml`.
+- Replaced `alembic upgrade head` in both workflows with a **schema-at-head
+  check**. The only way to change production schema is now the `migrate`
+  workflow (`direction=upgrade`, `revision=head`).
+- The check fails fast and names `migrate.yml` in a `::error::` annotation,
+  both when the schema is behind code and when the revision cannot be read.
+  Raw alembic output is deliberately never printed, because a connection
+  error can carry the host and these logs are public.
+
+**Operating consequence (read this).** After merging any PR that adds an
+Alembic migration, dispatch `migrate` *before* the next nightly (13:30 UTC)
+or monthly rank (04:00 UTC on the 1st). A forgotten migration now stops the
+run immediately with a clear message instead of running new code on an old
+schema. A failed scheduled run is not by itself an alert: 45 consecutive
+failed nights (2026-09-25 to 2026-11-08, Phase 1 finding) went unnoticed, so
+failure alerting is a separate open item, not solved here.
+
+**Not verified / still open.**
+
+- Whether Render also runs `alembic upgrade head` as a release command (there
+  is no `render.yaml` in the repo; this is a Render dashboard setting). If it
+  does, deploys still auto-migrate and that setting should be cleared.
+- Not run: workflow YAML parses; the check itself only runs on the next
+  scheduled or dispatched run.
+- Old public run logs that already contain the host, user and database name
+  are not deleted by this change. The password was never printed. Rotating
+  the Neon password and deleting those runs are owner decisions.
+
 ## Phase 2 — Stop nightly write churn (2026-11-10, code only, no migration)
 
 **Problem (measured in Phase 1).** Each nightly run re-offers ~462k price
@@ -154,8 +195,8 @@ a TOC read is not a restore.
 | Risk | Status |
 |---|---|
 | `prune-alpha` gate is armed (uses `pg_database_size`, which includes bloat) | open — Phase 3 |
-| Migrations auto-apply to production via `ingest.yml` / `rank.yml` | open — Phase 4 |
+| Migrations auto-apply to production via `ingest.yml` / `rank.yml` | fixed in workflows (Phase 4); Render release command unverified |
 | Alpha backfill delete+insert churns ~493k rows/run and is non-atomic | open — Phase 2 |
 | Price upsert rewrites ~462k unchanged rows/run | open — Phase 2 |
 | Adjusted-price seam at the 2y fetch-window edge | open — needs owner decision |
-| `rank.yml` logs DB host/user/db name to public Actions logs | open — Phase 8 |
+| `rank.yml` logs DB host/user/db name to public Actions logs | steps removed (Phase 5); old logs and password rotation are owner decisions |
