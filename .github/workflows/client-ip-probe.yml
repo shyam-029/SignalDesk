@@ -36,3 +36,5 @@ jobs:
           call | python3 -m json.tool
           echo "== with a forged X-Forwarded-For: $SPOOF"
           call -H "X-Forwarded-For: $SPOOF" | python3 -m json.tool
+          echo "== with forged CF-Connecting-IP and True-Client-IP: $SPOOF"
+          call -H "CF-Connecting-IP: $SPOOF" -H "True-Client-IP: $SPOOF" -H "X-Real-IP: $SPOOF" | python3 -m json.tool
