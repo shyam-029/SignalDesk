@@ -2,7 +2,7 @@
 // Keys are structured so caches dedupe across pages (e.g. the landing preview
 // and the stock page share the same RELIANCE.NS detail entry).
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { api, type ScreenerParams } from "@/lib/api";
 import type { ExplainQuestionType } from "@/lib/types";
@@ -198,6 +198,9 @@ export function useScreener(params: ScreenerParams) {
     queryKey: ["screener", params],
     queryFn: () => api.screener(params),
     staleTime: 60_000,
+    // Paging: keep showing the current page while the next one loads,
+    // instead of flashing the loading skeleton on every page change.
+    placeholderData: keepPreviousData,
   });
 }
 
