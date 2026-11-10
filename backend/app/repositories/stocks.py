@@ -118,16 +118,3 @@ async def search_universe(
 
     rows.sort(key=_rank)
     return rows[:limit]
-
-
-async def list_all_symbols(session: AsyncSession) -> list[str]:
-    """Return every EQUITY symbol in the ACTIVE universe (used by the screener).
-
-    ETFs (is_etf) are a separate domain (Plan 9, GET /etfs) and never enter
-    the equity screener; the screener also presents the ranked top-1000, not
-    the full catalog.
-    """
-    stmt = select(Stock.symbol).where(Stock.is_etf.is_(False))
-    stmt = active_universe_filter(stmt)
-    result = await session.execute(stmt.order_by(Stock.symbol))
-    return list(result.scalars())

@@ -199,6 +199,28 @@ async def production_docs_guard(request: Request, call_next):
         return response
     return await call_next(request)
 
+
+# Browser cache for research reads (work list item 12). Every /api/v1 GET is
+# public, identical for all callers and refreshed at most nightly, so a
+# successful response may be reused for a minute and served stale for five
+# more while the browser revalidates in the background. Errors, POSTs
+# (ask/explain) and operational routes (/health, /status, /debug) are never
+# marked cacheable. A route that sets its own Cache-Control keeps it.
+API_CACHE_CONTROL = "public, max-age=60, stale-while-revalidate=300"
+
+
+@app.middleware("http")
+async def api_cache_headers(request: Request, call_next):
+    response = await call_next(request)
+    if (
+        request.method == "GET"
+        and request.url.path.startswith("/api/v1/")
+        and response.status_code == 200
+        and "cache-control" not in response.headers
+    ):
+        response.headers["Cache-Control"] = API_CACHE_CONTROL
+    return response
+
 # Browser origins allowed to call the API (from CORS_ORIGINS in .env).
 # Empty config disables CORS entirely (e.g. same-origin deployments).
 # Production requires explicit origins ("*" fails startup above). Methods
