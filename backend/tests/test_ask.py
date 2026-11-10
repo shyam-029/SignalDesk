@@ -176,6 +176,189 @@ def test_rule_based_answer_uses_real_numbers():
     assert confidence == "low"
 
 
+_RICH_EVIDENCE = {
+    "symbol": "X.NS",
+    "company": {
+        "name": "Askable", "sector": "Energy", "industry": "Oil",
+        "business_summary": "Askable refines oil. It also sells fuel.",
+        "ceo": "A. Person", "employees": 12345,
+    },
+    "price": {"last_price": 123.4, "change_pct": 1.25},
+    "alpha": {"composite": 61, "fundamental": 88, "technical": 47, "sentiment": 50},
+    "valuation": {"metric": "PE", "current": 23.43, "peer_median": 12.0,
+                  "margin_pct": 95.25, "status": "overvalued", "peer_count": 9},
+    "fundamentals": {
+        "profitability": 41, "solvency": 83,
+        "profitability_components": [{"name": "ROE", "value": 0.09, "score": 40}],
+        "solvency_components": [],
+    },
+    "performance": {
+        "windows": {"1m": {"change_pct": 2.1}, "1y": {"change_pct": -5.39}},
+        "high_52w": 1500.0, "low_52w": 1100.0, "volatility_1y_pct": 22.5,
+    },
+    "sentiment": {"label": "neutral", "net_score": -0.04, "count": 57},
+}
+
+
+def test_rule_based_answers_the_topic_asked_not_a_generic_recap():
+    answer, used, confidence = ask_svc.rule_based_answer(
+        _RICH_EVIDENCE, "How is this stock valued vs peers?"
+    )
+    assert "peer median of 12" in answer and "overvalued" in answer
+    assert "9 peers" in answer
+    # The canned recap's unrelated fields must not appear.
+    assert "Alpha Score" not in answer and "last closed" not in answer
+    assert used == ["valuation"]
+    assert confidence == "medium"
+
+
+def test_rule_based_company_question_uses_stored_background_only():
+    answer, used, _ = ask_svc.rule_based_answer(
+        _RICH_EVIDENCE, "What does the company do?"
+    )
+    assert "Askable refines oil. It also sells fuel." in answer
+    assert "A. Person" in answer and "12,345" in answer
+    assert "company.business_summary" in used
+
+
+def test_rule_based_risk_and_performance_use_real_numbers():
+    answer, used, _ = ask_svc.rule_based_answer(
+        _RICH_EVIDENCE, "What are the main risks, and how has it performed?"
+    )
+    assert "22.5%" in answer          # volatility
+    assert "83/100" in answer         # solvency
+    assert "1y -5.39%" in answer      # performance window
+    assert "52-week range 1100 to 1500" in answer
+    assert "performance.volatility_1y_pct" in used
+
+
+def test_rule_based_topic_without_data_says_so_instead_of_recapping():
+    evidence = {"symbol": "X.NS", "price": {"last_price": 10.0}}
+    answer, used, confidence = ask_svc.rule_based_answer(
+        evidence, "What is the news sentiment?"
+    )
+    assert "no stored news sentiment data" in answer
+    assert "last closed" not in answer
+    assert used == [] and confidence == "low"
+
+
+def test_rule_based_partial_topic_data_flags_the_gap():
+    evidence = {"valuation": _RICH_EVIDENCE["valuation"]}
+    answer, _, confidence = ask_svc.rule_based_answer(
+        evidence, "Is it cheap, and what does the news say?"
+    )
+    assert "peer median" in answer
+    assert "no stored news sentiment data" in answer
+    assert confidence == "low"
+
+
+def test_rule_based_unmatched_question_keeps_the_generic_recap():
+    answer, used, confidence = ask_svc.rule_based_answer(
+        _RICH_EVIDENCE, "Tell me something interesting"
+    )
+    assert "last closed at 123.4" in answer and "61/100" in answer
+    assert confidence == "low"
+
+
+def test_rule_based_never_invents_numbers():
+    """Every digit sequence in a topical answer comes from the evidence."""
+    import re as _re
+    answer, _, _ = ask_svc.rule_based_answer(
+        _RICH_EVIDENCE, "How has it performed and how risky is it?"
+    )
+    evidence_text = str(_RICH_EVIDENCE)
+    for number in _re.findall(r"\d+(?:\.\d+)?", answer):
+        assert number.rstrip("0").rstrip(".") in evidence_text or number in evidence_text
+
+
+_HISTORY = {
+    "as_of": "2026-11-10", "trading_days": 252,
+    "biggest_gains": [{"date": "2026-04-08", "change_pct": 9.41}],
+    "biggest_drops": [{"date": "2026-03-02", "change_pct": -7.8}],
+    "up_days": 130, "down_days": 120, "avg_abs_daily_move_pct": 1.3,
+    "max_drawdown_pct": -28.5, "max_drawdown_peak_date": "2025-12-01",
+    "max_drawdown_trough_date": "2026-04-01",
+    "high_52w": 1500.0, "high_52w_date": "2025-12-01",
+    "low_52w": 1050.0, "low_52w_date": "2026-04-01", "pct_from_52w_high": -13.7,
+    "recent_closes": [{"date": "2026-11-10", "close": 1294.9, "change_pct": -1.11}],
+}
+
+
+def test_users_biggest_daily_change_question_is_answered_from_history_facts():
+    """The question that exposed the gap: 'biggest change in value in a day'."""
+    evidence = {**_RICH_EVIDENCE, "price_history": _HISTORY}
+    answer, used, confidence = ask_svc.rule_based_answer(
+        evidence, "adani green biggest change in value in a day"
+    )
+    assert "9.41% on 2026-04-08" in answer      # biggest one-day gain
+    assert "-7.8% on 2026-03-02" in answer      # biggest one-day drop
+    assert "-28.5%" in answer                   # deepest fall
+    assert "peer median" not in answer          # the word "value" is not valuation
+    assert "price_history.biggest_gains" in used and confidence == "medium"
+
+
+def test_valuation_topic_still_matches_real_valuation_questions():
+    answer, _, _ = ask_svc.rule_based_answer(_RICH_EVIDENCE, "Is it overvalued vs peers?")
+    assert "peer median" in answer
+
+
+def test_allowlist_accepts_the_new_blocks_and_drops_extras():
+    evidence = {
+        "symbol": "X.NS",
+        "price_history": {**_HISTORY, "secret_field": "x"},
+        "quarterly_history": [{"period_end": "2026-09-30", "revenue": 5.0, "junk": 1}],
+        "distress": {"status": "available", "z_score": 2.2, "zone": "grey", "junk": 1},
+        "peers": [{"symbol": "P.NS", "trailing_pe": 11.0, "junk": 1}],
+        "not_allowed": "dropped",
+    }
+    filtered = ask_svc.filter_evidence(evidence)
+    assert "not_allowed" not in filtered
+    assert "secret_field" not in filtered["price_history"]
+    assert filtered["price_history"]["biggest_gains"][0]["change_pct"] == 9.41
+    assert filtered["quarterly_history"] == [{"period_end": "2026-09-30", "revenue": 5.0}]
+    assert filtered["distress"] == {"status": "available", "z_score": 2.2, "zone": "grey"}
+    assert filtered["peers"] == [{"symbol": "P.NS", "trailing_pe": 11.0}]
+
+
+def test_prompt_guides_a_direct_answer_and_names_the_new_evidence():
+    system, user = ask_svc.build_prompt("q", {"symbol": "X.NS"})
+    assert "Answer the question directly first" in system
+    assert "at most 180 words" in system
+    assert "price_history" in system and "peers" in system and "distress" in system
+    assert '"q"' in user  # the question is still embedded as quoted data
+
+
+def test_methodology_text_matches_the_live_alpha_weights():
+    text = ask_svc._METHODOLOGY_TEXT
+    assert "40% fundamental + 35% technical + 25% sentiment" in text
+    assert "30% technical" not in text
+    assert "Altman" in text
+
+
+def test_rule_based_risk_includes_drawdown_and_distress_when_present():
+    evidence = {
+        **_RICH_EVIDENCE, "price_history": _HISTORY,
+        "distress": {"status": "available", "z_score": 2.18, "zone": "grey"},
+    }
+    answer, used, _ = ask_svc.rule_based_answer(evidence, "What are the main risks?")
+    assert "-28.5%" in answer and "Altman Z score is 2.18 (grey zone)" in answer
+    assert "distress" in used
+
+
+def test_rule_based_valuation_lists_peer_pes_when_present():
+    evidence = {
+        **_RICH_EVIDENCE,
+        "peers": [
+            {"symbol": "A.NS", "name": "Alpha Co", "trailing_pe": 11.5},
+            {"symbol": "B.NS", "name": "Beta Co", "trailing_pe": None},
+            {"symbol": "C.NS", "name": "Gamma Co", "trailing_pe": 9.0},
+        ],
+    }
+    answer, used, _ = ask_svc.rule_based_answer(evidence, "How is it valued vs peers?")
+    assert "Alpha Co 11.5" in answer and "Gamma Co 9" in answer
+    assert "Beta Co" not in answer and "peers" in used
+
+
 # --- Endpoint tests ------------------------------------------------------------
 
 
@@ -208,6 +391,23 @@ async def test_ask_success_returns_contract(client, session_factory, monkeypatch
     assert body["source"] == "model"
     assert provider.calls == 1
     assert llm_narrative._calls_today == 1  # shares the Phase 5 daily cap
+
+
+async def test_ask_prompt_includes_computed_history_and_distress(client, session_factory, monkeypatch):
+    """The model is handed the backend-computed facts it needs for questions
+    like 'what was its biggest one-day move?' (it may not calculate itself)."""
+    await _seed_stock(session_factory)
+    _patch_llm_on(monkeypatch)
+    provider = FakeAskProvider()
+    _patch_provider(monkeypatch, provider)
+    r = await client.post(
+        "/api/v1/stocks/ASK/ask", json={"question": "What was the biggest one-day move?"}
+    )
+    assert r.status_code == 200 and r.json()["source"] == "model"
+    prompt = provider.last_user
+    assert '"price_history"' in prompt and '"biggest_gains"' in prompt
+    assert '"recent_closes"' in prompt and '"distress"' in prompt
+    assert "40% fundamental + 35% technical + 25% sentiment" in prompt
 
 
 async def test_ask_prompt_injection_attempt_still_structured(client, session_factory, monkeypatch):
@@ -276,7 +476,11 @@ async def test_ask_malformed_output_falls_back(client, session_factory, monkeypa
     assert r.status_code == 200
     body = r.json()
     assert body["source"] == "rule_based"
-    assert body["confidence"] == "low"
+    # The fallback now answers the topic asked (Alpha) from stored data, so a
+    # matched topic with data reads medium; only unmatched or data-less
+    # questions stay low (the generic recap).
+    assert body["confidence"] == "medium"
+    assert "Alpha Score is" in body["answer"]
     assert "not investment advice" in body["answer"]
 
 

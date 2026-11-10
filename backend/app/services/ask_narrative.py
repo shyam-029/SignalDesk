@@ -90,6 +90,9 @@ ALLOWED_EVIDENCE_KEYS = {
     "symbol", "company", "price", "alpha", "technical", "valuation",
     "fundamentals", "performance", "sentiment", "financial_history",
     "methodology", "data_as_of",
+    # Computed by the backend (services/ask_facts.py and stored data), never
+    # by the model: daily-move facts, quarterly results, distress, peers.
+    "price_history", "quarterly_history", "distress", "peers",
 }
 
 _NESTED_ALLOWED_KEYS = {
@@ -110,7 +113,25 @@ _NESTED_ALLOWED_KEYS = {
     "sentiment": {"net_score", "label", "count"},
     "financial_history": {"period_end", "period_type", "revenue", "net_income",
                           "operating_margin", "net_margin", "eps"},
+    "quarterly_history": {"period_end", "period_type", "revenue", "net_income",
+                          "operating_margin", "net_margin", "eps"},
+    # price_history's inner lists (biggest_gains, recent_closes, ...) are built
+    # by the pure ask_facts function with a fixed shape, so only its top-level
+    # keys are filtered here.
+    "price_history": {"as_of", "trading_days", "biggest_gains", "biggest_drops",
+                      "up_days", "down_days", "avg_abs_daily_move_pct",
+                      "max_drawdown_pct", "max_drawdown_peak_date",
+                      "max_drawdown_trough_date", "high_52w", "high_52w_date",
+                      "low_52w", "low_52w_date", "pct_from_52w_high",
+                      "recent_closes"},
+    "distress": {"status", "z_score", "zone", "reason"},
+    "peers": {"symbol", "name", "trailing_pe", "price_to_book", "ev_ebitda",
+              "market_cap", "mcap_rank", "return_on_equity", "operating_margin",
+              "revenue_cagr_3y", "return_1y_pct"},
 }
+
+# Evidence keys whose value is a list of row dicts, each filtered the same way.
+_LIST_KEYS = {"financial_history", "quarterly_history", "peers"}
 
 # Alpha's value_signal nests one level deeper; it is already the Phase 5
 # allow-listed shape ({metric, status, margin_pct}) from llm_narrative._alpha_facts.
@@ -131,10 +152,9 @@ def filter_evidence(evidence: dict) -> dict:
             filtered[key] = {
                 k: v for k, v in value.items() if k in allowed_nested
             }
-        elif key == "financial_history" and isinstance(value, list):
+        elif key in _LIST_KEYS and isinstance(value, list):
             filtered[key] = [
-                {k: v for k, v in row.items()
-                 if k in _NESTED_ALLOWED_KEYS["financial_history"]}
+                {k: v for k, v in row.items() if k in _NESTED_ALLOWED_KEYS[key]}
                 for row in value if isinstance(row, dict)
             ]
         else:
@@ -182,10 +202,21 @@ _SYSTEM_PROMPT = (
     "7. Never claim to have browsed the web or accessed any external or "
     "real-time source. You have only the evidence in this message and no "
     "memory of any other conversation.\n"
-    "8. Explain conclusions using the supplied evidence.\n\n"
+    "8. Explain conclusions using the supplied evidence.\n"
+    "9. Answer the question directly first, quoting the specific numbers and "
+    "dates in the evidence. Then add at most two short points of context the "
+    "evidence supports. If the exact figure asked for is not in the evidence, "
+    "say what the closest evidence shows instead of stopping at 'not "
+    "available'.\n\n"
+    "The evidence can include: price_history (the biggest daily gains and "
+    "drops over the last year, maximum drawdown, 52-week high and low with "
+    "dates, recent daily closes), quarterly_history and financial_history, "
+    "distress (Altman Z score), peers (same-industry peers with multiples), "
+    "plus price, technical, valuation, fundamentals, performance, sentiment "
+    "and alpha. Use only the blocks that are present.\n\n"
     "Output contract: reply with ONLY a JSON object, no markdown fence, "
     "exactly this shape:\n"
-    '{"answer": "<at most 120 words>", "evidence": ["<fact used>", "..."], '
+    '{"answer": "<at most 180 words>", "evidence": ["<fact used>", "..."], '
     '"confidence": "high" | "medium" | "low"}\n'
     "confidence: high when the evidence directly answers the question, medium "
     "when it only partially does, low when the evidence barely covers it."
@@ -272,18 +303,21 @@ _INSUFFICIENT_ANSWER = (
 )
 
 _METHODOLOGY_TEXT = (
-    "Alpha = 40% fundamental + 30% technical + 30% sentiment (renormalized). "
-    "Valuation compares multiples to the same-industry peer median; outside "
-    "+/-5% of the median reads under/overvalued. Technicals: trend 50%, "
-    "momentum 30%, mean reversion 20%."
+    "Alpha = 40% fundamental + 35% technical + 25% sentiment (renormalized "
+    "over available parts). The fundamental part blends profitability 45%, "
+    "solvency 30% and Altman Z-score distress 25%. Valuation compares "
+    "multiples to the same-industry peer median; outside +/-5% of the median "
+    "reads under/overvalued, and it is kept separate from Alpha. Technicals: "
+    "trend 50%, momentum 30%, mean reversion 20%."
 )
 
 
-def rule_based_answer(evidence: dict) -> tuple[str, list[str], str]:
-    """Deterministic answer from the same allow-listed evidence (no LLM).
+def _generic_rule_based_answer(evidence: dict) -> tuple[str, list[str], str]:
+    """Deterministic recap from the allow-listed evidence (no LLM).
 
     Returns (answer, evidence_used, confidence). Never invents: every number
-    is read straight from the evidence dict.
+    is read straight from the evidence dict. Used when the question matches
+    no topic in the question-aware layer below.
     """
     used: list[str] = []
     parts: list[str] = []
@@ -347,6 +381,337 @@ def rule_based_answer(evidence: dict) -> tuple[str, list[str], str]:
         + ". Based only on SignalDesk's stored data; not investment advice."
     )
     return answer, used, "low"
+
+
+# --- Question-aware rule-based answer -----------------------------------------
+#
+# When the LLM is unavailable (no key, daily cap, model rotated out, provider
+# error) every question used to get the same canned recap. This layer answers
+# the topic that was actually asked, from the same allow-listed evidence, with
+# no model and no invented numbers. Topics are matched by keyword; a question
+# that matches none gets the generic recap. At most three topics per answer.
+
+_I = re.IGNORECASE
+_TOPIC_PATTERNS: tuple[tuple[str, "re.Pattern[str]"], ...] = (
+    ("company", re.compile(
+        r"\bbusiness\b|what (?:does|do) (?:the |this )?(?:company|it|they)\b|"
+        r"\bceo\b|employees|website|\bsector\b|\bindustry\b|who (?:runs|leads)", _I)),
+    ("extremes", re.compile(
+        r"biggest|largest|\bworst\b|\bbest day|single.day|in a day|one.day|"
+        r"crash|plunge|spike|surge|drawdown|\bdrop\b|\bdrops\b", _I)),
+    ("valuation", re.compile(
+        r"valuation|\bvalued\b|undervalu|overvalu|\bp/?e\b|\bpeers?\b|"
+        r"expensive|cheap|overpriced|underpriced|multiple", _I)),
+    ("performance", re.compile(
+        r"perform|return|gain|\bfell\b|\brise\b|rally|52|\bhigh\b|\blow\b|"
+        r"year|month|week", _I)),
+    ("fundamentals", re.compile(
+        r"fundamental|profit|solven|debt|margin|\broe\b|revenue|earning|income|"
+        r"financ|growth", _I)),
+    ("technical", re.compile(
+        r"technic|\brsi\b|macd|trend|momentum|moving average|\bsma\b|\bema\b|"
+        r"chart|overbought|oversold", _I)),
+    ("sentiment", re.compile(r"news|sentiment|headline|buzz", _I)),
+    ("alpha", re.compile(r"alpha|\bscore|rating|\brank", _I)),
+    ("risk", re.compile(
+        r"\brisk|danger|downside|safe\b|volatil|drawdown|worr", _I)),
+)
+
+_TOPIC_LABELS = {
+    "company": "company background", "extremes": "daily price move",
+    "valuation": "valuation",
+    "performance": "price performance", "fundamentals": "fundamentals",
+    "technical": "technical", "sentiment": "news sentiment",
+    "alpha": "Alpha Score", "risk": "risk",
+}
+
+_MAX_TOPICS = 3
+_SUMMARY_CLIP = 380
+
+
+def _num(value) -> str:
+    """Compact number text; never rounds away real precision beyond 2 dp."""
+    if isinstance(value, bool):
+        return str(value)
+    if isinstance(value, float):
+        return f"{value:.2f}".rstrip("0").rstrip(".")
+    return str(value)
+
+
+def _clip(text: str, limit: int = _SUMMARY_CLIP) -> str:
+    """Shorten provider text at a sentence boundary; mark a hard cut."""
+    flat = re.sub(r"\s+", " ", text).strip()
+    if len(flat) <= limit:
+        return flat
+    out = ""
+    for sentence in re.split(r"(?<=[.!?])\s+", flat):
+        if len(out) + len(sentence) + 1 > limit:
+            break
+        out = f"{out} {sentence}".strip()
+    if out:
+        return out
+    return flat[:limit].rsplit(" ", 1)[0] + " (shortened)"
+
+
+def _t_company(ev: dict) -> tuple[list[str], list[str]]:
+    company = ev.get("company") or {}
+    out: list[str] = []
+    used: list[str] = []
+    where = " / ".join(x for x in (company.get("sector"), company.get("industry")) if x)
+    if company.get("name") and where:
+        out.append(f"{company['name']} is classified under {where}")
+        used.append("company.sector")
+    if company.get("business_summary"):
+        out.append(_clip(company["business_summary"]))
+        used.append("company.business_summary")
+    if company.get("ceo"):
+        out.append(f"Leadership on file: {company['ceo']}")
+        used.append("company.ceo")
+    if company.get("employees"):
+        out.append(f"Employees on file: {company['employees']:,}")
+        used.append("company.employees")
+    return out, used
+
+
+def _t_valuation(ev: dict) -> tuple[list[str], list[str]]:
+    v = ev.get("valuation") or {}
+    if v.get("metric") is None or v.get("current") is None:
+        return [], []
+    text = (
+        f"{v['metric']} is {_num(v['current'])} against a same-industry peer "
+        f"median of {_num(v.get('peer_median'))} across {v.get('peer_count')} peers, "
+        f"which SignalDesk reads as {v.get('status')}"
+    )
+    if v.get("margin_pct") is not None:
+        text += f" ({_num(v['margin_pct'])}% versus the median)"
+    out, used = [text], ["valuation"]
+    peers = [
+        p for p in (ev.get("peers") or [])
+        if isinstance(p, dict) and p.get("trailing_pe") is not None
+    ][:3]
+    if peers:
+        out.append(
+            "Largest peers by P/E: "
+            + ", ".join(f"{p.get('name') or p.get('symbol')} {_num(p['trailing_pe'])}" for p in peers)
+        )
+        used.append("peers")
+    return out, used
+
+
+def _t_extremes(ev: dict) -> tuple[list[str], list[str]]:
+    h = ev.get("price_history") or {}
+    out: list[str] = []
+    used: list[str] = []
+    gains, drops = h.get("biggest_gains") or [], h.get("biggest_drops") or []
+    if gains:
+        g = gains[0]
+        out.append(
+            f"Over the last {h.get('trading_days')} trading days, the biggest one-day "
+            f"gain was {_num(g['change_pct'])}% on {g['date']}"
+        )
+        used.append("price_history.biggest_gains")
+    if drops:
+        d = drops[0]
+        out.append(f"The biggest one-day drop was {_num(d['change_pct'])}% on {d['date']}")
+        used.append("price_history.biggest_drops")
+    if h.get("max_drawdown_pct") is not None:
+        out.append(
+            f"The deepest peak-to-trough fall was {_num(h['max_drawdown_pct'])}% "
+            f"({h.get('max_drawdown_peak_date')} to {h.get('max_drawdown_trough_date')})"
+        )
+        used.append("price_history.max_drawdown_pct")
+    return out, used
+
+
+def _t_performance(ev: dict) -> tuple[list[str], list[str]]:
+    p = ev.get("performance") or {}
+    out: list[str] = []
+    used: list[str] = []
+    windows = p.get("windows") or {}
+    shown = [
+        f"{label} {_num(windows[label]['change_pct'])}%"
+        for label in ("1m", "3m", "6m", "1y", "2y")
+        if (windows.get(label) or {}).get("change_pct") is not None
+    ]
+    if shown:
+        out.append("Price change: " + ", ".join(shown))
+        used.append("performance.windows")
+    if p.get("high_52w") is not None and p.get("low_52w") is not None:
+        out.append(f"52-week range {_num(p['low_52w'])} to {_num(p['high_52w'])}")
+        used.append("performance.52w")
+    return out, used
+
+
+def _t_fundamentals(ev: dict) -> tuple[list[str], list[str]]:
+    f = ev.get("fundamentals") or {}
+    out: list[str] = []
+    used: list[str] = []
+    if f.get("profitability") is not None or f.get("solvency") is not None:
+        out.append(
+            f"Profitability scores {f.get('profitability')}/100 and solvency "
+            f"{f.get('solvency')}/100"
+        )
+        used.append("fundamentals")
+        inputs = [
+            f"{c['name']} {_num(c['value'])}"
+            for c in (f.get("profitability_components") or [])
+            + (f.get("solvency_components") or [])
+            if isinstance(c, dict) and c.get("value") is not None
+        ][:4]
+        if inputs:
+            out.append("Key inputs: " + ", ".join(inputs))
+    history = ev.get("financial_history") or []
+    if history:
+        latest = history[0]
+        bits = [
+            f"{label} {_num(latest[key])}"
+            for key, label in (
+                ("revenue", "revenue"), ("net_income", "net income"),
+                ("net_margin", "net margin"), ("eps", "EPS"),
+            )
+            if latest.get(key) is not None
+        ]
+        if bits:
+            out.append(
+                f"Latest annual period ending {latest.get('period_end')}: "
+                + ", ".join(bits)
+            )
+            used.append("financial_history")
+    return out, used
+
+
+def _t_technical(ev: dict) -> tuple[list[str], list[str]]:
+    t = ev.get("technical") or {}
+    if t.get("score") is None:
+        return [], []
+    text = (
+        f"The technical score is {t['score']}/100 (trend {t.get('trend')}, "
+        f"momentum {t.get('momentum')}, mean reversion {t.get('reversion')})"
+    )
+    if t.get("rsi14") is not None:
+        text += f"; RSI(14) is {_num(t['rsi14'])}"
+    return [text], ["technical"]
+
+
+def _t_sentiment(ev: dict) -> tuple[list[str], list[str]]:
+    s = ev.get("sentiment") or {}
+    if s.get("label") is None:
+        return [], []
+    return (
+        [
+            f"News sentiment reads {s['label']} (net score {_num(s.get('net_score'))}) "
+            f"across {s.get('count')} articles"
+        ],
+        ["sentiment"],
+    )
+
+
+def _t_alpha(ev: dict) -> tuple[list[str], list[str]]:
+    a = ev.get("alpha") or {}
+    if a.get("composite") is None:
+        return [], []
+    text = (
+        f"The Alpha Score is {a['composite']}/100: fundamental {a.get('fundamental')}, "
+        f"technical {a.get('technical')}, sentiment {a.get('sentiment')}"
+    )
+    vs = a.get("value_signal")
+    if isinstance(vs, dict) and vs.get("status"):
+        text += f". The separate valuation signal reads {vs['status']}"
+    return [text], ["alpha.composite"]
+
+
+def _t_risk(ev: dict, already: frozenset[str] = frozenset()) -> tuple[list[str], list[str]]:
+    """Risk-relevant stored data; skips what another topic already stated."""
+    out: list[str] = []
+    used: list[str] = []
+    p = ev.get("performance") or {}
+    if p.get("volatility_1y_pct") is not None:
+        out.append(f"One-year annualized volatility is {_num(p['volatility_1y_pct'])}%")
+        used.append("performance.volatility_1y_pct")
+    h = ev.get("price_history") or {}
+    if h.get("max_drawdown_pct") is not None and "price_history.max_drawdown_pct" not in already:
+        out.append(f"The deepest peak-to-trough fall over the last year was {_num(h['max_drawdown_pct'])}%")
+        used.append("price_history.max_drawdown_pct")
+    d = ev.get("distress") or {}
+    if d.get("status") == "available" and d.get("z_score") is not None:
+        out.append(f"The Altman Z score is {_num(d['z_score'])} ({d.get('zone')} zone)")
+        used.append("distress")
+    f = ev.get("fundamentals") or {}
+    if f.get("solvency") is not None:
+        out.append(f"The solvency score is {f['solvency']}/100")
+        used.append("fundamentals.solvency")
+    v = ev.get("valuation") or {}
+    if v.get("status") and "valuation" not in already:
+        out.append(f"Versus peers, valuation reads {v['status']}")
+        used.append("valuation")
+    s = ev.get("sentiment") or {}
+    if s.get("label") is not None and "sentiment" not in already:
+        out.append(f"News sentiment is {s['label']}")
+        used.append("sentiment")
+    return out, used
+
+
+_TOPIC_BUILDERS = {
+    "company": _t_company, "extremes": _t_extremes, "valuation": _t_valuation,
+    "performance": _t_performance, "fundamentals": _t_fundamentals,
+    "technical": _t_technical, "sentiment": _t_sentiment,
+    "alpha": _t_alpha, "risk": _t_risk,
+}
+
+
+def topic_rule_based_answer(
+    evidence: dict, question: str
+) -> tuple[str, list[str], str] | None:
+    """Answer the topic(s) the question names, from stored evidence only.
+
+    Returns None when the question matches no topic (caller uses the generic
+    recap). When a topic matches but SignalDesk holds no data for it, says so
+    plainly instead of substituting an unrelated recap.
+    """
+    topics = [name for name, pat in _TOPIC_PATTERNS if pat.search(question)]
+    if not topics:
+        return None
+    sentences: list[str] = []
+    used: list[str] = []
+    missing: list[str] = []
+    for topic in topics[:_MAX_TOPICS]:
+        if topic == "risk":
+            found, found_used = _t_risk(evidence, frozenset(used))
+        else:
+            found, found_used = _TOPIC_BUILDERS[topic](evidence)
+        if found:
+            sentences.extend(found)
+            used.extend(found_used)
+        else:
+            missing.append(_TOPIC_LABELS[topic])
+    if not sentences:
+        return (
+            f"SignalDesk has no stored {' or '.join(missing)} data for this "
+            "stock, so nothing is estimated. Based only on SignalDesk's "
+            "stored data; not investment advice.",
+            [],
+            "low",
+        )
+    answer = ". ".join(s.rstrip(". ") for s in sentences) + "."
+    if missing:
+        answer += f" SignalDesk has no stored {' or '.join(missing)} data for this stock."
+    answer += " Based only on SignalDesk's stored data; not investment advice."
+    return answer, used, ("low" if missing else "medium")
+
+
+def rule_based_answer(
+    evidence: dict, question: str | None = None
+) -> tuple[str, list[str], str]:
+    """Deterministic answer from allow-listed evidence (no LLM).
+
+    With a question, answers the topic asked about; otherwise (or when no
+    topic matches) returns the generic recap. Never invents a number.
+    """
+    if question:
+        topical = topic_rule_based_answer(evidence, question)
+        if topical is not None:
+            return topical
+    return _generic_rule_based_answer(evidence)
 
 
 # --- Cache --------------------------------------------------------------------
@@ -421,7 +786,7 @@ async def generate_ask_response(
         logger.info("ask_cache hit symbol=%s", symbol)
         return {**hit[1], "source": hit[1].get("source", "model")}
 
-    fallback = rule_based_answer(evidence)
+    fallback = rule_based_answer(evidence, question)
 
     def _fallback_result() -> dict:
         answer, evidence_used, confidence = fallback
@@ -469,7 +834,11 @@ async def generate_ask_response(
             base_url=settings.llm_base_url,
             model=settings.llm_model,
             temperature=0.2,
-            max_tokens=500,
+            # Answers are capped at ~120 words (~200 tokens), but the free
+            # models are reasoning models that spend part of this budget
+            # thinking before the answer. A tight cap returns empty content
+            # and silently drops every question to the rule-based fallback.
+            max_tokens=1500,
         )
     system, user = build_prompt(question, evidence)
     try:
