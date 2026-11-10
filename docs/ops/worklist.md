@@ -90,18 +90,28 @@ Legend: `[x]` merged to main · `[~]` in progress · `[ ]` not started ·
 
 ## Speed
 
-- [ ] **12** Cold start (likely the 30-40 s first load): `Cache-Control`
-      with `s-maxage` + `stale-while-revalidate` on read endpoints, served
-      through Cloudflare
+- [~] **12** `Cache-Control: public, max-age=60, stale-while-revalidate=300`
+      on successful `GET /api/v1/*` (browser cache; errors, POSTs and ops
+      routes excluded). Note: the API is called directly on Render, not
+      through Cloudflare, so there is no shared edge cache yet; proxying
+      `/api` through the Worker with edge caching is a separate, larger
+      change (PR pending)
 - [ ] **13** Nightly static JSON snapshot for the landing page (benchmarks,
       top-50 ticker, a 6-month chart, market news)
-- [ ] **14** Screener: server-side pagination (10 per page) instead of
-      computing all 1,000 rows per request, and cache it
+- [~] **14** Screener: the analysed universe is cached in memory and rebuilt
+      only when a job finishes (or after 1 h), instead of ~4,000 database
+      round trips per request; filter/sort/paging unchanged and identical
+      results (PR pending). The 10-per-page UI change is still open
 - [ ] **15** "Too many requests": rate limiter trusts the first
-      `X-Forwarded-For` hop (spoofable); trust only Render's proxy hop and
-      review the 60/min and 300/min limits
-- [ ] **16** Keep-warm ping on `/health`; persist TanStack Query cache to
-      `localStorage` for repeat visits
+      `X-Forwarded-For` hop (spoofable). Render does not document how it
+      forwards the client IP (checked 2026-11-10), so the trusted hop must be
+      confirmed from real request headers before changing it; a wrong guess
+      would put all visitors in one bucket. Also review the 60/min and
+      300/min limits
+- [~] **16** `keep-warm.yml` pings `/health` and one screener row every
+      10 min, 08:00-00:30 IST (~500 of Render's 750 free hours/month); the
+      frontend persists successful queries to `localStorage` for 12 h so
+      repeat visits render instantly (PR pending)
 
 ## Product
 
