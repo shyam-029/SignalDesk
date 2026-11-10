@@ -21,8 +21,15 @@ Legend: `[x]` merged to main · `[~]` in progress · `[ ]` not started ·
 - [x] **0** Working backup: canary can no longer discard the dump (PR #3)
 - [x] **1** Read-only storage forensics on manual dispatch (PR #4)
 - [x] **2** Stop nightly write churn: no-op upsert guards, atomic alpha backfill (PR #5)
-- [ ] **2a** Verify Phase 2 on the first nightly after merge: record the
-      inserted / updated / unchanged split in the remediation log
+- [x] **2a** Phase 2 verified on the 2026-11-10 run (42852962417): prices
+      92.7% unchanged (~33k rows written instead of ~462k), alpha 96.1%
+      unchanged (~19k instead of ~987k delete+insert). Details in the
+      remediation log
+- [ ] **2b** `NXT100CASE.NS` fails the catalog repair every night (Yahoo's
+      last bar 2026-10-16, refused by the stale-frame guard), turning the
+      whole night `partial`. Check whether the Upstox fallback fills it; if
+      not, decide whether repair should skip instruments with no recent
+      trading
 - [x] **3** Storage cap corrected to 1024 MB; alarm at 800 MB; prune-alpha
       needs `--confirm DELETE-ALPHA-HISTORY`, no size gate (PR #6)
 - [x] **4** Migrations only via `migrate.yml`; ingest/rank fail fast if the
@@ -71,6 +78,17 @@ Legend: `[x]` merged to main · `[~]` in progress · `[ ]` not started ·
 - [x] **23** `*.dump` added to `.gitignore` (PR #9)
 - [ ] **24** Clean up the parallel session's worktrees
       (`signaldesk-ops3`, `signaldesk-ops45`) and their local branches
+
+## Render configuration (owner action, found 2026-11-10)
+
+- [ ] Build command installs the full `requirements.txt` (torch,
+      transformers, CUDA wheels) instead of `requirements-render.txt`: slow
+      builds (about 8 min to deploy PR #15), large image. Set Build Command
+      to `pip install -r requirements-render.txt`
+- [ ] Render builds on Python 3.14 while CI and all tests use 3.12. Set
+      `PYTHON_VERSION=3.12.7` (any 3.12.x), then Manual Deploy
+- [ ] Note: cold boot to first `/health` 200 is ~41 s on the free
+      instance; `keep-warm.yml` (item 16) avoids it during IST hours
 
 ## Owner decisions
 
