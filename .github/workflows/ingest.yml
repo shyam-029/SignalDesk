@@ -36,8 +36,22 @@ jobs:
           cache-dependency-path: backend/requirements.txt
       - name: Install dependencies (full requirements, FinBERT runs here)
         run: pip install -r requirements.txt
-      - name: Apply migrations (idempotent; Render release command also runs these)
-        run: alembic upgrade head
+      - name: Require schema at Alembic head (migrations are applied only by the migrate workflow)
+        # Fails fast and loudly instead of running new code on an old schema.
+        # Raw alembic output is never printed: a connection error can carry the
+        # database host, and this repo's Actions logs are public.
+        run: |
+          if ! out=$(alembic current 2>&1); then
+            kind=$(echo "$out" | grep -Eo '[A-Za-z_.]*(Error|Exception)' | tail -1)
+            echo "::error::SCHEMA CHECK FAILED: could not read the database's Alembic revision (${kind:-unknown error}). Details withheld from public logs. Run the 'migrate' workflow to test connectivity."
+            exit 1
+          fi
+          if echo "$out" | grep -q "(head)"; then
+            echo "Schema is at Alembic head."
+          else
+            echo "::error::SCHEMA BEHIND CODE: database is not at Alembic head. Dispatch the 'migrate' workflow (direction=upgrade, revision=head) and then re-run this workflow. Nothing was ingested."
+            exit 1
+          fi
       - name: Nightly ingestion (all passes; per-pass isolation D19)
         run: python -m app.jobs ingest
       - name: Post-run smoke (/status/full via Render)
