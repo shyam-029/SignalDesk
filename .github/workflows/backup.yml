@@ -93,7 +93,7 @@ jobs:
     env:
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
     steps:
-      - name: Storage canary (Plan 22, alarm at 450 MB)
+      - name: Storage canary (advisory alarm at 800 MB of the 1024 MB Neon limit)
         run: |
           set -euo pipefail
           PGURL=$(echo "$DATABASE_URL" | sed -e 's/^postgresql+asyncpg:/postgresql:/' -e 's/ssl=require/sslmode=require/')
@@ -101,10 +101,11 @@ jobs:
             sh -c 'psql "$PGURL" -t -A -c "SELECT pg_database_size(current_database())"')
           echo "Database size: $BYTES bytes"
           echo "### Storage canary: pg_database_size = $BYTES bytes" >> "$GITHUB_STEP_SUMMARY"
-          if [ "$BYTES" -ge 450000000 ]; then
+          # Keep in sync with settings.storage_cut_threshold_mb (800).
+          if [ "$BYTES" -ge 800000000 ]; then
             # pg_database_size includes dead-tuple bloat, so crossing the line
             # does not by itself mean live data grew. Measure before acting;
             # any data deletion (including prune-alpha) needs owner approval.
-            echo "::error::STORAGE ALARM: at/above 450 MB. Run db-probe forensics (dead tuples, index sizes) before acting. Do NOT run prune-alpha or delete data without owner approval."
+            echo "::error::STORAGE ALARM: at/above 800 MB (Neon enforces 1024 MB). Run db-probe forensics (dead tuples, index sizes) before acting. Do NOT run prune-alpha or delete data without owner approval."
             exit 1
           fi
