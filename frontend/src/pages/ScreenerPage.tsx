@@ -7,6 +7,7 @@ import type { ScreenResult } from "@/lib/types";
 import { fmtSignedPct } from "@/lib/format";
 import { scoreBand, valuationSemantics } from "@/lib/semantic";
 import { cn } from "@/lib/utils";
+import { SCREENER_PAGE_SIZE, pageCount, pageRangeLabel } from "@/lib/paging";
 import { DataState } from "@/components/data/DataState";
 import { SectionHeader } from "@/components/data/SectionHeader";
 import { StockLogo } from "@/components/stock/StockLogo";
@@ -59,6 +60,13 @@ export default function ScreenerPage() {
 
   const anyFilter = minP != null || minS != null || status !== "" || sector !== "";
 
+  // Server-side paging: the API filters and sorts the whole universe, then
+  // returns one page. Any filter or sort change starts again at page 1.
+  const [page, setPage] = React.useState(1);
+  React.useEffect(() => {
+    setPage(1);
+  }, [status, sector, minP, minS, sort?.key, sort?.direction]);
+
   const query = useScreener({
     status: status || null,
     sector: sector || null,
@@ -66,9 +74,10 @@ export default function ScreenerPage() {
     minSolvency: minS,
     sort: sort?.key,
     direction: sort?.direction,
-    page: 1,
-    limit: 250,
+    page,
+    limit: SCREENER_PAGE_SIZE,
   });
+  const totalPages = query.data ? pageCount(query.data.total, SCREENER_PAGE_SIZE) : 1;
 
   const sortButton = (key: SortKey, label: string) => {
     const active = sort?.key === key;
@@ -283,6 +292,37 @@ export default function ScreenerPage() {
               </tbody>
             </table>
           </div>
+        )}
+        {query.data && query.data.total > SCREENER_PAGE_SIZE && (
+          <nav
+            aria-label="Screener pages"
+            className="mt-3 flex flex-wrap items-center justify-between gap-3 text-xs text-muted"
+          >
+            <span className="num" aria-live="polite">
+              {pageRangeLabel(page, SCREENER_PAGE_SIZE, query.data.total)}
+            </span>
+            <span className="flex items-center gap-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                disabled={page <= 1 || query.isFetching}
+              >
+                Previous
+              </Button>
+              <span className="num">
+                Page {page} of {totalPages}
+              </span>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                disabled={page >= totalPages || query.isFetching}
+              >
+                Next
+              </Button>
+            </span>
+          </nav>
         )}
       </DataState>
 
