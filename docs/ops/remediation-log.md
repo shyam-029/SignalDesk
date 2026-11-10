@@ -4,6 +4,32 @@ Running record of the 2026-11 audit remediation: what changed, why, how it was
 verified, and what risk remains open. Newest entries first. Production numbers
 come from workflow logs; nothing here contains credentials or hostnames.
 
+## Phase 1 — Read-only storage forensics (2026-11-10)
+
+**Purpose.** Replace estimates with measurements before any write-path,
+index or vacuum change: dead tuples, per-index sizes and scan counts, Neon's
+own size metric and enforced limit, bars by year/month/owner (incl. bars
+older than the 2y fetch window), alpha backfill vs live rows, weekend-dated
+and orphaned alpha rows, news growth, and pass re-runs per day.
+
+**Change.**
+
+- `ops/sql/storage_forensics.sql` and `ops/sql/job_health.sql` (30-day
+  nightly health). Both run inside `BEGIN READ ONLY`; Postgres rejects any
+  write. Optional tooling (`pg_cluster_size`, `pgstattuple_approx`) is used
+  only if already present, each probe behind its own exception handler. No
+  `CREATE EXTENSION`.
+- `db-probe.yml`: new `forensics` dispatch input; both scripts run only on a
+  manual dispatch with `forensics=true`. The weekly schedule is unchanged.
+- `backend/tests/test_storage_forensics_sql.py`: keyword scan for writes/DDL,
+  empty-schema run of both scripts, a seeded run of the forensics script on a
+  fresh connection (its own READ ONLY transaction), and a proof that a write
+  inside `BEGIN READ ONLY` raises.
+
+**Known limit.** The share of nightly price writes that are true no-ops
+cannot be measured read-only from the database (it needs the provider data).
+Phase 2's guarded upsert reports it directly as rows actually updated.
+
 ## Phase 0 — Restore a working backup (2026-11-10)
 
 **Problem (verified from Actions logs).** No backup artifact has been stored
