@@ -106,12 +106,13 @@ Legend: `[x]` merged to main · `[~]` in progress · `[ ]` not started ·
       only when a job finishes (or after 1 h), instead of ~4,000 database
       round trips per request; filter/sort/paging unchanged and identical
       results (PR pending). The 10-per-page UI change is still open
-- [ ] **15** "Too many requests": rate limiter trusts the first
-      `X-Forwarded-For` hop (spoofable). Render does not document how it
-      forwards the client IP (checked 2026-11-10), so the trusted hop must be
-      confirmed from real request headers before changing it; a wrong guess
-      would put all visitors in one bucket. Also review the 60/min and
-      300/min limits
+- [~] **15** Rate limiter keyed on a forgeable header. Measured on
+      production (client-ip-probe.yml, 2026-11-10): traffic arrives via
+      Cloudflare; a forged X-Forwarded-For becomes its first entry (the
+      limiter's old key); CF-Connecting-IP always carries the real caller and
+      Cloudflare refuses forged values (403, error 1000). The limiter now
+      keys on CF-Connecting-IP (PR pending). The 60/min and 300/min limits
+      themselves are unchanged
 - [~] **16** `keep-warm.yml` pings `/health` and one screener row every
       10 min, 08:00-00:30 IST (~500 of Render's 750 free hours/month); the
       frontend persists successful queries to `localStorage` for 12 h so
