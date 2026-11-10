@@ -60,6 +60,8 @@ from app.repositories import benchmarks as benchmark_repo
 from app.repositories import company_profiles as profile_repo
 from app.repositories import funds as fund_repo
 from app.repositories import ranking as ranking_repo
+from app.repositories.upsert_guard import INSERTED_FLAG as _INSERTED_FLAG
+from app.repositories.upsert_guard import any_distinct as _any_distinct
 from app.services import ranking as ranking_svc
 from app.services import storage as storage_svc
 
@@ -252,13 +254,42 @@ async def _fetch_bars_with_alias(
     )
 
 
+_PRICE_COLUMNS = ("open", "high", "low", "close", "volume")
+
+
+def _new_write_stats() -> dict[str, int]:
+    """Counters for what an upsert actually wrote (Phase 2 measurement)."""
+    return {"inserted": 0, "updated": 0, "unchanged": 0}
+
+
+def _tally_upsert(stats: dict[str, int] | None, flags: list[bool], offered: int) -> None:
+    """Fold one guarded upsert's RETURNING flags into `stats`.
+
+    `flags` holds one `inserted` boolean per row the statement actually wrote
+    (RETURNING (xmax = 0)): True = new row, False = an existing row whose
+    values changed. Rows the no-op guard skipped return nothing, so they are
+    `offered - len(flags)`.
+    """
+    if stats is None:
+        return
+    inserted = sum(1 for f in flags if f)
+    stats["inserted"] += inserted
+    stats["updated"] += len(flags) - inserted
+    stats["unchanged"] += offered - len(flags)
+
+
 async def _fetch_one_symbol(
-    provider: MarketDataProvider, symbol: str, today: date | None = None
+    provider: MarketDataProvider,
+    symbol: str,
+    today: date | None = None,
+    stats: dict[str, int] | None = None,
 ) -> tuple[str, int]:
-    """Fetch and upsert one symbol's history. Returns (symbol, bars_inserted).
+    """Fetch and upsert one symbol's history. Returns (symbol, bars_offered).
 
     Raises MarketDataError upward so callers can isolate failures per symbol.
     today is forwarded to the freshness guard (None = real clock).
+    stats, when given, accumulates inserted / updated / unchanged row counts
+    (see _tally_upsert); the return contract is unchanged.
     """
     bars = await _fetch_bars_with_alias(provider, symbol, today)
     if not bars:
@@ -293,18 +324,22 @@ async def _fetch_one_symbol(
         # a column the provider did not supply tonight must never blank a
         # previously-good stored value. Defense-in-depth under the provider's
         # NaN-row guard (incident 2026-09-09).
+        new_values = {
+            col: func.coalesce(getattr(stmt.excluded, col), getattr(DailyPrice, col))
+            for col in _PRICE_COLUMNS
+        }
         stmt = stmt.on_conflict_do_update(
             constraint="uq_daily_prices_stock_date",
-            set_={
-                "open": func.coalesce(stmt.excluded.open, DailyPrice.open),
-                "high": func.coalesce(stmt.excluded.high, DailyPrice.high),
-                "low": func.coalesce(stmt.excluded.low, DailyPrice.low),
-                "close": func.coalesce(stmt.excluded.close, DailyPrice.close),
-                "volume": func.coalesce(stmt.excluded.volume, DailyPrice.volume),
-            },
-        )
-        await session.execute(stmt)
+            set_=new_values,
+            # No-op guard (Phase 2): skip the write entirely when the
+            # COALESCEd values equal what is stored. Without it Postgres
+            # writes a new row version for every one of the ~462k unchanged
+            # bars re-offered each night (the 2y window is re-fetched whole).
+            where=_any_distinct(DailyPrice, new_values),
+        ).returning(_INSERTED_FLAG)
+        flags = list((await session.execute(stmt)).scalars())
         await session.commit()
+        _tally_upsert(stats, flags, len(bars))
         return symbol, len(bars)
 
 
@@ -331,11 +366,12 @@ async def ingest_universe(
     total_bars = 0
     errors: list[str] = []
     skipped = 0
+    written = _new_write_stats()
 
     for i in range(0, len(symbols), batch_size):
         batch = symbols[i : i + batch_size]
         results = await asyncio.gather(
-            *(_fetch_one_symbol(provider, s, today) for s in batch),
+            *(_fetch_one_symbol(provider, s, today, written) for s in batch),
             return_exceptions=True,
         )
         for symbol, res in zip(batch, results):
@@ -348,18 +384,25 @@ async def ingest_universe(
                 if bars == 0:
                     skipped += 1
 
+    # `bars` stays the number offered (historical meaning); the write split
+    # shows how many rows the no-op guard actually spared.
     logger.info(
-        "Ingestion done: %d symbols, %d bars, %d errors, %d skipped",
+        "Ingestion done: %d symbols, %d bars, %d errors, %d skipped "
+        "(written: %d inserted, %d updated, %d unchanged)",
         len(symbols) - len(errors),
         total_bars,
         len(errors),
         skipped,
+        written["inserted"],
+        written["updated"],
+        written["unchanged"],
     )
     return {
         "fetched": len(symbols) - len(errors),
         "bars": total_bars,
         "errors": len(errors),
         "skipped": skipped,
+        **written,
     }
 
 
@@ -751,7 +794,7 @@ async def ingest_news(
 # --- Alpha history backfill (retroactive snapshots, user decision 2026-09-06) ---
 
 
-async def _backfill_one_alpha(symbol: str) -> int:
+async def _backfill_one_alpha(symbol: str, stats: dict[str, int] | None = None) -> int:
     """Retroactively compute alpha snapshots for every stored trading day.
 
     For each bar date past indicator warm-up, the technical score is computed
@@ -764,8 +807,11 @@ async def _backfill_one_alpha(symbol: str) -> int:
     Alpha line remains a real 40/30/30 signal rather than collapsing to the
     technical score; the per-component history fills in only as genuine
     ingestion snapshots accumulate (record_live_alpha_snapshots, Phase 8).
-    Existing snapshots for the symbol are replaced so the whole series is
-    recomputed under the current formula.
+    Existing technical-only snapshots are synced to the recomputed series
+    (alpha_repo.sync_backfill_snapshots: one transaction, unchanged rows not
+    written, stale dates deleted) so the whole series follows the current
+    formula. Returns the number of snapshots computed; `stats`, when given,
+    accumulates inserted / updated / unchanged / deleted counts.
     """
     from app.repositories import alpha as alpha_repo
     from app.repositories import financials as fin_repo
@@ -841,19 +887,18 @@ async def _backfill_one_alpha(symbol: str) -> int:
     if not rows:
         return 0
 
-    # Replace the symbol's TECHNICAL-ONLY snapshots: the series is recomputed
-    # under the current formula, so stale rows must not survive the run. Rows
-    # that carry a genuine live fundamental score (written by /alpha page
-    # views) are PRESERVED — wiping them every night would make per-component
-    # history impossible. Only reached when there is something to insert.
+    # Make the symbol's TECHNICAL-ONLY snapshots equal the recomputed series,
+    # in one transaction: changed rows are updated, unchanged rows are not
+    # written, stale dates are deleted. Rows that carry a genuine live
+    # fundamental score are PRESERVED — wiping them every night would make
+    # per-component history impossible. Only reached when there is something
+    # to write (an empty recompute never deletes stored history).
     async with SessionLocal() as session:
-        await session.execute(
-            delete(AlphaScore).where(
-                AlphaScore.symbol == symbol, AlphaScore.fundamental.is_(None)
-            )
-        )
-        await session.commit()
-        return await alpha_repo.upsert_snapshots_bulk(session, rows)
+        counts = await alpha_repo.sync_backfill_snapshots(session, symbol, rows)
+    if stats is not None:
+        for key, value in counts.items():
+            stats[key] = stats.get(key, 0) + value
+    return len(rows)
 
 
 async def record_live_alpha_snapshot(symbol: str) -> bool:
@@ -930,10 +975,11 @@ async def backfill_alpha_history(batch_size: int = BATCH_SIZE) -> dict:
 
     total = 0
     errors: list[str] = []
+    written: dict[str, int] = {**_new_write_stats(), "deleted": 0}
     for i in range(0, len(symbols), batch_size):
         batch = symbols[i : i + batch_size]
         results = await asyncio.gather(
-            *(_backfill_one_alpha(s) for s in batch), return_exceptions=True
+            *(_backfill_one_alpha(s, written) for s in batch), return_exceptions=True
         )
         for symbol, res in zip(batch, results):
             if isinstance(res, Exception):
@@ -942,10 +988,16 @@ async def backfill_alpha_history(batch_size: int = BATCH_SIZE) -> dict:
             else:
                 total += res
 
+    # `snapshots` stays the number computed (historical meaning); the write
+    # split shows what actually reached the table.
     logger.info(
-        "Alpha history backfill done: %d snapshots, %d errors", total, len(errors)
+        "Alpha history backfill done: %d snapshots, %d errors "
+        "(written: %d inserted, %d updated, %d unchanged, %d stale deleted)",
+        total, len(errors),
+        written["inserted"], written["updated"],
+        written["unchanged"], written["deleted"],
     )
-    return {"snapshots": total, "errors": len(errors)}
+    return {"snapshots": total, "errors": len(errors), **written}
 
 
 # --- Company profile ingestion (provider-sourced background) -----------------
@@ -1824,8 +1876,9 @@ async def _ingest_all_with_job_engine() -> str:
 ERROR_SUMMARY_MAX = 500
 
 # Result keys meaning "items processed" for the different pass shapes.
-# "ranked" is the top-1000 ranking pass (M1-T2).
-_PROCESSED_KEYS = ("fetched", "repaired", "warmed", "snapshots", "ranked")
+# "ranked" is the top-1000 ranking pass (M1-T2); "stored" is the live alpha
+# snapshot pass (record_live_alpha_snapshots).
+_PROCESSED_KEYS = ("fetched", "repaired", "warmed", "snapshots", "ranked", "stored")
 
 
 async def _record_pass(name: str, run, *args, **kwargs) -> str:

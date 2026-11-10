@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Benchmark, BenchmarkPrice
 from app.providers.base import OHLCV
+from app.repositories.upsert_guard import any_distinct
 
 
 async def get_or_create_benchmark(
@@ -62,15 +63,15 @@ async def upsert_bars(
             for b in bars
         ]
     )
+    new_values = {
+        col: func.coalesce(getattr(stmt.excluded, col), getattr(BenchmarkPrice, col))
+        for col in ("open", "high", "low", "close", "volume")
+    }
     stmt = stmt.on_conflict_do_update(
         constraint="uq_benchmark_prices_benchmark_date",
-        set_={
-            "open": func.coalesce(stmt.excluded.open, BenchmarkPrice.open),
-            "high": func.coalesce(stmt.excluded.high, BenchmarkPrice.high),
-            "low": func.coalesce(stmt.excluded.low, BenchmarkPrice.low),
-            "close": func.coalesce(stmt.excluded.close, BenchmarkPrice.close),
-            "volume": func.coalesce(stmt.excluded.volume, BenchmarkPrice.volume),
-        },
+        set_=new_values,
+        # No-op guard: unchanged re-offered bars write nothing (upsert_guard).
+        where=any_distinct(BenchmarkPrice, new_values),
     )
     await session.execute(stmt)
     await session.commit()
