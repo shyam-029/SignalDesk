@@ -37,17 +37,30 @@ def _limit_for(bucket: str) -> int:
     return settings.rate_limit_default_per_min
 
 
-def _client_ip(request) -> str:
-    """Best-effort client IP: X-Forwarded-For first hop, else transport peer.
+# Header Cloudflare sets to the connecting client's address (work list
+# item 15, measured on production 2026-11-10 with client-ip-probe.yml):
+#   - Render's onrender.com traffic always passes through Cloudflare, which
+#     sets CF-Connecting-IP to the real caller;
+#   - a client that sends its own CF-Connecting-IP is refused by Cloudflare
+#     (403, error 1000), so the value cannot be forged;
+#   - X-Forwarded-For is NOT safe: a forged value becomes its FIRST entry
+#     (3 entries normally, 4 with a forged one), and uvicorn's proxy-header
+#     handling makes request.client.host follow it too.
+TRUSTED_CLIENT_IP_HEADER = "cf-connecting-ip"
 
-    Only the leftmost forwarded entry is used (the client-facing proxy's
-    claim). Never stored beyond the counter dict; never logged here.
+
+def _client_ip(request) -> str:
+    """The caller's IP for rate limiting: CF-Connecting-IP, else the peer.
+
+    In production every request carries CF-Connecting-IP (set by Cloudflare,
+    unforgeable). The transport peer is only a fallback for local runs and
+    tests, which have no Cloudflare in front. X-Forwarded-For is deliberately
+    ignored: any client can prepend a fake entry to it. Never stored beyond
+    the counter dict; never logged here.
     """
-    forwarded = request.headers.get("x-forwarded-for", "")
-    if forwarded:
-        first = forwarded.split(",")[0].strip()
-        if first:
-            return first[:64]
+    trusted = request.headers.get(TRUSTED_CLIENT_IP_HEADER, "").strip()
+    if trusted:
+        return trusted[:64]
     client = getattr(request, "client", None)
     host = getattr(client, "host", None) if client else None
     return str(host or "unknown")[:64]

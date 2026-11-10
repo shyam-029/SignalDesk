@@ -83,3 +83,63 @@ async def debug_jobs(
         scheduler_running=scheduler_running,
         jobs=jobs,
     )
+
+
+# --- Client-IP header shape (work list item 15) -------------------------------
+#
+# The rate limiter keys on the first X-Forwarded-For entry, which a client
+# can forge. Render does not document how its proxy forwards the client IP,
+# so this operator-only probe MEASURES it without exposing any address:
+# every answer is a count, a header NAME, or a yes/no comparison against
+# values the caller itself supplied (X-Probe-Spoof: the fake address it put
+# in X-Forwarded-For; X-Probe-Caller: its own public IP). No IP value is ever
+# returned or logged.
+
+_FORWARDING_HEADERS = (
+    "x-forwarded-for",
+    "x-real-ip",
+    "true-client-ip",
+    "cf-connecting-ip",
+    "forwarded",
+    "x-envoy-external-address",
+)
+
+
+class ClientIpShape(BaseModel):
+    headers_present: list[str]
+    x_forwarded_for_entries: int
+    xff_first_is_spoof: bool
+    xff_last_is_spoof: bool
+    xff_first_is_caller: bool
+    xff_last_is_caller: bool
+    # header name -> does its value equal the caller's real IP / the spoof?
+    header_is_caller: dict[str, bool]
+    header_is_spoof: dict[str, bool]
+    transport_peer_is_caller: bool
+
+
+@router.get("/debug/client-ip-shape", response_model=ClientIpShape)
+async def client_ip_shape(
+    request: Request, _authed: None = Depends(require_ops_key)
+) -> ClientIpShape:
+    spoof = request.headers.get("x-probe-spoof", "").strip()
+    caller = request.headers.get("x-probe-caller", "").strip()
+    xff = [p.strip() for p in request.headers.get("x-forwarded-for", "").split(",") if p.strip()]
+    present = [h for h in _FORWARDING_HEADERS if h in request.headers]
+
+    def eq(value: str, expected: str) -> bool:
+        return bool(expected) and value.strip() == expected
+
+    singles = [h for h in present if h not in ("x-forwarded-for", "forwarded")]
+    peer = getattr(getattr(request, "client", None), "host", "") or ""
+    return ClientIpShape(
+        headers_present=present,
+        x_forwarded_for_entries=len(xff),
+        xff_first_is_spoof=bool(xff) and eq(xff[0], spoof),
+        xff_last_is_spoof=bool(xff) and eq(xff[-1], spoof),
+        xff_first_is_caller=bool(xff) and eq(xff[0], caller),
+        xff_last_is_caller=bool(xff) and eq(xff[-1], caller),
+        header_is_caller={h: eq(request.headers[h], caller) for h in singles},
+        header_is_spoof={h: eq(request.headers[h], spoof) for h in singles},
+        transport_peer_is_caller=eq(peer, caller),
+    )
