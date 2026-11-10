@@ -1,12 +1,22 @@
 name: backup
 
 # M1-T5 weekly backup (Plan 28): pg_dump of the Neon database uploaded as a
-# workflow artifact (30-day retention), plus the Plan 22 storage canary —
-# the same job logs pg_database_size and alarms at 450 MB of the 512 MB hard
-# cap. The postgres:17 image pins pg_dump >= the server major (ubuntu's
-# default client is older). The DATABASE_URL secret is the asyncpg form and
-# is rewritten to a libpq URL for the pg tools. Weekly egress is ~50-100 MB
-# compressed, well inside Neon's 5 GB/month.
+# workflow artifact (30-day retention), plus the Plan 22 storage canary.
+#
+# Two INDEPENDENT jobs (Phase 0 remediation, 2026-11-10):
+#   backup          dump -> verify the archive -> upload. Its result answers
+#                   one question only: "do we have a restorable backup?"
+#   storage-canary  logs pg_database_size and fails at/above 450 MB.
+# Before this split the canary ran BETWEEN the dump and the upload in a single
+# job, so once the database crossed 450 MB every dump was discarded and no
+# backup was stored (observed 2026-11-10: a 55 MB dump thrown away). The
+# alarm must never be able to suppress the backup it sits next to.
+#
+# The postgres:17 image pins pg_dump >= the server major (ubuntu's default
+# client is older). The DATABASE_URL secret is the asyncpg form and is
+# rewritten to a libpq URL for the pg tools. Weekly egress is ~50-100 MB
+# compressed, well inside Neon's 5 GB/month. Both jobs are read-only against
+# the database.
 
 on:
   schedule:
@@ -26,23 +36,75 @@ jobs:
     steps:
       - name: pg_dump to a custom-format file
         run: |
+          set -euo pipefail
           PGURL=$(echo "$DATABASE_URL" | sed -e 's/^postgresql+asyncpg:/postgresql:/' -e 's/ssl=require/sslmode=require/')
-          docker run --rm -v "$PWD:/out" -e PGURL="$PGURL" postgres:17 \
-            sh -c 'pg_dump "$PGURL" -Fc -f /out/signaldesk-$(date +%Y%m%d).dump'
-          ls -lh signaldesk-*.dump
-      - name: Storage canary (Plan 22, alarm at 450 MB of the 512 MB hard cap)
+          DUMP="signaldesk-$(date -u +%Y%m%d-%H%M).dump"
+          docker run --rm -v "$PWD:/out" -e PGURL="$PGURL" -e DUMP="$DUMP" postgres:17 \
+            sh -c 'pg_dump "$PGURL" -Fc -f "/out/$DUMP"'
+          ls -lh "$DUMP"
+          echo "DUMP=$DUMP" >> "$GITHUB_ENV"
+
+      - name: Verify the archive is readable and complete
+        # pg_restore --list reads the archive's table of contents without a
+        # database connection: a truncated or corrupt file fails here, and
+        # every core table must have a TABLE DATA entry. Missing tables fail
+        # the job rather than uploading a backup that cannot restore them.
         run: |
-          PGURL=$(echo "$DATABASE_URL" | sed -e 's/^postgresql+asyncpg:/postgresql:/' -e 's/ssl=require/sslmode=require/')
-          BYTES=$(docker run --rm -e PGURL="$PGURL" postgres:17 \
-            sh -c 'psql "$PGURL" -t -A -c "SELECT pg_database_size(current_database())"')
-          echo "Database size: $BYTES bytes"
-          if [ "$BYTES" -ge 450000000 ]; then
-            echo "STORAGE ALARM: at/above 450 MB — apply the Plan 22 first cut (alpha backfill depth 1y outside top 250)."
+          set -euo pipefail
+          test -s "$DUMP"
+          docker run --rm -v "$PWD:/out" postgres:17 \
+            pg_restore --list "/out/$DUMP" > toc.txt
+          echo "TOC entries: $(grep -cv '^;' toc.txt)"
+          missing=0
+          for t in stocks daily_prices alpha_scores financials news_articles \
+                   benchmark_prices mf_nav_history ranking_audit alembic_version; do
+            if grep -Eq "TABLE DATA public ${t} " toc.txt; then
+              echo "ok      $t"
+            else
+              echo "MISSING $t"; missing=1
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then
+            echo "::error::Backup archive is missing core table data; not uploading."
             exit 1
           fi
+          {
+            echo "### Backup"
+            echo "- file: \`$DUMP\`"
+            echo "- size: $(du -h "$DUMP" | cut -f1)"
+            echo "- sha256: \`$(sha256sum "$DUMP" | cut -d' ' -f1)\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Upload dump artifact
         uses: actions/upload-artifact@v4
         with:
           name: signaldesk-db-dump
-          path: signaldesk-*.dump
+          path: ${{ env.DUMP }}
+          if-no-files-found: error
           retention-days: 30
+
+  storage-canary:
+    # Runs after the backup job whatever its outcome (sequenced only to avoid
+    # two simultaneous connections to Neon), and can never affect it.
+    needs: backup
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+    steps:
+      - name: Storage canary (Plan 22, alarm at 450 MB)
+        run: |
+          set -euo pipefail
+          PGURL=$(echo "$DATABASE_URL" | sed -e 's/^postgresql+asyncpg:/postgresql:/' -e 's/ssl=require/sslmode=require/')
+          BYTES=$(docker run --rm -e PGURL="$PGURL" postgres:17 \
+            sh -c 'psql "$PGURL" -t -A -c "SELECT pg_database_size(current_database())"')
+          echo "Database size: $BYTES bytes"
+          echo "### Storage canary: pg_database_size = $BYTES bytes" >> "$GITHUB_STEP_SUMMARY"
+          if [ "$BYTES" -ge 450000000 ]; then
+            # pg_database_size includes dead-tuple bloat, so crossing the line
+            # does not by itself mean live data grew. Measure before acting;
+            # any data deletion (including prune-alpha) needs owner approval.
+            echo "::error::STORAGE ALARM: at/above 450 MB. Run db-probe forensics (dead tuples, index sizes) before acting. Do NOT run prune-alpha or delete data without owner approval."
+            exit 1
+          fi
