@@ -44,6 +44,41 @@ failure alerting is a separate open item, not solved here.
 - Old public run logs that already contain the host, user and database name
   are not deleted by this change. The password was never printed. Rotating
   the Neon password and deleting those runs are owner decisions.
+## Phase 3 — Correct the storage cap; make alpha pruning impossible by accident (2026-11-10)
+
+**Problem.** Every storage guard assumed Neon's 512 MB free limit. Phase 1
+read `neon.max_cluster_size = 1024 MB` from the production database, so the
+weekly canary (red from 450 MB) had been alarming against the wrong limit,
+and `prune-alpha` was gated on `pg_database_size`, which includes bloat: a
+size gate can fire without live data having grown, and the cap error made
+it look nearer to firing than it was. The prune was only reachable by hand
+(no workflow runs it), but it armed itself on size.
+
+**Change (code and workflow thresholds only; nothing deleted, no migration).**
+
+- `services/storage.py`: `NEON_CAP_BYTES` = 1024 MiB; baseline refreshed to
+  the measured 561,414,144 bytes; growth band widened to 1.0–3.1 MB/day
+  (2.9 MB/day observed, inflated by the churn Phase 2 removes). Worst-case
+  90-day projection is 840.4 MB.
+- Advisory alarm moved from 450 to **800 MB** (`settings.storage_cut_threshold_mb`,
+  `DEFAULT_CUT_THRESHOLD_MB`, and the canary step in `backup.yml`, kept in
+  sync). It is advisory only and never triggers a deletion.
+- `prune_alpha_history_outside_top250` no longer has a size gate. It deletes
+  nothing and reads nothing unless called with the exact phrase
+  `DELETE-ALPHA-HISTORY`: `python -m app.jobs prune-alpha --confirm DELETE-ALPHA-HISTORY`.
+  Owner rule: alpha pruning is not enabled; run it only with explicit approval.
+- A test fails if any workflow contains `app.jobs prune-alpha`.
+- `backup.yml`: the canary stays in its own `storage-canary` job
+  (`needs: backup`, `if: always()`); only its threshold and message changed.
+
+**Not verified.** The pure canary tests pass locally (7). The five prune tests
+need Postgres and are untested locally; CI is their first run. The 1024 MB
+figure is Neon's enforced setting, not a console screenshot of the plan.
+
+**Still open.** An orphan `prune-alpha-recovery` workflow from the deleted
+branch `ops/m2-t1-storage-reclaim` is still registered on GitHub (flagged for
+the owner; not disabled here). Existing index bloat (notably
+`alpha_scores_pkey`, 93.8 MB) is not reclaimed by this phase.
 
 ## Phase 2 — Stop nightly write churn (2026-11-10, code only, no migration)
 
@@ -194,9 +229,9 @@ a TOC read is not a restore.
 
 | Risk | Status |
 |---|---|
-| `prune-alpha` gate is armed (uses `pg_database_size`, which includes bloat) | open — Phase 3 |
-| Migrations auto-apply to production via `ingest.yml` / `rank.yml` | fixed in workflows (Phase 4); Render release command unverified |
-| Alpha backfill delete+insert churns ~493k rows/run and is non-atomic | open — Phase 2 |
-| Price upsert rewrites ~462k unchanged rows/run | open — Phase 2 |
+| `prune-alpha` gate is armed (uses `pg_database_size`, which includes bloat) | fixed (Phase 3): needs an explicit confirmation phrase, no size gate |
+| Migrations auto-apply to production via `ingest.yml` / `rank.yml` | fixed in workflows (Phase 4); Render's own start/release command unverified |
+| Alpha backfill delete+insert churns ~493k rows/run and is non-atomic | fixed (Phase 2, PR #5); awaiting first nightly numbers |
+| Price upsert rewrites ~462k unchanged rows/run | fixed (Phase 2, PR #5); awaiting first nightly numbers |
 | Adjusted-price seam at the 2y fetch-window edge | open — needs owner decision |
 | `rank.yml` logs DB host/user/db name to public Actions logs | steps removed (Phase 5); old logs and password rotation are owner decisions |
