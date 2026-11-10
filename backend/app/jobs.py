@@ -397,12 +397,23 @@ async def ingest_universe(
         written["updated"],
         written["unchanged"],
     )
+    # Upstox price fallback (providers/fallback.py): how often Yahoo's answer
+    # was unusable and Upstox was asked instead, by reason.
+    fallbacks = dict(getattr(provider, "fallbacks", {}) or {})
+    fallback_failures = int(getattr(provider, "fallback_failures", 0) or 0)
+    if fallbacks or fallback_failures:
+        logger.info(
+            "Upstox price fallback used: %s (upstox also failed: %d)",
+            ", ".join(f"{k}={v}" for k, v in sorted(fallbacks.items())) or "none",
+            fallback_failures,
+        )
     return {
         "fetched": len(symbols) - len(errors),
         "bars": total_bars,
         "errors": len(errors),
         "skipped": skipped,
         **written,
+        "upstox_fallbacks": sum(fallbacks.values()),
     }
 
 
