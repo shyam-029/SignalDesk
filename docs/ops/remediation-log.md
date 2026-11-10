@@ -40,8 +40,19 @@ comments, success closes only the exact title, a different open alert is
 left alone, titles with quotes, and an invalid state exits 2. Its filter,
 the watchdog's ingest-age calculation (10 h at the time) and its
 disabled-workflow query were run against the real repository (read-only).
-Not yet verified: the workflows themselves on GitHub (to do once merged:
-dispatch `restore-test` and `watchdog` once).
+Verified on GitHub after merging (PR #9, 2026-11-10):
+
+- `restore-test` run 42850802659: **success.** Restored backup run
+  42803216508 (`signaldesk-20261110-1055.dump`, 55 MB) with
+  `--exit-on-error`. Row counts match the Phase 1 forensics exactly:
+  daily_prices 1,273,188; alpha_scores 507,321; news_articles 61,264;
+  ranking_audit 29,301; mf_nav_history 16,772; benchmark_prices 5,395;
+  stocks 3,001; financials 2,923; alembic_version 1. The backup is
+  restorable. Its alert job ran and found nothing to open.
+- `watchdog` run 42850822540: **success.** Last successful ingest 10 h
+  earlier; no disabled workflows; no issue opened.
+- All 11 workflows are registered and active, including `restore-test`,
+  `run-alert` and `watchdog`.
 
 **Known limits.** GitHub can disable the watchdog itself after 60 days
 without repository activity. A `partial` nightly (some symbols failed)
