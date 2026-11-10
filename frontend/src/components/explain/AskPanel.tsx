@@ -16,7 +16,14 @@ const SUGGESTIONS = [
   "How is this stock valued vs peers?",
   "What is driving the fundamentals?",
   "How has it performed over the last year?",
+  "What are the main risks?",
+  "What does the company do?",
 ];
+
+const SOURCE_NOTE: Partial<Record<AskResponse["source"], string>> = {
+  model: "Written by an AI model from SignalDesk's stored data.",
+  rule_based: "Answered directly from SignalDesk's stored data. The AI assistant is not available right now.",
+};
 
 const CONFIDENCE_LABEL: Record<AskResponse["confidence"], string> = {
   high: "High confidence",
@@ -82,7 +89,7 @@ export function AskPanel({ symbol, displayName }: { symbol: string; displayName:
           role="dialog"
           aria-modal="true"
           aria-label={`Ask a research question about ${displayName}`}
-          className="glass fixed bottom-4 right-4 z-50 flex w-[min(26rem,calc(100vw-2rem))] flex-col rounded-sm"
+          className="fixed bottom-4 right-4 z-50 flex max-h-[calc(100vh-2rem)] w-[min(26rem,calc(100vw-2rem))] flex-col overflow-y-auto rounded-sm border border-line bg-surface shadow-2xl"
         >
           <div className="flex items-center justify-between border-b border-line px-4 py-3">
             <div>
@@ -226,6 +233,11 @@ export function AskPanel({ symbol, displayName }: { symbol: string; displayName:
             {result && (
               <div className="border-l-2 border-cobalt/40 pl-3" aria-live="polite">
                 <p className="text-xs leading-relaxed text-foreground">{result.answer}</p>
+                {SOURCE_NOTE[result.source] && (
+                  <p data-testid="ask-source-note" className="mt-2 text-xs leading-relaxed text-faint">
+                    {SOURCE_NOTE[result.source]}
+                  </p>
+                )}
                 {result.evidence.length > 0 && (
                   <div className="mt-2.5">
                     <p className="label-caps mb-1">Evidence used</p>
