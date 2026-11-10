@@ -4,6 +4,64 @@ Running record of the 2026-11 audit remediation: what changed, why, how it was
 verified, and what risk remains open. Newest entries first. Production numbers
 come from workflow logs; nothing here contains credentials or hostnames.
 
+## Phase 1 — Read-only storage forensics (2026-11-10)
+
+**Purpose.** Replace estimates with measurements before any write-path,
+index or vacuum change: dead tuples, per-index sizes and scan counts, Neon's
+own size metric and enforced limit, bars by year/month/owner (incl. bars
+older than the 2y fetch window), alpha backfill vs live rows, weekend-dated
+and orphaned alpha rows, news growth, and pass re-runs per day.
+
+**Change.**
+
+- `ops/sql/storage_forensics.sql` and `ops/sql/job_health.sql` (30-day
+  nightly health). Both run inside `BEGIN READ ONLY`; Postgres rejects any
+  write. Optional tooling (`pg_cluster_size`, `pgstattuple_approx`) is used
+  only if already present, each probe behind its own exception handler. No
+  `CREATE EXTENSION`.
+- `db-probe.yml`: new `forensics` dispatch input; both scripts run only on a
+  manual dispatch with `forensics=true`. The weekly schedule is unchanged.
+- `backend/tests/test_storage_forensics_sql.py`: keyword scan for writes/DDL,
+  empty-schema run of both scripts, a seeded run of the forensics script on a
+  fresh connection (its own READ ONLY transaction), and a proof that a write
+  inside `BEGIN READ ONLY` raises.
+
+**Known limit.** The share of nightly price writes that are true no-ops
+cannot be measured read-only from the database (it needs the provider data).
+Phase 2's guarded upsert reports it directly as rows actually updated.
+
+**Results** (db-probe run 42806316780, 2026-11-10 11:18 UTC, read-only):
+
+- **Enforced limit is 1 GB, not 512 MB**: `neon.max_cluster_size = 1024 MB`.
+  561 MB is ~55% of it. `NEON_CAP_BYTES` (512 MB), the 450 MB canary and the
+  450 MB prune gate are all calibrated to the wrong cap.
+- **Largest single waste: `alpha_scores_pkey` = 93.8 MB with 0 scans.** A
+  compact btree on 507k integer ids is ~11 MB; the excess is index bloat
+  from the backfill's delete+insert pattern (cumulative 10.5M inserts /
+  10.0M deletes on a 507k-row table). `alpha_scores` indexes (127 MB) are
+  larger than its heap (103 MB).
+- Redundant indexes measured: `ix_daily_prices_stock_id` 17.2 MB,
+  `ix_alpha_scores_symbol` 9.0 MB; the rest are < 0.5 MB combined.
+- Dead tuples: daily_prices 12.9%, alpha_scores 11.6%. daily_prices last
+  autovacuum 2026-09-23 (stays under the default 20% trigger); 53% of its
+  updates are HOT.
+- Table totals: alpha_scores 230 MB, daily_prices 216 MB, news_articles
+  77 MB (of which `uq_news_articles_url` 41 MB; `content` is NULL in every
+  row), everything else < 25 MB.
+- Prices: 1.27M bars; 1,931 catalog stocks outside top-1000 hold 769k bars
+  (60%, frozen since the mid-September cutover). 100k bars are older than
+  2 years (38k of them top-1000) and are never re-fetched or re-adjusted.
+- Alpha: 4,010 of 18,305 live snapshot rows are dated on a weekend
+  (confirms the UTC-date / non-trading-day finding). No orphaned symbols.
+- News: 61k articles; burst Jul–Sep 2026 (32.6k in Sep), now 4–6k/month.
+- Extensions: `pgstattuple` and `pg_repack` are available but not
+  installed; Neon's `pg_cluster_size()` is not exposed.
+- **Nightly ingestion failed every scheduled night from 2026-09-25 to
+  2026-11-08 (45 nights)** with `ModuleNotFoundError: psycopg`, before any
+  job_runs row was written, so `/debug/jobs` showed nothing. Bars were
+  recovered by the 2y re-fetch on 2026-11-09; per-day live alpha snapshots
+  and news for that window were not.
+
 ## Phase 0 — Restore a working backup (2026-11-10)
 
 **Problem (verified from Actions logs).** No backup artifact has been stored
