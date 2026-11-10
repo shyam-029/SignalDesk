@@ -4,6 +4,50 @@ Running record of the 2026-11 audit remediation: what changed, why, how it was
 verified, and what risk remains open. Newest entries first. Production numbers
 come from workflow logs; nothing here contains credentials or hostnames.
 
+## Items 12, 14, 16 — Screener cache, browser caching, keep-warm (2026-11-10)
+
+**Problems.**
+
+- The screener analysed every stock in the top-1000 on every request:
+  one stock lookup plus `analyze_stock` (financials, peers, peer
+  financials) each, about 4,000 database round trips from Render's free
+  instance to Neon per page load and per sort click.
+- API responses carried no cache headers, so every navigation refetched.
+- Render's free instance sleeps after ~15 minutes idle; the next visitor
+  waits 30-60 s.
+
+**Change.**
+
+- `services/screener_cache.py`: the analysed universe is built once and
+  reused until the newest finished `job_runs` row changes (any nightly,
+  rank or manual pass) or 1 hour passes. Concurrent first requests share
+  one build. The router's filters, sorting and paging are unchanged;
+  `analyze_stock` is unchanged, so results are identical. The unused
+  `stocks.list_all_symbols` was removed.
+- `main.py`: successful `GET /api/v1/*` responses get
+  `Cache-Control: public, max-age=60, stale-while-revalidate=300`.
+- `keep-warm.yml`: pings `/health` and `/api/v1/screener?limit=1` every 10
+  minutes, 02:30-18:59 UTC (08:00-00:30 IST). Not 24/7: Render's free tier
+  allows 750 instance-hours a month across all free services; this uses
+  about 500.
+- Frontend `lib/queryPersist.ts`: successful queries are saved to
+  `localStorage` (12 h max age, 1.5 MB cap, versioned) and restored on load,
+  then refetched in the background as usual. No new dependency.
+
+**Verification.** Frontend: 78 tests pass (6 new for persistence: round
+trip, failed queries skipped, expiry, version mismatch, blocked/corrupt
+storage, size cap), type check and production build pass. Backend: new
+tests prove repeat screener requests reuse one analysis, a finished job or
+the max age triggers exactly one rebuild, cached rows equal direct
+`analyze_stock` output field for field, and cache headers appear only on
+successful API GETs. Backend tests run in CI (no local Postgres).
+
+**Not done.** Item 15 (rate-limiter client IP): Render does not document
+how it forwards the client IP, so the trusted `X-Forwarded-For` hop must be
+confirmed from real request headers first. No shared edge cache yet: the
+browser calls Render directly, so `Cache-Control` only helps each visitor's
+own browser.
+
 ## Items 7, 8, 9, 20, 21, 23 — Restore test, failure alerts, workflow hardening (2026-11-10)
 
 **Problems.** Nobody had ever restored a backup (the backup job only reads
@@ -40,8 +84,19 @@ comments, success closes only the exact title, a different open alert is
 left alone, titles with quotes, and an invalid state exits 2. Its filter,
 the watchdog's ingest-age calculation (10 h at the time) and its
 disabled-workflow query were run against the real repository (read-only).
-Not yet verified: the workflows themselves on GitHub (to do once merged:
-dispatch `restore-test` and `watchdog` once).
+Verified on GitHub after merging (PR #9, 2026-11-10):
+
+- `restore-test` run 42850802659: **success.** Restored backup run
+  42803216508 (`signaldesk-20261110-1055.dump`, 55 MB) with
+  `--exit-on-error`. Row counts match the Phase 1 forensics exactly:
+  daily_prices 1,273,188; alpha_scores 507,321; news_articles 61,264;
+  ranking_audit 29,301; mf_nav_history 16,772; benchmark_prices 5,395;
+  stocks 3,001; financials 2,923; alembic_version 1. The backup is
+  restorable. Its alert job ran and found nothing to open.
+- `watchdog` run 42850822540: **success.** Last successful ingest 10 h
+  earlier; no disabled workflows; no issue opened.
+- All 11 workflows are registered and active, including `restore-test`,
+  `run-alert` and `watchdog`.
 
 **Known limits.** GitHub can disable the watchdog itself after 60 days
 without repository activity. A `partial` nightly (some symbols failed)

@@ -10,6 +10,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { PageLoader } from "@/components/data/PageLoader";
 import { SkipLink } from "@/components/layout/SkipLink";
 import LegalPage from "@/pages/LegalPage";
+import { persistQueryCache } from "@/lib/queryPersist";
 
 const LandingPage = lazy(() => import("@/pages/LandingPage"));
 const MarketsPage = lazy(() => import("@/pages/MarketsPage"));
@@ -29,6 +30,9 @@ const queryClient = new QueryClient({
     },
   },
 });
+
+// Repeat visits render the last-seen data instantly while fresh data loads.
+persistQueryCache(queryClient);
 
 function ScrollToTop() {
   const { pathname } = useLocation();
