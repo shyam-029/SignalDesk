@@ -37,4 +37,11 @@ jobs:
           echo "== with a forged X-Forwarded-For: $SPOOF"
           call -H "X-Forwarded-For: $SPOOF" | python3 -m json.tool
           echo "== with forged CF-Connecting-IP and True-Client-IP: $SPOOF"
-          call -H "CF-Connecting-IP: $SPOOF" -H "True-Client-IP: $SPOOF" -H "X-Real-IP: $SPOOF" | python3 -m json.tool
+          # Cloudflare may refuse such a request outright; print what came back.
+          code=$(curl -sS --max-time 90 -o forged.out -w '%{http_code}' \
+            -H "Authorization: Bearer $OPS_API_KEY" \
+            -H "X-Probe-Spoof: $SPOOF" -H "X-Probe-Caller: $CALLER" \
+            -H "CF-Connecting-IP: $SPOOF" -H "True-Client-IP: $SPOOF" -H "X-Real-IP: $SPOOF" \
+            "$API/debug/client-ip-shape" || echo "000")
+          echo "HTTP_STATUS=$code"
+          python3 -m json.tool forged.out 2>/dev/null || head -c 300 forged.out; echo
