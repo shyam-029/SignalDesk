@@ -909,6 +909,15 @@ async def record_live_alpha_snapshot(symbol: str) -> bool:
     backfill sweep covers history; this helper covers the "today" row so a
     day's live view still accumulates per-component history without any
     request-time write. Returns True when a snapshot was stored.
+
+    The snapshot is dated by the stock's LATEST STORED BAR, not the runner's
+    calendar date (work list item 17). The nightly runs every day and GitHub
+    often starts it after midnight UTC, so calendar dating produced rows on
+    weekends and holidays (4,010 of 18,305 live rows on 2026-11-10) that
+    describe the previous trading day's prices. Dating by the bar keeps every
+    snapshot on a real trading day; a re-run on a non-trading day refreshes
+    that day's row instead of adding a new one. Only a stock with no stored
+    bars at all falls back to the calendar date (previous behaviour).
     """
     from datetime import date
 
@@ -922,10 +931,13 @@ async def record_live_alpha_snapshot(symbol: str) -> bool:
         result = await alpha_svc.compute_alpha(session, stock)
         if result.composite is None:
             return False
+        last_bar = await session.scalar(
+            select(func.max(DailyPrice.date)).where(DailyPrice.stock_id == stock.id)
+        )
         await alpha_repo.upsert_snapshot(
             session,
             symbol=stock.symbol,
-            snapshot_date=date.today(),
+            snapshot_date=last_bar or date.today(),
             composite=result.composite,
             fundamental=result.fundamental,
             technical=result.technical,
