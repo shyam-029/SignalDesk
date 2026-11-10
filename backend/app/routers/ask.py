@@ -22,13 +22,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db import get_session
 from app.errors import ValidationError
 from app.routers.common import resolve_stock
+from app.routers import history as history_router
 from app.routers.history import PERFORMANCE_WINDOWS, _annualized_volatility_pct
 from app.repositories import company_profiles as profile_repo
 from app.repositories import financial_periods as fp_repo
 from app.repositories import news as news_repo
 from app.repositories import prices as price_repo
 from app.services import alpha as alpha_svc
-from app.services import analysis, indicators, llm_narrative
+from app.services import altman as altman_svc
+from app.services import analysis, ask_facts, indicators, llm_narrative
 from app.services import ask_narrative as ask_svc
 from app.services.valuation import InsufficientDataError, NoPeersError
 
@@ -38,6 +40,8 @@ SessionDep = Annotated[AsyncSession, Depends(get_session)]
 
 MIN_CLOSES = 26
 ANNUAL_PERIODS_INCLUDED = 5
+QUARTERLY_PERIODS_INCLUDED = 4
+PEERS_INCLUDED = 6
 
 
 class AskRequest(BaseModel):
@@ -193,6 +197,14 @@ async def _gather_evidence(session: AsyncSession, stock) -> dict:
             ),
             "as_of": as_of.isoformat(),
         }
+        # Computed daily-move facts (biggest gains/drops, drawdown, 52-week
+        # dates, recent closes). Computed here because the model may only
+        # restate evidence, never calculate; see services/ask_facts.py.
+        history_facts = ask_facts.price_history_facts(
+            [(b.date, float(b.close), float(b.high), float(b.low)) for b in bars]
+        )
+        if history_facts is not None:
+            evidence["price_history"] = history_facts
 
     # News sentiment aggregate.
     summary = await news_repo.get_sentiment_summary(session, stock.symbol)
@@ -219,6 +231,59 @@ async def _gather_evidence(session: AsyncSession, stock) -> dict:
                 "eps": float(p.eps) if p.eps is not None else None,
             }
             for p in periods[:ANNUAL_PERIODS_INCLUDED]
+        ]
+
+    # Latest quarterly results (revenue / profit trend within the year).
+    quarters = await fp_repo.get_periods(session, stock.id, period_type="quarterly")
+    if quarters:
+        evidence["quarterly_history"] = [
+            {
+                "period_end": p.period_end.isoformat(),
+                "period_type": p.period_type,
+                "revenue": float(p.revenue) if p.revenue is not None else None,
+                "net_income": float(p.net_income) if p.net_income is not None else None,
+                "operating_margin": float(p.operating_margin)
+                if p.operating_margin is not None
+                else None,
+                "net_margin": float(p.net_margin) if p.net_margin is not None else None,
+                "eps": float(p.eps) if p.eps is not None else None,
+            }
+            for p in quarters[:QUARTERLY_PERIODS_INCLUDED]
+        ]
+
+    # Financial-distress diagnostic (Altman Z''); honest status when it cannot
+    # be computed (banks, missing balance sheet).
+    altman = await altman_svc.compute_stock_altman(session, stock)
+    evidence["distress"] = {
+        "status": altman.status,
+        "z_score": _round_or_none(altman.score),
+        "zone": altman.zone,
+        "reason": altman.reason,
+    }
+
+    # Same-industry peers (the /peers endpoint's own enriched rows), largest
+    # first. Stored data only; nulls stay null.
+    peers_response = await history_router.get_peers(stock.symbol, session)
+    ranked_peers = sorted(
+        peers_response.items,
+        key=lambda p: (p.mcap_rank is None, p.mcap_rank if p.mcap_rank is not None else 0),
+    )[:PEERS_INCLUDED]
+    if ranked_peers:
+        evidence["peers"] = [
+            {
+                "symbol": p.symbol,
+                "name": p.name,
+                "trailing_pe": p.trailing_pe,
+                "price_to_book": p.price_to_book,
+                "ev_ebitda": p.ev_ebitda,
+                "market_cap": p.market_cap,
+                "mcap_rank": p.mcap_rank,
+                "return_on_equity": p.return_on_equity,
+                "operating_margin": p.operating_margin,
+                "revenue_cagr_3y": p.revenue_cagr_3y,
+                "return_1y_pct": p.return_1y_pct,
+            }
+            for p in ranked_peers
         ]
 
     # Static methodology (how SignalDesk computes what the evidence shows).
