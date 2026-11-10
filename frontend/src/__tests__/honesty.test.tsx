@@ -133,3 +133,56 @@ describe("AskPanel ASK_BLOCKED (top-level envelope code)", () => {
     );
   });
 });
+
+describe("AskPanel presentation and answer provenance", () => {
+  async function openAndAsk(source: "model" | "rule_based" | "scope") {
+    const user = userEvent.setup();
+    renderWithProviders(<AskPanel symbol="TEST.NS" displayName="TestCo" />);
+    await user.click(screen.getByRole("button", { name: /ask about testco/i }));
+    await user.type(screen.getByLabelText("Your research question"), "What are the main risks?");
+    await user.click(screen.getByRole("checkbox"));
+    mockAsk.mockResolvedValue({
+      symbol: "TEST.NS",
+      answer: "One-year annualized volatility is 21%.",
+      evidence: ["performance.volatility_1y_pct"],
+      confidence: "medium",
+      source,
+    });
+    await user.click(screen.getByRole("button", { name: /submit question/i }));
+  }
+
+  it("is an opaque panel, not the translucent glass surface", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<AskPanel symbol="TEST.NS" displayName="TestCo" />);
+    await user.click(screen.getByRole("button", { name: /ask about testco/i }));
+    const dialog = screen.getByRole("dialog");
+    expect(dialog.className).not.toContain("glass");
+    expect(dialog.className).toContain("bg-surface");
+  });
+
+  it("says the answer came from stored data when the AI was not used", async () => {
+    await openAndAsk("rule_based");
+    await waitFor(() => expect(screen.getByTestId("ask-source-note")).toBeInTheDocument());
+    expect(screen.getByTestId("ask-source-note")).toHaveTextContent(/AI assistant is not available/i);
+  });
+
+  it("says an AI model wrote the answer when it did", async () => {
+    await openAndAsk("model");
+    await waitFor(() => expect(screen.getByTestId("ask-source-note")).toBeInTheDocument());
+    expect(screen.getByTestId("ask-source-note")).toHaveTextContent(/AI model/i);
+  });
+
+  it("adds no provenance note to a scope refusal", async () => {
+    await openAndAsk("scope");
+    await waitFor(() => expect(screen.getByText(/annualized volatility/i)).toBeInTheDocument());
+    expect(screen.queryByTestId("ask-source-note")).not.toBeInTheDocument();
+  });
+
+  it("offers broader suggested questions", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<AskPanel symbol="TEST.NS" displayName="TestCo" />);
+    await user.click(screen.getByRole("button", { name: /ask about testco/i }));
+    expect(screen.getByRole("button", { name: "What are the main risks?" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "What does the company do?" })).toBeInTheDocument();
+  });
+});
