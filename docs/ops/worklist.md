@@ -50,12 +50,16 @@ Legend: `[x]` merged to main · `[~]` in progress · `[ ]` not started ·
 
 ### Hardening and correctness found in the audit
 
-- [ ] **17** Live alpha snapshots are dated by the runner's UTC date: 4,010
-      weekend-dated rows; date them by the latest bar instead
+- [x] **17** Live alpha snapshots are dated by the stock's latest stored bar
+      instead of the runner's calendar date (PR #11). The 4,010 existing
+      weekend-dated rows are left in place (removing them is a data deletion
+      and needs owner approval)
 - [ ] **18** `daily_prices.volume` is a 4-byte integer; widen to BIGINT
       before a >2.1B-share day fails a symbol's upsert (migration)
-- [ ] **19** Migration-vs-model drift test (tests build the schema from
-      models, never from migrations)
+- [x] **19** Drift test: builds a throwaway database from the migrations
+      alone and fails CI on any difference from the models (PR #11). Its
+      first run found and fixed one mismatch: the `ranking_audit.stock_id`
+      index name in the model
 - [x] **20** `restore.yml`: typed `RESTORE-PRODUCTION` confirmation, shares
       the nightly-ingestion concurrency group, no longer prints the database
       user (PR #9)
@@ -122,8 +126,12 @@ Legend: `[x]` merged to main · `[~]` in progress · `[ ]` not started ·
       transparent
 - [ ] Alpha chart: remove the fundamental/sentiment lines; investigate the
       large technical-score swings
-- [ ] News relevance: ticker disambiguation (e.g. ACC the cricket body,
-      "eternal" the word vs ETERNAL.NS)
+- [ ] News relevance: articles are attached to the wrong stock whenever a
+      ticker or company name is also an ordinary word, acronym or another
+      organisation's name. This is systemic, not a few cases (owner,
+      2026-11-10); examples: ACC (cricket body vs ACC Ltd), "eternal" (the
+      word vs ETERNAL.NS). Needs a general matching rule plus a measured
+      false-match rate over stored articles, not a per-ticker blocklist
 - [ ] Alpha v2 with flexible, lower sentiment weighting
 - [ ] Redesign ETF and fund pages (needs holdings data first)
 
