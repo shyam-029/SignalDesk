@@ -32,17 +32,17 @@ Legend: `[x]` merged to main · `[~]` in progress · `[ ]` not started ·
       alpha_scores_pkey` (93.8 MB, 0 scans), drop redundant
       `ix_daily_prices_stock_id` (17.2 MB) and `ix_alpha_scores_symbol`
       (9.0 MB); check Neon headroom first; prod DDL needs approval
-- [~] **7** Restore test: `restore-test.yml` restores the newest backup
+- [x] **7** Restore test: `restore-test.yml` restores the newest backup
       artifact into a throwaway Postgres on the runner (no secret, never
       touches production), checks every core table has rows; monthly on the
-      2nd and on demand (PR pending)
-- [~] **8** Failure alerting: a failed ingest, rank, backup or restore-test
+      2nd and on demand (PR #9)
+- [x] **8** Failure alerting: a failed ingest, rank, backup or restore-test
       run opens or updates a GitHub issue (label `ops-alert`) and the next
       success closes it (`ops/ci/alert.sh`, `run-alert.yml`); a daily
-      `watchdog.yml` alerts if no ingest succeeded in 30 h (PR pending)
-- [~] **9** All 8 workflows checked active on 2026-11-10 (db-probe was
+      `watchdog.yml` alerts if no ingest succeeded in 30 h (PR #9)
+- [x] **9** All 8 workflows checked active on 2026-11-10 (db-probe was
       re-enabled earlier); `watchdog.yml` now alerts daily on any disabled
-      workflow (PR pending)
+      workflow (PR #9)
 - [ ] **10** Private off-GitHub backup copy (repo is public; artifacts last
       30 days). The monthly restore test is covered by item 7
 - [ ] **11** Update the private progress trackers kept outside the repo
@@ -50,21 +50,25 @@ Legend: `[x]` merged to main · `[~]` in progress · `[ ]` not started ·
 
 ### Hardening and correctness found in the audit
 
-- [ ] **17** Live alpha snapshots are dated by the runner's UTC date: 4,010
-      weekend-dated rows; date them by the latest bar instead
+- [x] **17** Live alpha snapshots are dated by the stock's latest stored bar
+      instead of the runner's calendar date (PR #11). The 4,010 existing
+      weekend-dated rows are left in place (removing them is a data deletion
+      and needs owner approval)
 - [ ] **18** `daily_prices.volume` is a 4-byte integer; widen to BIGINT
       before a >2.1B-share day fails a symbol's upsert (migration)
-- [ ] **19** Migration-vs-model drift test (tests build the schema from
-      models, never from migrations)
-- [~] **20** `restore.yml`: typed `RESTORE-PRODUCTION` confirmation, shares
+- [x] **19** Drift test: builds a throwaway database from the migrations
+      alone and fails CI on any difference from the models (PR #11). Its
+      first run found and fixed one mismatch: the `ranking_audit.stock_id`
+      index name in the model
+- [x] **20** `restore.yml`: typed `RESTORE-PRODUCTION` confirmation, shares
       the nightly-ingestion concurrency group, no longer prints the database
-      user (PR pending)
-- [~] **21** Dispatch inputs reach scripts through env, never interpolated:
+      user (PR #9)
+- [x] **21** Dispatch inputs reach scripts through env, never interpolated:
       `db-forensics.yml`, `migrate.yml` (free-text revision), `restore.yml`,
-      `restore-test.yml` (PR pending)
+      `restore-test.yml` (PR #9)
 - [ ] **22** Job connections: `NullPool` opens a fresh TLS connection per
       symbol (thousands per night); use a small pool
-- [~] **23** `*.dump` added to `.gitignore` (PR pending)
+- [x] **23** `*.dump` added to `.gitignore` (PR #9)
 - [ ] **24** Clean up the parallel session's worktrees
       (`signaldesk-ops3`, `signaldesk-ops45`) and their local branches
 
@@ -90,18 +94,28 @@ Legend: `[x]` merged to main · `[~]` in progress · `[ ]` not started ·
 
 ## Speed
 
-- [ ] **12** Cold start (likely the 30-40 s first load): `Cache-Control`
-      with `s-maxage` + `stale-while-revalidate` on read endpoints, served
-      through Cloudflare
+- [~] **12** `Cache-Control: public, max-age=60, stale-while-revalidate=300`
+      on successful `GET /api/v1/*` (browser cache; errors, POSTs and ops
+      routes excluded). Note: the API is called directly on Render, not
+      through Cloudflare, so there is no shared edge cache yet; proxying
+      `/api` through the Worker with edge caching is a separate, larger
+      change (PR pending)
 - [ ] **13** Nightly static JSON snapshot for the landing page (benchmarks,
       top-50 ticker, a 6-month chart, market news)
-- [ ] **14** Screener: server-side pagination (10 per page) instead of
-      computing all 1,000 rows per request, and cache it
+- [~] **14** Screener: the analysed universe is cached in memory and rebuilt
+      only when a job finishes (or after 1 h), instead of ~4,000 database
+      round trips per request; filter/sort/paging unchanged and identical
+      results (PR pending). The 10-per-page UI change is still open
 - [ ] **15** "Too many requests": rate limiter trusts the first
-      `X-Forwarded-For` hop (spoofable); trust only Render's proxy hop and
-      review the 60/min and 300/min limits
-- [ ] **16** Keep-warm ping on `/health`; persist TanStack Query cache to
-      `localStorage` for repeat visits
+      `X-Forwarded-For` hop (spoofable). Render does not document how it
+      forwards the client IP (checked 2026-11-10), so the trusted hop must be
+      confirmed from real request headers before changing it; a wrong guess
+      would put all visitors in one bucket. Also review the 60/min and
+      300/min limits
+- [~] **16** `keep-warm.yml` pings `/health` and one screener row every
+      10 min, 08:00-00:30 IST (~500 of Render's 750 free hours/month); the
+      frontend persists successful queries to `localStorage` for 12 h so
+      repeat visits render instantly (PR pending)
 
 ## Ingest speed
 
@@ -150,12 +164,17 @@ baseline). Each item touches `ingest.yml` / `jobs.py`, so one branch each.
       transparent
 - [ ] Alpha chart: remove the fundamental/sentiment lines; investigate the
       large technical-score swings
-- [ ] News relevance: ticker disambiguation (e.g. ACC the cricket body,
-      "eternal" the word vs ETERNAL.NS)
+- [ ] News relevance: articles are attached to the wrong stock whenever a
+      ticker or company name is also an ordinary word, acronym or another
+      organisation's name. This is systemic, not a few cases (owner,
+      2026-11-10); examples: ACC (cricket body vs ACC Ltd), "eternal" (the
+      word vs ETERNAL.NS). Needs a general matching rule plus a measured
+      false-match rate over stored articles, not a per-ticker blocklist
 - [ ] Alpha v2 with flexible, lower sentiment weighting
 - [ ] Redesign ETF and fund pages (needs holdings data first)
 
 ## Suggested order
 
-2a (tonight's nightly) → 25 runs for a week → 26-34 in order of saving
-→ 6 → remaining 17-23 → product items.
+2a (tonight's nightly) → merge 12/14/16 (done, PR #10) → 25 runs for a
+week → 26-34 in order of saving → 15 (after a real-header check) → 6 →
+remaining 18, 22 → product items.
