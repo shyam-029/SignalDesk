@@ -62,7 +62,7 @@ jobs:
           if echo "$out" | grep -q "(head)"; then
             echo "Schema is at Alembic head."
           else
-            echo "::error::SCHEMA BEHIND CODE: database is not at Alembic head. Dispatch the 'migrate' workflow (direction=upgrade, revision=head) and then re-run this workflow. Nothing was ingested."
+            echo "::error::SCHEMA BEHIND CODE: database is not at Alembic head. Dispatch the 'migrate' workflow (direction=upgrade, revision=head) and then re-run this workflow. Nothing was run."
             exit 1
           fi
       - name: Rank top-1000 universe (production)
