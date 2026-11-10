@@ -70,3 +70,16 @@ jobs:
             echo "SMOKE: /status/full NOT ok (see body above)"
             exit 1
           fi
+
+  # Item 8: a failed run opens (or updates) a GitHub issue; the next success
+  # closes it. See ops/ci/alert.sh.
+  alert:
+    needs: ingest
+    if: always()
+    permissions:
+      issues: write
+      contents: read
+    uses: ./.github/workflows/run-alert.yml
+    with:
+      title: "Nightly ingest failing"
+      outcome: ${{ needs.ingest.result }}

@@ -32,14 +32,19 @@ Legend: `[x]` merged to main · `[~]` in progress · `[ ]` not started ·
       alpha_scores_pkey` (93.8 MB, 0 scans), drop redundant
       `ix_daily_prices_stock_id` (17.2 MB) and `ix_alpha_scores_symbol`
       (9.0 MB); check Neon headroom first; prod DDL needs approval
-- [ ] **7** Restore test into a scratch database (`restore-test.yml`, still
-      untracked; needs a `SCRATCH_DATABASE_URL` secret from the owner)
-- [ ] **8** Nightly failure alerting (45 nights failed unnoticed,
-      2026-09-25 to 2026-11-08)
-- [ ] **9** List all workflows and re-enable any scheduled one GitHub
-      disabled for inactivity (db-probe was; check backup, ingest, rank)
+- [~] **7** Restore test: `restore-test.yml` restores the newest backup
+      artifact into a throwaway Postgres on the runner (no secret, never
+      touches production), checks every core table has rows; monthly on the
+      2nd and on demand (PR pending)
+- [~] **8** Failure alerting: a failed ingest, rank, backup or restore-test
+      run opens or updates a GitHub issue (label `ops-alert`) and the next
+      success closes it (`ops/ci/alert.sh`, `run-alert.yml`); a daily
+      `watchdog.yml` alerts if no ingest succeeded in 30 h (PR pending)
+- [~] **9** All 8 workflows checked active on 2026-11-10 (db-probe was
+      re-enabled earlier); `watchdog.yml` now alerts daily on any disabled
+      workflow (PR pending)
 - [ ] **10** Private off-GitHub backup copy (repo is public; artifacts last
-      30 days) and a monthly restore test
+      30 days). The monthly restore test is covered by item 7
 - [ ] **11** Update the private progress trackers kept outside the repo
       (stale since 2026-09-10)
 
@@ -51,13 +56,15 @@ Legend: `[x]` merged to main · `[~]` in progress · `[ ]` not started ·
       before a >2.1B-share day fails a symbol's upsert (migration)
 - [ ] **19** Migration-vs-model drift test (tests build the schema from
       models, never from migrations)
-- [ ] **20** `restore.yml`: add a typed confirmation and a concurrency guard
-      against ingest (it runs `pg_restore --clean` on production)
-- [ ] **21** `db-forensics.yml`: pass `inputs.symbols` via env, not
-      interpolated into Python source
+- [~] **20** `restore.yml`: typed `RESTORE-PRODUCTION` confirmation, shares
+      the nightly-ingestion concurrency group, no longer prints the database
+      user (PR pending)
+- [~] **21** Dispatch inputs reach scripts through env, never interpolated:
+      `db-forensics.yml`, `migrate.yml` (free-text revision), `restore.yml`,
+      `restore-test.yml` (PR pending)
 - [ ] **22** Job connections: `NullPool` opens a fresh TLS connection per
       symbol (thousands per night); use a small pool
-- [ ] **23** Add `*.dump` to `.gitignore`
+- [~] **23** `*.dump` added to `.gitignore` (PR pending)
 - [ ] **24** Clean up the parallel session's worktrees
       (`signaldesk-ops3`, `signaldesk-ops45`) and their local branches
 
@@ -71,10 +78,9 @@ Legend: `[x]` merged to main · `[~]` in progress · `[ ]` not started ·
       no branch, so they no longer appear in Actions)
 - [x] Old public run logs that showed the database host/user deleted
       (11 `rank.yml` runs, 1 `restore.yml` run; 2026-11-10)
-- [?] Rotate the Neon database password (the host/user were public for
-      about two months; the password itself was never printed). Owner
-      action: rotate in Neon, then update the `DATABASE_URL` secret in
-      GitHub Actions and in Render
+- [x] Neon database password rotated by the owner on 2026-11-10;
+      `DATABASE_URL` updated in GitHub Actions (verified: read-only db-probe
+      succeeded with it) and in Render (owner confirmed)
 - [?] Adjusted-price seam at the 2y fetch edge: store raw prices plus
       adjustment factors, or re-fetch full history after corporate actions
 - [?] Storage strategy before fund work: derive backfilled alpha history
@@ -113,5 +119,6 @@ Legend: `[x]` merged to main · `[~]` in progress · `[ ]` not started ·
 
 ## Suggested order
 
-2a (tonight) → password rotation (owner) → 9, 7, 8
+2a (tonight's nightly) → merge the 7/8/9/20/21/23 PR, then run the
+restore test and the watchdog once
 → 12-16 → 6 → 17-23 → product items.
