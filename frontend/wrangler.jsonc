@@ -1,0 +1,27 @@
+// Cloudflare Workers config for the SignalDesk frontend (static assets only).
+//
+// Live at https://signaldesk.shyamsundar2935.workers.dev, built by Cloudflare
+// Workers Builds with Root directory = /frontend:
+//   build:            npm run build           -> ./dist
+//   production (main): npx wrangler deploy
+//   other branches:   npx wrangler versions upload   (uploads a version, not live)
+//
+// Before this file existed, `wrangler deploy` on main inferred the setup, but
+// `wrangler versions upload` cannot, so every pull-request build failed with
+// "Missing entry-point to Worker script or to assets directory". This file
+// states the same setup explicitly for both commands.
+//
+// not_found_handling = single-page-application matches the live behaviour
+// (verified 2026-11-10: unknown paths such as /stocks/RELIANCE.NS return
+// index.html with 200) so React Router deep links keep working.
+//
+// VITE_API_BASE is NOT set here: it is a build-time variable held in the
+// Worker's Build settings and baked into the bundle by `vite build`.
+{
+  "name": "signaldesk",
+  "compatibility_date": "2026-11-01",
+  "assets": {
+    "directory": "./dist",
+    "not_found_handling": "single-page-application"
+  }
+}
