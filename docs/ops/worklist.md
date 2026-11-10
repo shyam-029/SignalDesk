@@ -63,12 +63,18 @@ Legend: `[x]` merged to main · `[~]` in progress · `[ ]` not started ·
 
 ## Owner decisions
 
-- [?] Render dashboard: does the start or release command run
-      `alembic upgrade head`? If so, remove it (Phase 4 depends on it)
-- [?] Orphan `prune-alpha-recovery` workflow is still registered: disable
-      it (it is now harmless: the prune refuses without confirmation)
-- [?] Old public run logs show the database host/user: delete those runs
-      and rotate the Neon password
+- [x] Render dashboard: the start command is only
+      `uvicorn app.main:app --host 0.0.0.0 --port $PORT` (owner confirmed
+      2026-11-10). No migration runs on deploy, so Phase 4 is complete.
+- [x] Orphan `prune-alpha-recovery` and `db-probe-recovery` workflows
+      removed (their 5 runs deleted 2026-11-10; the workflow files exist on
+      no branch, so they no longer appear in Actions)
+- [x] Old public run logs that showed the database host/user deleted
+      (11 `rank.yml` runs, 1 `restore.yml` run; 2026-11-10)
+- [?] Rotate the Neon database password (the host/user were public for
+      about two months; the password itself was never printed). Owner
+      action: rotate in Neon, then update the `DATABASE_URL` secret in
+      GitHub Actions and in Render
 - [?] Adjusted-price seam at the 2y fetch edge: store raw prices plus
       adjustment factors, or re-fetch full history after corporate actions
 - [?] Storage strategy before fund work: derive backfilled alpha history
@@ -107,5 +113,5 @@ Legend: `[x]` merged to main · `[~]` in progress · `[ ]` not started ·
 
 ## Suggested order
 
-2a (tonight) → owner decisions on Render and the orphan workflow → 9, 7, 8
+2a (tonight) → password rotation (owner) → 9, 7, 8
 → 12-16 → 6 → 17-23 → product items.
