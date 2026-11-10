@@ -230,8 +230,9 @@ a TOC read is not a restore.
 | Risk | Status |
 |---|---|
 | `prune-alpha` gate is armed (uses `pg_database_size`, which includes bloat) | fixed (Phase 3): needs an explicit confirmation phrase, no size gate |
-| Migrations auto-apply to production via `ingest.yml` / `rank.yml` | fixed in workflows (Phase 4); Render's own start/release command unverified |
+| Migrations auto-apply to production via `ingest.yml` / `rank.yml` | fixed (Phase 4); Render's start command is plain `uvicorn` (owner confirmed 2026-11-10), so no deploy path migrates |
 | Alpha backfill delete+insert churns ~493k rows/run and is non-atomic | fixed (Phase 2, PR #5); awaiting first nightly numbers |
 | Price upsert rewrites ~462k unchanged rows/run | fixed (Phase 2, PR #5); awaiting first nightly numbers |
 | Adjusted-price seam at the 2y fetch-window edge | open — needs owner decision |
-| `rank.yml` logs DB host/user/db name to public Actions logs | steps removed (Phase 5); old logs and password rotation are owner decisions |
+| `rank.yml` logs DB host/user/db name to public Actions logs | steps removed (Phase 5); the 12 runs whose logs showed host/user deleted 2026-11-10 (11 rank, 1 restore); password rotation still open (owner) |
+| Orphan `prune-alpha-recovery` / `db-probe-recovery` workflows registered on GitHub | removed 2026-11-10 (runs deleted; no workflow file on any branch) |
