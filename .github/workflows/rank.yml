@@ -95,3 +95,16 @@ jobs:
 
           asyncio.run(main())
           EOF
+
+  # Item 8: a failed run opens (or updates) a GitHub issue; the next success
+  # closes it. See ops/ci/alert.sh.
+  alert:
+    needs: rank
+    if: always()
+    permissions:
+      issues: write
+      contents: read
+    uses: ./.github/workflows/run-alert.yml
+    with:
+      title: "Monthly ranking failing"
+      outcome: ${{ needs.rank.result }}
