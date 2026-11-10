@@ -353,7 +353,11 @@ async def test_ingest_etfs_creates_flagged_rows_and_prices(
             return Fundamentals(symbol=symbol)
 
     monkeypatch.setattr(jobs_module, "SessionLocal", session_factory)
-    result = await ingest_etfs(FakeEtfProvider(), batch_size=20)
+    # The fixture's last bar is 2026-09-07; pin the guard's reference day to
+    # it (ranking.py convention: logic never reads the clock).
+    result = await ingest_etfs(
+        FakeEtfProvider(), batch_size=20, today=date(2026, 9, 8)
+    )
     assert result["errors"] == 0
     async with session_factory() as session:
         etfs = (await session.execute(

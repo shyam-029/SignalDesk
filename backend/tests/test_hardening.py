@@ -232,7 +232,9 @@ async def test_ingest_universe_retries_transient_failure(session_factory, monkey
 
     monkeypatch.setattr(jobs_module, "SessionLocal", session_factory)
     provider = FlakyProvider(fail_times=2)  # succeeds on 3rd attempt
-    result = await ingest_universe(provider, batch_size=10)
+    result = await ingest_universe(
+        provider, batch_size=10, today=date(2026, 1, 2)
+    )
     assert result["errors"] == 0
     assert result["bars"] == 1
     assert provider.calls == 3  # 2 failures + 1 success

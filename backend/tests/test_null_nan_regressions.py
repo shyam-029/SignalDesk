@@ -187,7 +187,7 @@ async def test_nan_price_row_rejected_not_stored(session_factory, monkeypatch):
 
     monkeypatch.setattr(jobs_module, "SessionLocal", session_factory)
     symbol, bars = await jobs_module._fetch_one_symbol(
-        YFinanceProvider(), "GEECEE.NS"
+        YFinanceProvider(), "GEECEE.NS", today=date(2026, 9, 9)
     )
     assert bars == 2  # the NaN row was rejected at the provider
 

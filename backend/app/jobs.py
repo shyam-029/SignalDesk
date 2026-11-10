@@ -142,7 +142,9 @@ async def _get_universe_symbols(session: AsyncSession) -> list[str]:
 STALE_FRAME_MAX_AGE_DAYS = 5
 
 
-def _assert_frame_fresh(symbol: str, bars: list[OHLCV]) -> None:
+def _assert_frame_fresh(
+    symbol: str, bars: list[OHLCV], today: date | None = None
+) -> None:
     """Reject a silently truncated provider frame.
 
     yfinance can return a history frame that just... stops months ago, with
@@ -153,11 +155,15 @@ def _assert_frame_fresh(symbol: str, bars: list[OHLCV]) -> None:
     zero errors and zero skips — the worst kind of failure: invisible. A
     frame older than the tolerance raises MarketDataError so the existing
     retry/backoff machinery handles it and the outcome is recorded honestly.
+
+    today pins the reference date (ranking.py convention: logic never reads
+    the clock). Defaults to the real clock, so production behavior is
+    unchanged; tests with fixed-date fixtures inject the matching day.
     """
     if not bars:
         return  # empty frames keep the caller's explicit "No price data" path
     last = max(b.date for b in bars)
-    if last < date.today() - timedelta(days=STALE_FRAME_MAX_AGE_DAYS):
+    if last < (today or date.today()) - timedelta(days=STALE_FRAME_MAX_AGE_DAYS):
         raise MarketDataError(
             f"stale price frame for {symbol}: last bar {last.isoformat()} "
             f"(older than {STALE_FRAME_MAX_AGE_DAYS} days; provider likely "
@@ -199,7 +205,7 @@ def _alias_fetch_symbol(symbol: str) -> str | None:
 
 
 async def _fetch_bars_with_alias(
-    provider: MarketDataProvider, symbol: str
+    provider: MarketDataProvider, symbol: str, today: date | None = None
 ) -> list[OHLCV]:
     """Fetch price bars for a catalog symbol, falling back to its rename.
 
@@ -209,11 +215,13 @@ async def _fetch_bars_with_alias(
     has a rename alias — the aliased master symbol, which carries the same
     entity's continued series (verified 2026-11-10: TMPV.NS serves the full
     pre-demerger history that dead TATAMOTORS.NS no longer does).
+
+    today is forwarded to the freshness guard (None = real clock).
     """
     async def _one(sym: str) -> list[OHLCV]:
         bars = await provider.get_price_history(sym, PERIOD)
         if bars:
-            _assert_frame_fresh(sym, bars)
+            _assert_frame_fresh(sym, bars, today)
         return bars
 
     alias = _alias_fetch_symbol(symbol)
@@ -245,13 +253,14 @@ async def _fetch_bars_with_alias(
 
 
 async def _fetch_one_symbol(
-    provider: MarketDataProvider, symbol: str
+    provider: MarketDataProvider, symbol: str, today: date | None = None
 ) -> tuple[str, int]:
     """Fetch and upsert one symbol's history. Returns (symbol, bars_inserted).
 
     Raises MarketDataError upward so callers can isolate failures per symbol.
+    today is forwarded to the freshness guard (None = real clock).
     """
-    bars = await _fetch_bars_with_alias(provider, symbol)
+    bars = await _fetch_bars_with_alias(provider, symbol, today)
     if not bars:
         logger.warning("No price data for %s; skipping.", symbol)
         return symbol, 0
@@ -300,12 +309,15 @@ async def _fetch_one_symbol(
 
 
 async def ingest_universe(
-    provider: MarketDataProvider | None = None, batch_size: int = BATCH_SIZE
+    provider: MarketDataProvider | None = None,
+    batch_size: int = BATCH_SIZE,
+    today: date | None = None,
 ) -> dict:
     """Fetch + upsert price history for every symbol in the active universe.
 
     Processes symbols in bounded batches (asyncio.gather) for rate-limit safety.
     A failure in one symbol is logged and isolated; the run continues.
+    today is forwarded to the freshness guard (None = real clock).
     """
     provider = provider or build_default_market_provider()
 
@@ -323,7 +335,7 @@ async def ingest_universe(
     for i in range(0, len(symbols), batch_size):
         batch = symbols[i : i + batch_size]
         results = await asyncio.gather(
-            *(_fetch_one_symbol(provider, s) for s in batch),
+            *(_fetch_one_symbol(provider, s, today) for s in batch),
             return_exceptions=True,
         )
         for symbol, res in zip(batch, results):
@@ -1395,13 +1407,16 @@ async def _ensure_etf_catalog(session) -> int:
 
 
 async def ingest_etfs(
-    provider: MarketDataProvider | None = None, batch_size: int = BATCH_SIZE
+    provider: MarketDataProvider | None = None,
+    batch_size: int = BATCH_SIZE,
+    today: date | None = None,
 ) -> dict:
     """Ensure the curated ETF catalog rows exist and fetch their price history.
 
     ETFs reuse the EQUITY price pipeline (daily_prices via stocks rows flagged
     is_etf) but never enter universes, the screener or the /stocks list —
     they surface only through GET /etfs. Per-symbol isolation (D19).
+    today is forwarded to the freshness guard (None = real clock).
     """
     provider = provider or build_default_market_provider()
 
@@ -1417,7 +1432,7 @@ async def ingest_etfs(
     for i in range(0, len(symbols), batch_size):
         batch = symbols[i : i + batch_size]
         results = await asyncio.gather(
-            *(_fetch_one_symbol(provider, s) for s in batch),
+            *(_fetch_one_symbol(provider, s, today) for s in batch),
             return_exceptions=True,
         )
         for symbol, res in zip(batch, results):
