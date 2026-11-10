@@ -4,6 +4,46 @@ Running record of the 2026-11 audit remediation: what changed, why, how it was
 verified, and what risk remains open. Newest entries first. Production numbers
 come from workflow logs; nothing here contains credentials or hostnames.
 
+## Phase 2 — Stop nightly write churn (2026-11-10, code only, no migration)
+
+**Problem (measured in Phase 1).** Each nightly run re-offers ~462k price
+bars and ~493k alpha snapshots and rewrites all of them: the price upsert has
+no unchanged-row guard, and the alpha backfill deleted every technical-only
+row and re-inserted it (cumulative 10.5M inserts / 10.0M deletes on a 507k
+row table; `alpha_scores_pkey` bloated to 93.8 MB with 0 scans). The
+delete and insert were separate transactions, so a symbol briefly had no
+history, and a crash between them lost it until the next run.
+
+**Change.**
+
+- `app/repositories/upsert_guard.py`: shared helpers. `any_distinct` builds
+  the `DO UPDATE ... WHERE <any column IS DISTINCT FROM new value>` guard;
+  `INSERTED_FLAG` = `RETURNING (xmax = 0)` so each upsert reports what it
+  actually wrote.
+- Price upsert (`jobs._fetch_one_symbol`, shared by prices, ETFs and
+  catalog repair) and benchmark upsert: guarded; COALESCE semantics kept.
+  `ingest_prices` now also reports `inserted` / `updated` / `unchanged`
+  (`bars` keeps its meaning: rows offered).
+- Alpha backfill: `alpha_repo.sync_backfill_snapshots` replaces
+  wipe+insert with one transaction: guarded upsert (live snapshots with a
+  fundamental score are still never overwritten) plus a delete of stale
+  technical-only dates only. Same end state; ids are kept, so the primary
+  key stops growing. Pass reports `inserted` / `updated` / `unchanged` /
+  `deleted`.
+- `record_live_alpha_snapshots` now records `items_processed` (`stored`).
+
+**Expected effect, honestly.** Unchanged price bars stop being rewritten.
+For alpha, every backfilled row's composite blends the symbol's *latest*
+fundamental and sentiment (documented approximation D71), so a symbol whose
+sentiment summary moves still has its whole series updated. Those updates
+are now in place (same ids, often HOT) instead of delete+insert, which is
+what stops the index bloat, but the row-version count for alpha may stay
+high. The first nightly log after deploy gives the real split.
+
+**Not changed.** No schema change, no migration, no data deleted beyond
+what the old backfill already deleted. Existing bloat is not reclaimed by
+this phase (that is Phase 6: online index rebuild).
+
 ## Phase 1 — Read-only storage forensics (2026-11-10)
 
 **Purpose.** Replace estimates with measurements before any write-path,
