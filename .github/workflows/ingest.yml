@@ -24,6 +24,11 @@ jobs:
     env:
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
       APP_ENV: production
+      # Upstox is a PRICE FALLBACK only (providers/fallback.py): asked for bars
+      # only when Yahoo's answer for a symbol is an error, empty or stale.
+      # Empty/missing secret = Yahoo only, as before. Token expires ~2027-08;
+      # the watchdog alerts if Upstox starts rejecting it.
+      UPSTOX_ANALYTICS_TOKEN: ${{ secrets.UPSTOX_ANALYTICS_TOKEN }}
     defaults:
       run:
         working-directory: backend
