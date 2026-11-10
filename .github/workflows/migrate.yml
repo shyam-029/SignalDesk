@@ -49,11 +49,16 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
       - name: Apply migration
+        # Inputs reach the shell through env, never interpolated into the
+        # script (the free-text revision could otherwise run as a command).
+        env:
+          DIRECTION: ${{ inputs.direction }}
+          REVISION: ${{ inputs.revision }}
         run: |
-          if [ "${{ inputs.direction }}" = "downgrade" ]; then
-            alembic downgrade "${{ inputs.revision }}"
+          if [ "$DIRECTION" = "downgrade" ]; then
+            alembic downgrade "$REVISION"
           else
-            alembic upgrade "${{ inputs.revision }}"
+            alembic upgrade "$REVISION"
           fi
       - name: Show current revision
         run: alembic current

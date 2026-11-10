@@ -1,0 +1,146 @@
+name: restore-test
+
+# Item 7 of docs/ops/worklist.md: prove a stored backup actually RESTORES.
+# backup.yml only reads the archive's table of contents; that is not a restore.
+#
+# Restores the newest signaldesk-db-dump artifact (or a chosen backup run's)
+# into a throwaway Postgres 17 service container on the runner, then checks
+# that every core table came back with rows. Production is never touched:
+# this workflow has no database secret at all. Nothing leaves the runner, and
+# the container is destroyed when the job ends. Output is counts only.
+#
+# Runs monthly (2nd of the month, after the Sunday backups) and on demand.
+
+on:
+  schedule:
+    - cron: "0 5 2 * *" # 05:00 UTC on the 2nd; clear of ingest, rank and backup
+  workflow_dispatch:
+    inputs:
+      backup_run_id:
+        description: "Optional: run id of a backup.yml run to restore (default: newest dump artifact)"
+        required: false
+        default: ""
+
+concurrency:
+  group: restore-test
+  cancel-in-progress: false
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  restore-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    services:
+      scratch:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: restore_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      GH_TOKEN: ${{ github.token }}
+      # The throwaway container above; never a real database.
+      SCRATCH_URL: postgresql://postgres:postgres@localhost:5432/restore_test
+    steps:
+      - name: Find the dump to restore
+        env:
+          REQUESTED_RUN_ID: ${{ inputs.backup_run_id }}
+        run: |
+          set -euo pipefail
+          RUN_ID="${REQUESTED_RUN_ID:-}"
+          if [ -n "$RUN_ID" ] && ! [[ "$RUN_ID" =~ ^[0-9]+$ ]]; then
+            echo "::error::backup_run_id must be a numeric run id."
+            exit 1
+          fi
+          if [ -z "$RUN_ID" ]; then
+            RUN_ID=$(gh api "repos/${{ github.repository }}/actions/artifacts?name=signaldesk-db-dump&per_page=20" \
+              --jq '[.artifacts[] | select(.expired == false)] | sort_by(.created_at) | last | .workflow_run.id // empty')
+          fi
+          if [ -z "$RUN_ID" ]; then
+            echo "::error::No unexpired signaldesk-db-dump artifact found. Run backup.yml first."
+            exit 1
+          fi
+          echo "RUN_ID=$RUN_ID" >> "$GITHUB_ENV"
+          echo "Restoring the dump from backup run $RUN_ID"
+
+      - name: Download the dump artifact
+        run: |
+          set -euo pipefail
+          mkdir dump
+          gh run download "$RUN_ID" --repo "${{ github.repository }}" \
+            --name signaldesk-db-dump --dir dump
+          ls -lh dump
+          echo "DUMP=$(ls dump/*.dump | head -1)" >> "$GITHUB_ENV"
+
+      - name: Restore into the throwaway container
+        # --exit-on-error: any failed object fails the test instead of being
+        # reported as a warning count at the end.
+        run: |
+          set -euo pipefail
+          start=$(date +%s)
+          docker run --rm --network host -v "$PWD/dump:/in" -e SCRATCH_URL="$SCRATCH_URL" \
+            -e DUMP="/in/$(basename "$DUMP")" postgres:17 \
+            sh -c 'pg_restore --exit-on-error --no-owner --no-privileges --dbname="$SCRATCH_URL" "$DUMP"'
+          echo "RESTORE_SECONDS=$(( $(date +%s) - start ))" >> "$GITHUB_ENV"
+
+      - name: Verify every core table came back with rows
+        run: |
+          set -euo pipefail
+          cat > counts.sql <<'SQL'
+          SELECT t AS table_name, n AS row_count FROM (
+                      SELECT 'stocks' AS t, count(*) AS n FROM public.stocks
+            UNION ALL SELECT 'daily_prices', count(*) FROM public.daily_prices
+            UNION ALL SELECT 'alpha_scores', count(*) FROM public.alpha_scores
+            UNION ALL SELECT 'financials', count(*) FROM public.financials
+            UNION ALL SELECT 'news_articles', count(*) FROM public.news_articles
+            UNION ALL SELECT 'benchmark_prices', count(*) FROM public.benchmark_prices
+            UNION ALL SELECT 'mf_nav_history', count(*) FROM public.mf_nav_history
+            UNION ALL SELECT 'ranking_audit', count(*) FROM public.ranking_audit
+            UNION ALL SELECT 'alembic_version', count(*) FROM public.alembic_version
+          ) x ORDER BY 1;
+          SQL
+          run_psql() {
+            docker run --rm --network host -v "$PWD:/w" -e SCRATCH_URL="$SCRATCH_URL" postgres:17 \
+              psql "$SCRATCH_URL" -q -X -v ON_ERROR_STOP=1 "$@"
+          }
+          run_psql -f /w/counts.sql | tee counts.txt
+          empty=$(run_psql -t -A -F' ' -f /w/counts.sql | awk '$2 == 0 {print $1}')
+          head=$(run_psql -t -A -c "SELECT version_num FROM public.alembic_version")
+          size=$(run_psql -t -A -c "SELECT pg_size_pretty(pg_database_size(current_database()))")
+          {
+            echo "### Restore test"
+            echo "- backup run: $RUN_ID"
+            echo "- restore time: ${RESTORE_SECONDS}s"
+            echo "- alembic revision in the dump: \`$head\`"
+            echo "- restored size: $size"
+            echo '```'
+            cat counts.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ -n "$empty" ]; then
+            echo "::error::Restore test FAILED: these core tables restored with zero rows: $empty"
+            exit 1
+          fi
+          echo "Restore test passed: every core table has rows."
+
+  # Item 8: a failed restore test opens (or updates) a GitHub issue.
+  alert:
+    needs: restore-test
+    if: always()
+    permissions:
+      issues: write
+      contents: read
+    uses: ./.github/workflows/run-alert.yml
+    with:
+      title: "Monthly restore test failing"
+      outcome: ${{ needs.restore-test.result }}

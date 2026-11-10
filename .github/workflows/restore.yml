@@ -2,6 +2,15 @@
 # pg_dump -Fc release asset (Plan 28 backup/restore item). The dump asset is
 # referenced by release tag; the DATABASE_URL Actions secret supplies the
 # target. The secret is never printed; only row-count verification output.
+#
+# DESTRUCTIVE: pg_restore --clean drops and recreates every table in
+# PRODUCTION. Guards (item 20 of docs/ops/worklist.md):
+#   - the operator must type the exact phrase RESTORE-PRODUCTION;
+#   - it shares the nightly-ingestion concurrency group, so it waits for a
+#     running ingest to finish instead of restoring underneath it (and an
+#     ingest queued meanwhile waits for the restore);
+#   - inputs reach the shell through env, never interpolated into scripts.
+# To check a backup restores WITHOUT touching production, use restore-test.yml.
 name: restore
 on:
   workflow_dispatch:
@@ -9,6 +18,13 @@ on:
       tag:
         description: "Release tag holding the neon_seed.dump asset"
         required: true
+      confirm:
+        description: "Type RESTORE-PRODUCTION to replace the production database"
+        required: true
+
+concurrency:
+  group: nightly-ingestion
+  cancel-in-progress: false
 
 jobs:
   restore:
@@ -17,12 +33,22 @@ jobs:
     env:
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
     steps:
+      - name: Require the typed confirmation
+        env:
+          CONFIRM: ${{ inputs.confirm }}
+        run: |
+          if [ "$CONFIRM" != "RESTORE-PRODUCTION" ]; then
+            echo "::error::Refusing to restore: the confirm input must be exactly RESTORE-PRODUCTION. Nothing was changed."
+            exit 1
+          fi
+
       - uses: actions/checkout@v4
 
       - name: Download dump asset
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release download "${{ inputs.tag }}" --repo shyam-029/SignalDesk --pattern "neon_seed.dump" --clobber
+          TAG: ${{ inputs.tag }}
+        run: gh release download "$TAG" --repo "${{ github.repository }}" --pattern "neon_seed.dump" --clobber
 
       - name: Install postgresql-client 17 (dump was made by pg_dump 17)
         run: |
@@ -44,7 +70,7 @@ jobs:
         run: |
           PGURL=$(echo "$DATABASE_URL" | sed -e 's/^postgresql+asyncpg:/postgresql:/' -e 's/ssl=require/sslmode=require/')
           PSQL=/usr/lib/postgresql/17/bin/psql
-          $PSQL "$PGURL" -v ON_ERROR_STOP=1 -c "SELECT current_database() AS db, current_user AS usr, current_setting('search_path') AS search_path;"
+          $PSQL "$PGURL" -v ON_ERROR_STOP=1 -c "SELECT current_setting('search_path') AS search_path;"
           $PSQL "$PGURL" -v ON_ERROR_STOP=1 -c "SELECT table_schema, count(*) AS tables FROM information_schema.tables WHERE table_schema NOT IN ('pg_catalog','information_schema') GROUP BY table_schema ORDER BY 1;"
           $PSQL "$PGURL" -v ON_ERROR_STOP=1 -c "
             SELECT 'stocks' AS t, count(*) FROM public.stocks

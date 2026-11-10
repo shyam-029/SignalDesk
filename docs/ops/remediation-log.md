@@ -4,6 +4,49 @@ Running record of the 2026-11 audit remediation: what changed, why, how it was
 verified, and what risk remains open. Newest entries first. Production numbers
 come from workflow logs; nothing here contains credentials or hostnames.
 
+## Items 7, 8, 9, 20, 21, 23 — Restore test, failure alerts, workflow hardening (2026-11-10)
+
+**Problems.** Nobody had ever restored a backup (the backup job only reads
+the archive's table of contents). 45 nightly runs failed unnoticed. A
+scheduled workflow (db-probe) had been silently disabled by GitHub. The
+production `restore.yml` could run with one click and during an ingest, and
+printed the database user. Several dispatch inputs were interpolated straight
+into shell or Python source.
+
+**Change.**
+
+- `restore-test.yml` (item 7): restores the newest `signaldesk-db-dump`
+  artifact into a Postgres 17 service container on the runner, with
+  `pg_restore --exit-on-error`, then fails if any core table has zero rows.
+  It has no database secret, so it cannot reach production. Monthly on the
+  2nd at 05:00 UTC and on demand. (Replaces an untracked draft that needed a
+  scratch Neon database, which would also have counted against the cap.)
+- Alerts (item 8): `ops/ci/alert.sh` opens one GitHub issue per alert title
+  (label `ops-alert`), comments on it while the problem repeats, and closes
+  it on recovery. `run-alert.yml` is the reusable job; `ingest`, `rank`,
+  `backup` (the backup job, not the canary) and `restore-test` call it.
+- `watchdog.yml` (items 8 and 9): daily at 08:00 UTC, alerts if no ingest
+  run succeeded in the last 30 hours or if any workflow is not `active`.
+  Read-only, GitHub API only.
+- `restore.yml` (item 20): requires typing `RESTORE-PRODUCTION`, joins the
+  `nightly-ingestion` concurrency group, no longer prints database or user.
+- Inputs via env (item 21): `db-forensics.yml`, `migrate.yml`,
+  `restore.yml`, `restore-test.yml` (which also rejects a non-numeric run id).
+- `.gitignore` (item 23): `*.dump`.
+
+**Verification.** All workflow files parse. `alert.sh` was exercised
+against a stub `gh` for eight cases: first failure opens, repeat failure
+comments, success closes only the exact title, a different open alert is
+left alone, titles with quotes, and an invalid state exits 2. Its filter,
+the watchdog's ingest-age calculation (10 h at the time) and its
+disabled-workflow query were run against the real repository (read-only).
+Not yet verified: the workflows themselves on GitHub (to do once merged:
+dispatch `restore-test` and `watchdog` once).
+
+**Known limits.** GitHub can disable the watchdog itself after 60 days
+without repository activity. A `partial` nightly (some symbols failed)
+exits 0 and does not alert.
+
 ## Phases 4 and 5 — Migrations only by hand; no connection details in public logs (2026-11-10)
 
 **Problem.**
