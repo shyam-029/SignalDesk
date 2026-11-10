@@ -214,6 +214,26 @@ are now in place (same ids, often HOT) instead of delete+insert, which is
 what stops the index bloat, but the row-version count for alpha may stay
 high. The first nightly log after deploy gives the real split.
 
+**Result (item 2a)** — run 42852962417, 2026-11-10 16:17-18:22 UTC (an NSE
+holiday; code at 4ad7afb, i.e. Phase 2 included, PRs #10-#15 not yet):
+
+| Pass | Offered | Inserted | Updated | Unchanged | Before Phase 2 |
+|---|---|---|---|---|---|
+| Prices | 453,298 | 778 | 32,343 | 420,177 (92.7%) | ~462,514 rewritten |
+| Alpha backfill | 482,555 | 605 | 18,362 | 463,588 (96.1%) | ~493,386 deleted + re-inserted |
+
+- Rows written per night: ~52k instead of ~1.45M row operations, about a
+  96% cut. Stale alpha dates deleted: 0.
+- The alpha saving is larger than feared: the latest-sentiment blend
+  changed only ~3.8% of backfilled rows.
+- Runtime 123 min (nightly_ingestion 7,381 s). Alpha backfill 21.1 min
+  (was 26.0). Prices 10.9 min (was 11.1). Phase 2 cut writes, not fetching.
+- Night status `partial`: one catalog-repair failure, `NXT100CASE.NS`
+  (Yahoo's last bar 2026-10-16, refused by the stale-frame guard; work
+  list 2b). Repair handled 54 stocks because the morning's ranking added
+  new catalog rows.
+- The schema-at-head check (Phase 4) passed on its first real run.
+
 **Not changed.** No schema change, no migration, no data deleted beyond
 what the old backfill already deleted. Existing bloat is not reclaimed by
 this phase (that is Phase 6: online index rebuild).
