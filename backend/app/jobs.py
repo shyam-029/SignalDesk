@@ -1868,15 +1868,29 @@ def run_daily_ingestion() -> str:
 
 
 async def _ingest_all_with_job_engine() -> str:
-    """Run the nightly passes on a job-scoped engine, then dispose of it."""
+    """Run the nightly passes on a job-scoped engine, then dispose of it.
+
+    Pooled (work list item 22). The passes open a short session per symbol
+    (thousands per night); with NullPool each one paid a fresh TCP + TLS +
+    auth handshake to Neon. A small pool reuses connections instead, sized
+    for BATCH_SIZE concurrent symbols plus the job_runs recorder. The same
+    settings as the API's engine (app.db), which already pools against the
+    same URL: pool_pre_ping replaces connections Neon closed during long
+    provider-fetch gaps, and pool_recycle retires them before Neon's idle
+    timeout. The engine is still created inside this run's event loop and
+    disposed at the end, so the cross-loop problem above cannot return.
+    """
     from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
-    from sqlalchemy.pool import NullPool
 
     from app.db import asyncpg_ready_url
 
     global SessionLocal
     engine = create_async_engine(
-        asyncpg_ready_url(settings.database_url), poolclass=NullPool
+        asyncpg_ready_url(settings.database_url),
+        pool_size=BATCH_SIZE + 2,
+        max_overflow=BATCH_SIZE,
+        pool_pre_ping=True,
+        pool_recycle=300,
     )
     original = SessionLocal
     SessionLocal = async_sessionmaker(
