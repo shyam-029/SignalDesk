@@ -6,33 +6,37 @@
 #   - live arguments callers pass (the retention pass measures the actual
 #     database size; tests pass synthetic sizes).
 #
-# Measured facts they pin (SEMESTER2_PROGRESS sections 8/12.3, 2026-09-09):
-#   - Neon free plan hard cap: 0.5 GB = 512,000,000 bytes (NOT 512 MiB;
-#     exceeding it suspends compute until the next billing month).
-#   - Production baseline: 383 MB used (db-probe, 2026-09-09).
-#   - Steady-state growth: ~0.6-1.0 MB/day (prices + alpha snapshots +
-#     news at top-1000 breadth).
-#   - Plan 22 first cut: alpha backfill depth to 1y outside top 250,
-#     saving up to ~100 MB.
+# Measured facts they pin (remediation log, Phase 1, 2026-11-10):
+#   - Neon enforced limit: neon.max_cluster_size = 1024 MB (read from the
+#     production database by the Phase 1 db-probe; the earlier 0.5 GB
+#     assumption was wrong).
+#   - Production size: 561,414,144 bytes on 2026-11-10 (pg_database_size,
+#     which INCLUDES dead-tuple and index bloat).
+#   - Growth: 383 MB on 2026-09-09 to 561 MB on 2026-11-10 is ~2.9 MB/day,
+#     a figure inflated by nightly rewrite churn that Phase 2 removes. The
+#     band below is deliberately wide until a post-Phase-2 probe narrows it.
+#   - Alpha pruning is NOT enabled (owner rule). Nothing here deletes data.
 
 BYTES_PER_MB = 1_000_000
 
-# Neon free plan hard cap (work log measurement convention: 512,000,000 B).
-NEON_CAP_BYTES = 512_000_000
+# Neon enforced limit: 1024 MB, as reported by neon.max_cluster_size.
+NEON_CAP_BYTES = 1024 * 1024 * 1024
 
-# Production database size at the last probe (2026-09-09: 383 MB).
+# Production database size at the last probe (2026-11-10: 561,414,144 B).
 # Refresh after every db-probe run so the canary tracks reality.
-BASELINE_BYTES = 383_000_000
+BASELINE_BYTES = 561_414_144
 
-# Measured steady-state daily growth band (low, high) in bytes/day.
-GROWTH_BYTES_PER_DAY = (600_000, 1_000_000)
+# Daily growth band (low, high) in bytes/day: from the post-Phase-2 hope
+# (~1 MB/day) up to the observed 2026-09-09..2026-11-10 rate (~3.1 MB/day).
+GROWTH_BYTES_PER_DAY = (1_000_000, 3_100_000)
 
-# Retention gate: the first cut fires at or above this many MB (owner
-# decision, 2026-09-09: canary + gated cut, never proactive).
-DEFAULT_CUT_THRESHOLD_MB = 450
+# Advisory alarm level (MB): the canary workflow and test raise an alarm at
+# or above this. It is NOT a deletion trigger. Keep in sync with
+# .github/workflows/backup.yml and settings.storage_cut_threshold_mb.
+DEFAULT_CUT_THRESHOLD_MB = 800
 
-# Plan 22 note: the alpha-depth cut saves up to ~100 MB when it fires
-# (documented estimate; the pass reports the real rowcount).
+# Plan 22 note: the alpha-depth cut would save up to ~100 MB if the owner
+# ever approves it (documented estimate only).
 CUT_SAVINGS_ESTIMATE_MB = 100
 
 
@@ -54,11 +58,11 @@ def headroom_bytes(used_bytes: int, cap_bytes: int = NEON_CAP_BYTES) -> int:
 def cut_gate_fires(
     used_bytes: int, threshold_mb: int = DEFAULT_CUT_THRESHOLD_MB
 ) -> bool:
-    """True when the retention cut should fire: size AT or ABOVE threshold.
+    """True when the size alarm should be raised: size AT or ABOVE threshold.
 
-    The gate is >= on purpose: exactly at the threshold the headroom left
-    (cap - threshold) is smaller than the cut's own documented savings, so
-    waiting longer buys nothing.
+    ADVISORY ONLY (used by the canary report). It must never gate a
+    deletion: pg_database_size includes bloat, so crossing the line does not
+    mean live data grew.
     """
     return used_bytes >= threshold_mb * BYTES_PER_MB
 

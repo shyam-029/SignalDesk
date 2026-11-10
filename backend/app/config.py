@@ -110,10 +110,13 @@ class Settings(BaseSettings):
     active_universe: str = "top1000"
 
     # --- Storage guardrails (M2-T1, Plan 22 first retention cut) ---
-    # The alpha-history prune fires ONLY when the live database size
-    # (pg_database_size) is at or above this many MB; below it the pass is
-    # a measured no-op (owner decision: shipped inert, never proactive).
-    storage_cut_threshold_mb: int = 450
+    # ADVISORY ONLY. The size (MB) at which the storage canary raises its
+    # alarm, about 78% of the 1024 MB cap Neon enforces (neon.max_cluster_size,
+    # confirmed by the Phase 1 db-probe on 2026-11-10). It never triggers a
+    # deletion: the alpha prune requires an explicit confirmation phrase and
+    # has no size gate (pg_database_size includes dead-tuple bloat). Keep in
+    # sync with the threshold in .github/workflows/backup.yml.
+    storage_cut_threshold_mb: int = 800
     # The keep-set for the prune: stocks ranked in the top N by mcap_rank
     # keep full alpha history; everything else is cut to the depth below.
     storage_cut_keep_top: int = 250
