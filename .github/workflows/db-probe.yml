@@ -14,6 +14,11 @@ on:
   schedule:
     - cron: "0 6 * * 1"  # weekly, Monday 06:00 UTC (read-only; T7-safe)
   workflow_dispatch:
+    inputs:
+      forensics:
+        description: "Also run the full storage forensics (ops/sql/storage_forensics.sql, read-only)"
+        type: boolean
+        default: false
 
 concurrency:
   group: db-probe
@@ -26,6 +31,8 @@ jobs:
     env:
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
     steps:
+      - uses: actions/checkout@v4
+
       - name: Install postgresql-client 17
         run: |
           curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo gpg --dearmor -o /usr/share/keyrings/pgdg.gpg
@@ -45,3 +52,25 @@ jobs:
             FROM pg_stat_user_tables
             ORDER BY pg_total_relation_size(relid) DESC
             LIMIT 8;"
+
+      # Phase 1 of the 2026-11 remediation. Manual dispatch only, so the weekly
+      # schedule above stays exactly as it was. Both scripts run inside
+      # BEGIN READ ONLY (Postgres rejects any write) and print sizes, counts and
+      # dates only. They are also executed against the CI test database by
+      # backend/tests/test_storage_forensics_sql.py.
+      - name: Ingestion health, last 30 days - read-only
+        if: github.event_name == 'workflow_dispatch' && inputs.forensics
+        run: |
+          PGURL=$(echo "$DATABASE_URL" | sed -e 's/^postgresql+asyncpg:/postgresql:/' -e 's/ssl=require/sslmode=require/')
+          /usr/lib/postgresql/17/bin/psql "$PGURL" -v ON_ERROR_STOP=1 -f ops/sql/job_health.sql
+
+      - name: Storage forensics (dispatch-only, read-only transaction)
+        # Phase 1 remediation (2026-11-10). Never on the weekly schedule:
+        # only when dispatched with forensics=true. The script wraps itself in
+        # BEGIN READ ONLY, so Postgres rejects any write it might contain; it is
+        # also executed against the CI test database on every push.
+        if: github.event_name == 'workflow_dispatch' && inputs.forensics
+        run: |
+          PGURL=$(echo "$DATABASE_URL" | sed -e 's/^postgresql+asyncpg:/postgresql:/' -e 's/ssl=require/sslmode=require/')
+          /usr/lib/postgresql/17/bin/psql "$PGURL" -X -v ON_ERROR_STOP=1 -P pager=off \
+            -f ops/sql/storage_forensics.sql
