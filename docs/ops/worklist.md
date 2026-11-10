@@ -32,17 +32,17 @@ Legend: `[x]` merged to main · `[~]` in progress · `[ ]` not started ·
       alpha_scores_pkey` (93.8 MB, 0 scans), drop redundant
       `ix_daily_prices_stock_id` (17.2 MB) and `ix_alpha_scores_symbol`
       (9.0 MB); check Neon headroom first; prod DDL needs approval
-- [~] **7** Restore test: `restore-test.yml` restores the newest backup
+- [x] **7** Restore test: `restore-test.yml` restores the newest backup
       artifact into a throwaway Postgres on the runner (no secret, never
       touches production), checks every core table has rows; monthly on the
-      2nd and on demand (PR pending)
-- [~] **8** Failure alerting: a failed ingest, rank, backup or restore-test
+      2nd and on demand (PR #9)
+- [x] **8** Failure alerting: a failed ingest, rank, backup or restore-test
       run opens or updates a GitHub issue (label `ops-alert`) and the next
       success closes it (`ops/ci/alert.sh`, `run-alert.yml`); a daily
-      `watchdog.yml` alerts if no ingest succeeded in 30 h (PR pending)
-- [~] **9** All 8 workflows checked active on 2026-11-10 (db-probe was
+      `watchdog.yml` alerts if no ingest succeeded in 30 h (PR #9)
+- [x] **9** All 8 workflows checked active on 2026-11-10 (db-probe was
       re-enabled earlier); `watchdog.yml` now alerts daily on any disabled
-      workflow (PR pending)
+      workflow (PR #9)
 - [ ] **10** Private off-GitHub backup copy (repo is public; artifacts last
       30 days). The monthly restore test is covered by item 7
 - [ ] **11** Update the private progress trackers kept outside the repo
@@ -56,15 +56,15 @@ Legend: `[x]` merged to main · `[~]` in progress · `[ ]` not started ·
       before a >2.1B-share day fails a symbol's upsert (migration)
 - [ ] **19** Migration-vs-model drift test (tests build the schema from
       models, never from migrations)
-- [~] **20** `restore.yml`: typed `RESTORE-PRODUCTION` confirmation, shares
+- [x] **20** `restore.yml`: typed `RESTORE-PRODUCTION` confirmation, shares
       the nightly-ingestion concurrency group, no longer prints the database
-      user (PR pending)
-- [~] **21** Dispatch inputs reach scripts through env, never interpolated:
+      user (PR #9)
+- [x] **21** Dispatch inputs reach scripts through env, never interpolated:
       `db-forensics.yml`, `migrate.yml` (free-text revision), `restore.yml`,
-      `restore-test.yml` (PR pending)
+      `restore-test.yml` (PR #9)
 - [ ] **22** Job connections: `NullPool` opens a fresh TLS connection per
       symbol (thousands per night); use a small pool
-- [~] **23** `*.dump` added to `.gitignore` (PR pending)
+- [x] **23** `*.dump` added to `.gitignore` (PR #9)
 - [ ] **24** Clean up the parallel session's worktrees
       (`signaldesk-ops3`, `signaldesk-ops45`) and their local branches
 
@@ -90,18 +90,28 @@ Legend: `[x]` merged to main · `[~]` in progress · `[ ]` not started ·
 
 ## Speed
 
-- [ ] **12** Cold start (likely the 30-40 s first load): `Cache-Control`
-      with `s-maxage` + `stale-while-revalidate` on read endpoints, served
-      through Cloudflare
+- [~] **12** `Cache-Control: public, max-age=60, stale-while-revalidate=300`
+      on successful `GET /api/v1/*` (browser cache; errors, POSTs and ops
+      routes excluded). Note: the API is called directly on Render, not
+      through Cloudflare, so there is no shared edge cache yet; proxying
+      `/api` through the Worker with edge caching is a separate, larger
+      change (PR pending)
 - [ ] **13** Nightly static JSON snapshot for the landing page (benchmarks,
       top-50 ticker, a 6-month chart, market news)
-- [ ] **14** Screener: server-side pagination (10 per page) instead of
-      computing all 1,000 rows per request, and cache it
+- [~] **14** Screener: the analysed universe is cached in memory and rebuilt
+      only when a job finishes (or after 1 h), instead of ~4,000 database
+      round trips per request; filter/sort/paging unchanged and identical
+      results (PR pending). The 10-per-page UI change is still open
 - [ ] **15** "Too many requests": rate limiter trusts the first
-      `X-Forwarded-For` hop (spoofable); trust only Render's proxy hop and
-      review the 60/min and 300/min limits
-- [ ] **16** Keep-warm ping on `/health`; persist TanStack Query cache to
-      `localStorage` for repeat visits
+      `X-Forwarded-For` hop (spoofable). Render does not document how it
+      forwards the client IP (checked 2026-11-10), so the trusted hop must be
+      confirmed from real request headers before changing it; a wrong guess
+      would put all visitors in one bucket. Also review the 60/min and
+      300/min limits
+- [~] **16** `keep-warm.yml` pings `/health` and one screener row every
+      10 min, 08:00-00:30 IST (~500 of Render's 750 free hours/month); the
+      frontend persists successful queries to `localStorage` for 12 h so
+      repeat visits render instantly (PR pending)
 
 ## Product
 
@@ -119,6 +129,5 @@ Legend: `[x]` merged to main · `[~]` in progress · `[ ]` not started ·
 
 ## Suggested order
 
-2a (tonight's nightly) → merge the 7/8/9/20/21/23 PR, then run the
-restore test and the watchdog once
+2a (tonight's nightly)
 → 12-16 → 6 → 17-23 → product items.
