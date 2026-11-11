@@ -127,8 +127,15 @@ Legend: `[x]` merged to main · `[~]` in progress · `[ ]` not started ·
       through Cloudflare, so there is no shared edge cache yet; proxying
       `/api` through the Worker with edge caching is a separate, larger
       change (PR #10)
-- [ ] **13** Nightly static JSON snapshot for the landing page (benchmarks,
-      top-50 ticker, a 6-month chart, market news)
+- [~] **13** Landing snapshot, both halves (owner, 2026-11-11):
+      `GET /api/v1/landing` returns all seven landing queries in one cached
+      response (rebuilt when a job finishes), and `landing-snapshot.yml`
+      commits it after each successful ingest as
+      `frontend/public/snapshot/landing.json`, which Cloudflare serves
+      statically; the landing page seeds its query cache from it and then
+      refreshes from the API. Market news is not on the landing page, so it
+      is not included (PR pending). After merge: dispatch the workflow once
+      to create the first file
 - [x] **14** Screener: the analysed universe is cached in memory and rebuilt
       only when a job finishes (or after 1 h), instead of ~4,000 database
       round trips per request; filter/sort/paging unchanged and identical
