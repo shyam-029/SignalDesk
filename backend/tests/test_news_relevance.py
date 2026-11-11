@@ -304,3 +304,60 @@ async def test_limit_respected(seen_queries, monkeypatch):
     assert len(articles) == 3
 
 
+
+
+# --- 2026-11-11 rule: real stored headlines that were attached wrongly -------
+# Each case is a headline the old any-name-word rule attached to the stock.
+
+from app.services.news_relevance import generic_tokens_from_names  # noqa: E402
+
+_WRONG = [
+    ("ACC.NS", "ACC", "Breaking down Louisville's chances at reaching the ACC Championship Game"),
+    ("ACC.NS", "ACC", "ACC raids railway, passport office, road projects over corruption allegations"),
+    ("ACC.NS", "ACC", "Cricket match squads | AFGU19 vs INDU19, Semi Final 2, ACC Men's U19 Asia Cup 2026"),
+    ("TRENT.NS", "Trent", "'Best show on TV': Netflix viewers binge-watch crime drama Will Trent"),
+    ("TRENT.NS", "Trent", "Jail for drug user who stole ambulance in Stoke-on-Trent"),
+    ("ETERNAL.NS", "Eternal", "That's a Mora: Rodrigo and Roma rise with Lazio to give Eternal City new life"),
+    ("ETERNAL.NS", "Eternal", "Forget Diablo Immortal: enthusiast ports Diablo III: Eternal Collection to Android"),
+    ("SBIN.NS", "State Bank of India", "RBI extends supersession of Abhyudaya Co-operative Bank Board for one more year"),
+    ("HDFCBANK.NS", "HDFC Bank", "Successor Bank Can't Invoke Arbitration After Suit Reaches Defence Evidence Stage"),
+    ("ITC.NS", "ITC", "GSTAT: Interest Payable on Wrongly Availed and Utilised ITC"),
+]
+
+_RIGHT = [
+    ("ACC.NS", "ACC", "ACC shares rise after Q2 profit beats estimates"),
+    ("ETERNAL.NS", "Eternal", "Eternal stock draws higher broker targets after Q2 profit jump"),
+    ("ETERNAL.NS", "Eternal", "Eternal Limited at ₹365: revenue rises, margin stays flat"),
+    ("TRENT.NS", "Trent", "Trent shares jump 6% as Zudio store additions lift revenue"),
+    ("SBIN.NS", "State Bank of India", "State Bank Of India expands US presence with new branch in Texas"),
+    ("SBIN.NS", "State Bank of India", "SBI shares hit record high after Q2 results"),
+    ("HDFCBANK.NS", "HDFC Bank", "Your HDFC Bank loan EMIs are about to go up"),
+    ("INDIGO.NS", "InterGlobe Aviation", "InterGlobe Aviation shares gain after new airfare rules"),
+    ("INDIGO.NS", "InterGlobe Aviation", "IndiGo posts Rs 1,900 crore quarterly loss as fuel costs surge"),
+    ("IDEA.NS", "Vodafone Idea", "BSNL plans inter-circle roaming pact with Vodafone Idea"),
+    ("POLYCAB.NS", "Polycab India", "Polycab launches new wire range for homes"),
+]
+
+
+def test_wrong_company_headlines_rejected():
+    for symbol, name, title in _WRONG:
+        assert not is_relevant_article(title, symbol, name), title
+
+
+def test_right_company_headlines_kept():
+    for symbol, name, title in _RIGHT:
+        assert is_relevant_article(title, symbol, name), title
+
+
+def test_catalog_generic_words_need_a_phrase():
+    # "hdfc" is on three catalog names, so alone it no longer picks HDFC Bank.
+    generic = generic_tokens_from_names(
+        ["HDFC Bank Limited", "HDFC Life Insurance", "HDFC Asset Management"]
+    )
+    assert "hdfc" in generic
+    assert not is_relevant_article(
+        "HDFC Capital fund backs new housing project", "HDFCBANK.NS", "HDFC Bank", generic
+    )
+    assert is_relevant_article(
+        "HDFC Bank raises lending rates", "HDFCBANK.NS", "HDFC Bank", generic
+    )

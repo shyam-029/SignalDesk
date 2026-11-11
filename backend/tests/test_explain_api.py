@@ -93,11 +93,11 @@ async def _seed_rich(session_factory):
 
         now = datetime.now(timezone.utc)
         a1 = NewsArticle(
-            symbol="RELIANCE.NS", source="ET", title="Profit beats",
+            symbol="RELIANCE.NS", source="ET", title="Reliance profit beats",
             url="https://example.com/a1", published_at=now,
         )
         a2 = NewsArticle(
-            symbol="RELIANCE.NS", source="Mint", title="Margins under pressure",
+            symbol="RELIANCE.NS", source="Mint", title="Reliance margins under pressure",
             url="https://example.com/a2", published_at=now,
         )
         session.add_all([a1, a2])

@@ -40,15 +40,18 @@ def _reset_phase8_global_state():
     tests see spurious 429s. Each test starts with a clean window.
     """
     from app import llm_semaphore, rate_limit
+    from app.repositories import news as news_repo
     from app.services import screener_cache
 
     rate_limit.reset_state()
     llm_semaphore.reset_state()
     screener_cache.reset_cache()  # each test seeds its own data
+    news_repo.reset_cache()
     yield
     rate_limit.reset_state()
     llm_semaphore.reset_state()
     screener_cache.reset_cache()
+    news_repo.reset_cache()
 
 # Dedicated test database (separate from production `signaldesk`).
 TEST_DATABASE_URL = (
