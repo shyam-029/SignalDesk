@@ -43,6 +43,7 @@ async def screener(
     session: SessionDep,
     status: str | None = None,
     sector: str | None = None,
+    industry: str | None = None,
     min_profitability: float | None = Query(None, ge=0, le=100),
     min_solvency: float | None = Query(None, ge=0, le=100),
     sort: str = Query("symbol"),
@@ -79,6 +80,8 @@ async def screener(
 
     for a in await screener_cache.get_rows(session):
         if sector and a.sector != sector:
+            continue
+        if industry and a.industry != industry:
             continue
         if status and a.valuation_status != status:
             continue
