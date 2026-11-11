@@ -25,11 +25,18 @@ Legend: `[x]` merged to main · `[~]` in progress · `[ ]` not started ·
       92.7% unchanged (~33k rows written instead of ~462k), alpha 96.1%
       unchanged (~19k instead of ~987k delete+insert). Details in the
       remediation log
-- [ ] **2b** `NXT100CASE.NS` fails the catalog repair every night (Yahoo's
-      last bar 2026-10-16, refused by the stale-frame guard), turning the
-      whole night `partial`. Check whether the Upstox fallback fills it; if
-      not, decide whether repair should skip instruments with no recent
-      trading
+- [x] **2b** `NXT100CASE.NS` failed the catalog repair every night (Yahoo's
+      last bar 2026-10-16). Fixed by the Upstox fallback (PR #17): on the
+      2026-11-10 nightly (42896037285) Upstox filled 17 days and the night
+      was `success`. Remaining open question, not blocking: `POWERIETF.NS`
+      and `VEEFIN.NS` have no data on either source (Yahoo 404), and
+      `ICICINIFTY.NS` is unknown to Upstox. Decide whether repair should
+      skip or retire such instruments
+- [x] **2c** First nightly with PRs #10-#17 (42896037285): 65 min instead
+      of 123, every pass about half its time (pooling likely; not a
+      controlled comparison, so confirm over the next nights); writes
+      91.9% / 91.6% unchanged; no Upstox fallback needed in the main price
+      pass. Details in the remediation log
 - [x] **3** Storage cap corrected to 1024 MB; alarm at 800 MB; prune-alpha
       needs `--confirm DELETE-ALPHA-HISTORY`, no size gate (PR #6)
 - [x] **4** Migrations only via `migrate.yml`; ingest/rank fail fast if the
@@ -60,7 +67,8 @@ Legend: `[x]` merged to main · `[~]` in progress · `[ ]` not started ·
 - [x] **17** Live alpha snapshots are dated by the stock's latest stored bar
       instead of the runner's calendar date (PR #11). The 4,010 existing
       weekend-dated rows are left in place (removing them is a data deletion
-      and needs owner approval)
+      and needs owner approval). Not yet seen in production: it only shows
+      on a run whose UTC date has no bar (a weekend or post-midnight run)
 - [ ] **18** `daily_prices.volume` is a 4-byte integer; widen to BIGINT
       before a >2.1B-share day fails a symbol's upsert (migration)
 - [x] **19** Drift test: builds a throwaway database from the migrations
@@ -73,8 +81,9 @@ Legend: `[x]` merged to main · `[~]` in progress · `[ ]` not started ·
 - [x] **21** Dispatch inputs reach scripts through env, never interpolated:
       `db-forensics.yml`, `migrate.yml` (free-text revision), `restore.yml`,
       `restore-test.yml` (PR #9)
-- [ ] **22** Job connections: `NullPool` opens a fresh TLS connection per
-      symbol (thousands per night); use a small pool
+- [x] **22** Job connections: pooled engine (`pool_pre_ping`, recycle
+      300 s) instead of `NullPool`'s fresh TLS connection per symbol
+      (PR #17). The first night with it ran in 65 min instead of 123
 - [x] **23** `*.dump` added to `.gitignore` (PR #9)
 - [ ] **24** Clean up the parallel session's worktrees
       (`signaldesk-ops3`, `signaldesk-ops45`) and their local branches
@@ -112,29 +121,30 @@ Legend: `[x]` merged to main · `[~]` in progress · `[ ]` not started ·
 
 ## Speed
 
-- [~] **12** `Cache-Control: public, max-age=60, stale-while-revalidate=300`
+- [x] **12** `Cache-Control: public, max-age=60, stale-while-revalidate=300`
       on successful `GET /api/v1/*` (browser cache; errors, POSTs and ops
       routes excluded). Note: the API is called directly on Render, not
       through Cloudflare, so there is no shared edge cache yet; proxying
       `/api` through the Worker with edge caching is a separate, larger
-      change (PR pending)
+      change (PR #10)
 - [ ] **13** Nightly static JSON snapshot for the landing page (benchmarks,
       top-50 ticker, a 6-month chart, market news)
-- [~] **14** Screener: the analysed universe is cached in memory and rebuilt
+- [x] **14** Screener: the analysed universe is cached in memory and rebuilt
       only when a job finishes (or after 1 h), instead of ~4,000 database
       round trips per request; filter/sort/paging unchanged and identical
-      results (PR pending). The 10-per-page UI change is still open
-- [~] **15** Rate limiter keyed on a forgeable header. Measured on
+      results (PR #10). 10 rows per page with Previous/Next (PR #14)
+- [x] **15** Rate limiter keyed on a forgeable header. Measured on
       production (client-ip-probe.yml, 2026-11-10): traffic arrives via
       Cloudflare; a forged X-Forwarded-For becomes its first entry (the
       limiter's old key); CF-Connecting-IP always carries the real caller and
       Cloudflare refuses forged values (403, error 1000). The limiter now
-      keys on CF-Connecting-IP (PR pending). The 60/min and 300/min limits
+      keys on CF-Connecting-IP (PR #15; verified live: rotating forged
+      X-Forwarded-For values now get 429). The 60/min and 300/min limits
       themselves are unchanged
-- [~] **16** `keep-warm.yml` pings `/health` and one screener row every
+- [x] **16** `keep-warm.yml` pings `/health` and one screener row every
       10 min, 08:00-00:30 IST (~500 of Render's 750 free hours/month); the
       frontend persists successful queries to `localStorage` for 12 h so
-      repeat visits render instantly (PR pending)
+      repeat visits render instantly (PR #10)
 
 ## Ingest speed
 
@@ -148,8 +158,9 @@ baseline). Each item touches `ingest.yml` / `jobs.py`, so one branch each.
 - [~] **25** Measure first: `bar-publish-probe.yml` records, every 15 min
       from 14:30 to 23:15 IST on weekdays, whether today's bar exists on
       Yahoo and its values, for RELIANCE, TCS, HDFCBANK and ^NSEI. Read-only
-      (no database). Upstox is not covered yet: it needs an
-      `UPSTOX_ANALYTICS_TOKEN` Actions secret (it exists only in Render)
+      (no database). Collecting since 2026-11-10 (PR #12). Upstox is not
+      probed; the `UPSTOX_ANALYTICS_TOKEN` Actions secret now exists, so it
+      could be added
 - [ ] **26** Event-driven start from 25's results: an earlier cron (about
       16:30 IST = 11:00 UTC, final time from the data) plus a first step that
       polls the sentinels until today's bar exists and is unchanged across
@@ -194,6 +205,6 @@ baseline). Each item touches `ingest.yml` / `jobs.py`, so one branch each.
 
 ## Suggested order
 
-2a (tonight's nightly) → merge 12/14/16 (done, PR #10) → 25 runs for a
-week → 26-34 in order of saving → 15 (after a real-header check) → 6 →
-remaining 18, 22 → product items.
+Done: 2a, 2b, 2c, 12, 14, 15, 16, 22. Next: 25 runs for a week (to about
+2026-11-17) → 26-34 in order of saving (re-measure the baseline: the
+nightly is now ~65 min, not ~2 h) → 6 → 18 → product items.

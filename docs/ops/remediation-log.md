@@ -4,6 +4,70 @@ Running record of the 2026-11 audit remediation: what changed, why, how it was
 verified, and what risk remains open. Newest entries first. Production numbers
 come from workflow logs; nothing here contains credentials or hostnames.
 
+## Nightly of 2026-11-10 — first run with PRs #10-#17 (recorded 2026-11-11)
+
+Run 42896037285 (scheduled), 20:30-21:39 UTC, success. Code at 13db529,
+the pre-rewrite SHA of today's main (same tree as 40055e5), so it includes
+the Upstox price fallback, pooled job connections (item 22), the
+snapshot-date fix (item 17) and the Phase 2 guards.
+
+**Runtime: 65.2 min (nightly_ingestion 3,914 s), was 123 min.**
+
+| Pass | 2026-11-10 16:17 run (s) | This run (s) |
+|---|---|---|
+| ingest_prices | 655 | 350 |
+| ingest_financials | 529 | 301 |
+| ingest_financial_periods | 940 | 535 |
+| ingest_balance_sheets | 524 | 311 |
+| ingest_company_profiles | 872 | 471 |
+| ingest_etfs / funds | 18 / 92 | 13 / 51 |
+| repair_catalog_gaps | 584 (54 stocks) | 25 (4 stocks) |
+| backfill_alpha_history | 1,264 | 673 |
+| record_live_alpha_snapshots | 861 | 517 |
+| ingest_news | 1,005 | 641 |
+
+Every pass ran at roughly half its previous time, including the
+fetch-bound ones. Connection pooling (no fresh TLS handshake per symbol) is
+the most likely cause, but the two runs are not a controlled comparison:
+the earlier one ran in the afternoon UTC on a manual dispatch, this one at
+the scheduled night slot, and Yahoo's latency differs by time of day. The
+next few nightlies will show whether ~65 min holds. Repair was fast mainly
+because the earlier run had already repaired 50 of its 54 stocks.
+
+**Writes (Phase 2 guards, second confirmation):**
+
+| Pass | Offered | Inserted | Updated | Unchanged |
+|---|---|---|---|---|
+| Prices | 453,298 | 0 | 36,616 | 416,682 (91.9%) |
+| Alpha backfill | 482,555 | 0 | 40,528 | 442,027 (91.6%) |
+
+0 price rows inserted is expected: the 16:17 run had already stored
+2026-11-10, a market holiday. Stale alpha dates deleted: 0. Live snapshots
+stored: 1,000.
+
+**Upstox fallback (first night with the token):**
+
+- Main price pass: no fallback needed; Yahoo answered all 1,000 symbols.
+- `NXT100CASE.NS` (item 2b): Yahoo's frame was stale (2 bars, newest
+  2026-10-16), Upstox filled 17 trading days. Repair finished 4/4 with 0
+  failures, so the night is `success` for the first time since 2b began
+  (it was `partial`). The 17 filled days are unadjusted exchange prices
+  inside an adjusted series, the trade-off accepted in
+  `providers/fallback.py`. That only matters if this ETF has a split or
+  dividend in the gap.
+- `POWERIETF.NS`, `VEEFIN.NS` (catalog repair): Yahoo returns 404 "Quote
+  not found" and Upstox returns 0 candles. Likely delisted or renamed, so
+  neither source has data. They did not fail the pass.
+- `ICICINIFTY.NS` (ETF pass and repair): Yahoo empty; the Upstox lookup
+  raised MarketDataError, most likely because the symbol is not in Upstox's
+  NSE equity instrument list. It did not fail the pass.
+
+**Item 17 not exercised.** The run started at 20:30 UTC on 2026-11-10, so
+the runner's date and the last bar's date were the same day. The fix
+(snapshots dated by the latest stored bar) only shows on a run whose UTC
+date has no bar, e.g. a Saturday/Sunday run or one after midnight UTC.
+Verified by tests only so far.
+
 ## Items 12, 14, 16 — Screener cache, browser caching, keep-warm (2026-11-10)
 
 **Problems.**
