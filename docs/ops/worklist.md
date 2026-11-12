@@ -128,7 +128,11 @@ Legend: `[x]` merged to main · `[~]` in progress · `[ ]` not started ·
 - [?] Storage strategy before fund work: derive backfilled alpha history
       from prices instead of storing it (~110-120 MB), and/or move funds
       to a second database
-- [?] News retention policy
+- [~] News retention: up to 20 articles per stock (owner, 2026-11-12).
+      A nightly `prune_news` pass after `ingest_news` keeps each stock's 20
+      newest articles that pass the relevance rule and deletes the rest with
+      their sentiment rows (PR pending). The first night deletes most of the
+      ~63k stored articles (1,000 stocks x 20 = ~20k kept)
 
 ## Speed
 
