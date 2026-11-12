@@ -12,8 +12,10 @@ name: keep-warm
 # Hours: 02:30-18:59 UTC = 08:00-00:30 IST. Not 24/7 on purpose: Render's
 # free tier allows 750 instance-hours per month across ALL free services, and
 # an always-on instance alone would use ~744. This window uses ~500.
-# GitHub may delay or skip scheduled runs under load; an occasional cold start
-# can still happen.
+# GitHub may delay or skip scheduled runs under load; in practice this ran
+# about once every 8-14 hours (2026-11-10..12). The primary pinger is now the
+# Cloudflare Cron Trigger on the frontend Worker (frontend/worker/index.js,
+# same window); this workflow stays as a backup and for manual wakes.
 
 on:
   schedule:
