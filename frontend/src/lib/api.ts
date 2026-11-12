@@ -9,6 +9,9 @@ import type {
   AlphaHistoryResponse,
   AlphaResponse,
   AltmanResponse,
+  QualityResponse,
+  RiskResponse,
+  ValuationHistoryResponse,
   AlphaExplanationResponse,
   AskResponse,
   BenchmarkListResponse,
@@ -155,6 +158,17 @@ export const api = {
   // Altman Z-Score distress diagnostic: separate from /scores by design.
   altman: (symbol: string) =>
     apiGet<AltmanResponse>(`/stocks/${encodeURIComponent(symbol)}/altman`),
+
+  // Stock-page depth: each multiple against the stock's own history, risk
+  // figures, and the return-on-equity breakdown. All computed by the backend.
+  valuationHistory: (symbol: string) =>
+    apiGet<ValuationHistoryResponse>(
+      `/stocks/${encodeURIComponent(symbol)}/valuation-history`,
+    ),
+  risk: (symbol: string) =>
+    apiGet<RiskResponse>(`/stocks/${encodeURIComponent(symbol)}/risk`),
+  quality: (symbol: string) =>
+    apiGet<QualityResponse>(`/stocks/${encodeURIComponent(symbol)}/quality`),
 
   // Server-side search over the ranked universe (symbol or company name).
   search: (query: string, signal?: AbortSignal) =>

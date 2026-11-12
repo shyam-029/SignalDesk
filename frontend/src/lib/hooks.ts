@@ -80,6 +80,32 @@ export function useAltman(symbol: string) {
   });
 }
 
+// Stock-page depth. New keys on purpose: the nightly stock snapshot seeds the
+// existing keys, and these three are fetched live, so nothing there changes.
+export function useValuationHistory(symbol: string) {
+  return useQuery({
+    queryKey: ["valuation-history", symbol],
+    queryFn: () => api.valuationHistory(symbol),
+    staleTime: 10 * 60_000,
+  });
+}
+
+export function useRisk(symbol: string) {
+  return useQuery({
+    queryKey: ["risk", symbol],
+    queryFn: () => api.risk(symbol),
+    staleTime: 10 * 60_000,
+  });
+}
+
+export function useQuality(symbol: string) {
+  return useQuery({
+    queryKey: ["quality", symbol],
+    queryFn: () => api.quality(symbol),
+    staleTime: 10 * 60_000,
+  });
+}
+
 // --- ETF + fund domains (Plan 8/9 slices) -------------------------------------
 
 export function useEtfs() {

@@ -82,3 +82,14 @@ async def list_benchmarks(session: AsyncSession) -> list[Benchmark]:
     """Every stored benchmark index, ordered by symbol."""
     rows = await session.execute(select(Benchmark).order_by(Benchmark.symbol))
     return list(rows.scalars())
+
+
+async def get_closes(session: AsyncSession, symbol: str) -> list[tuple]:
+    """One index's stored (date, close) pairs, oldest first; [] when absent."""
+    rows = await session.execute(
+        select(BenchmarkPrice.date, BenchmarkPrice.close)
+        .join(Benchmark, Benchmark.id == BenchmarkPrice.benchmark_id)
+        .where(Benchmark.symbol == symbol)
+        .order_by(BenchmarkPrice.date.asc())
+    )
+    return [(day, float(close)) for day, close in rows.all()]

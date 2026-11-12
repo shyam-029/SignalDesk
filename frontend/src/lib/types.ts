@@ -422,3 +422,89 @@ export interface MarketNewsItem {
 export interface MarketNewsResponse {
   items: MarketNewsItem[];
 }
+
+// --- Stock-page depth (GET /stocks/{symbol}/valuation-history, /risk, /quality) ---
+
+export interface SeriesPoint {
+  date: string;
+  value: number;
+}
+
+export type DepthStatus = "available" | "unavailable" | "not_applicable";
+
+export interface MultipleBand {
+  metric: "pe" | "pb" | "ps";
+  status: DepthStatus;
+  reason: string | null;
+  current: number | null;
+  median: number | null;
+  low: number | null;
+  high: number | null;
+  /** Share of valid days on which the multiple was below today's reading. */
+  percentile: number | null;
+  vs_median_pct: number | null;
+  verdict: "below" | "near" | "above" | null;
+  points_used: number;
+  series: SeriesPoint[];
+}
+
+export interface ValuationHistoryResponse {
+  symbol: string;
+  from_date: string | null;
+  to_date: string | null;
+  share_basis: "market_cap" | "eps" | null;
+  publication_lag_days: number;
+  suspect_move_pct: number | null;
+  suspect_move_date: string | null;
+  multiples: MultipleBand[];
+}
+
+export interface RiskResponse {
+  symbol: string;
+  from_date: string | null;
+  to_date: string | null;
+  bars_used: number;
+  insufficient_data: boolean;
+  volatility_pct: number | null;
+  max_drawdown: {
+    pct: number | null;
+    peak_date: string | null;
+    trough_date: string | null;
+    recovery_date: string | null;
+    days_to_recover: number | null;
+  };
+  current_drawdown_pct: number | null;
+  worst_day_pct: number | null;
+  worst_day_date: string | null;
+  benchmark: string;
+  benchmark_name: string;
+  benchmark_volatility_pct: number | null;
+  benchmark_max_drawdown_pct: number | null;
+  beta: number | null;
+  correlation: number | null;
+  beta_pairs: number;
+  suspect_move_pct: number | null;
+  suspect_move_date: string | null;
+  underwater: SeriesPoint[];
+}
+
+export interface DupontYear {
+  period_end: string;
+  roe_pct: number | null;
+  net_margin_pct: number | null;
+  asset_turnover: number | null;
+  equity_multiplier: number | null;
+  missing: string[];
+}
+
+export interface QualityResponse {
+  symbol: string;
+  status: DepthStatus;
+  reason: string | null;
+  years: DupontYear[];
+  driver: "margin" | "turnover" | "leverage" | null;
+  roe_change_pts: number | null;
+  from_period: string | null;
+  to_period: string | null;
+  cash_flow_available: boolean;
+}

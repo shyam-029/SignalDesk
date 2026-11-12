@@ -9,6 +9,7 @@ import { PriceSection } from "@/components/stock/PriceTechnicals";
 import { ValuationSection } from "@/components/stock/ValuationSection";
 import { FundamentalsSection } from "@/components/stock/FundamentalsSection";
 import { TechnicalsSection } from "@/components/stock/TechnicalsSection";
+import { RiskSection } from "@/components/stock/RiskSection";
 import { NewsSection } from "@/components/stock/NewsSection";
 import { StockMethodology } from "@/components/stock/StockMethodology";
 import { ErrorBoundary } from "@/components/data/ErrorBoundary";
@@ -35,6 +36,7 @@ const SECTIONS = [
   { id: "valuation", label: "Valuation" },
   { id: "fundamentals", label: "Fundamentals" },
   { id: "technicals", label: "Technicals" },
+  { id: "risk", label: "Risk" },
   { id: "news", label: "News" },
   { id: "methodology", label: "Methodology" },
 ] as const;
@@ -81,6 +83,9 @@ export default function StockDetailPage() {
       </ErrorBoundary>
       <ErrorBoundary label="technicals">
         <TechnicalsSection symbol={canonical} />
+      </ErrorBoundary>
+      <ErrorBoundary label="risk">
+        <RiskSection symbol={canonical} />
       </ErrorBoundary>
       <ErrorBoundary label="news">
         <NewsSection symbol={canonical} />
