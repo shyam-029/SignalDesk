@@ -525,3 +525,33 @@ def decision_updates(decision: Decision) -> dict:
 def with_mcap(candidate: Candidate, mcap: float | None, error: str | None) -> Candidate:
     """Return a copy of the candidate with the fetch result attached."""
     return replace(candidate, mcap=mcap, mcap_error=error)
+
+
+def needs_freshness_check(
+    candidate: Candidate,
+    reference_dates: tuple[object, ...],
+    stale_trading_limit: int = 30,
+) -> bool:
+    """True when E9 would exclude the candidate on STORED bars alone.
+
+    Stored bars go stale for two reasons: the stock stopped trading, or we
+    stopped fetching it. The nightly ingest only fetches the active ranked
+    universe, so a stock dropped for any other reason (a throttled market-cap
+    fetch on 2026-09-09 dropped RELIANCE and TCS) stops getting bars, and at
+    the next cycle E9 called it inactive and deactivated it: a permanent
+    trap. These candidates get their latest bar checked at the provider.
+    """
+    if not needs_mcap(candidate):
+        return False
+    stale = stale_trading_days(candidate.prices.last_bar_date, reference_dates)
+    return stale is not None and stale > stale_trading_limit
+
+
+def with_provider_last_bar(candidate: Candidate, provider_last: object | None) -> Candidate:
+    """Use the provider's latest bar when it is newer than the stored one."""
+    if provider_last is None:
+        return candidate
+    stored = candidate.prices.last_bar_date
+    if stored is not None and stored >= provider_last:
+        return candidate
+    return replace(candidate, prices=replace(candidate.prices, last_bar_date=provider_last))

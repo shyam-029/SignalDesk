@@ -85,6 +85,17 @@ Legend: `[x]` merged to main · `[~]` in progress · `[ ]` not started ·
       300 s) instead of `NullPool`'s fresh TLS connection per symbol
       (PR #17). The first night with it ran in 65 min instead of 123
 - [x] **23** `*.dump` added to `.gitignore` (PR #9)
+- [~] **35** Universe trap (found 2026-11-11): RELIANCE.NS and TCS.NS have
+      no price bars after 2026-09-08 and are missing from the ranked
+      universe and search; the landing page's preview stock is RELIANCE.
+      Cause: the 2026-09-09 rank runs were throttled by Yahoo (no_mcap);
+      outside the universe the nightly stops fetching a stock, so its stored
+      bars aged past 30 trading days and E9 marked it inactive and
+      deactivated it at every later cycle. Fix (PR #23): E9 checks the
+      provider's latest bar before calling a stale stock inactive. Then
+      needs owner approval: run `rank.yml` once so the trapped stocks
+      re-enter (the nightly's 2y refetch fills their gap); count the
+      trapped symbols first from `ranking_audit` (`inactive_proxy` rows)
 - [ ] **24** Clean up the parallel session's worktrees
       (`signaldesk-ops3`, `signaldesk-ops45`) and their local branches
 

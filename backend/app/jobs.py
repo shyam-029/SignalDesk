@@ -1740,6 +1740,17 @@ async def _fetch_one_mcap(
     return bare_symbol, fundamentals.market_cap
 
 
+async def _fetch_last_bar_date(provider: MarketDataProvider, bare_symbol: str):
+    """The provider's newest daily bar date for one symbol (None if no bars)."""
+    bars = await _with_retry(
+        lambda: provider.get_price_history(f"{bare_symbol}.NS", "1mo"),
+        what=f"freshness check for {bare_symbol}",
+        delays=_MCAP_RETRY_DELAYS,
+        jitter=_MCAP_RETRY_JITTER,
+    )
+    return max((b.date for b in bars), default=None)
+
+
 async def rank_universe(
     provider: MarketDataProvider | None = None,
     master_rows: list[NseMasterRow] | None = None,
@@ -1821,6 +1832,39 @@ async def rank_universe(
             await asyncio.sleep(_MCAP_BATCH_SLEEP_S)
     candidates = [
         ranking_svc.with_mcap(c, *mcaps.get(c.symbol, (c.mcap, c.mcap_error)))
+        for c in candidates
+    ]
+
+    # E9 guard: before calling a stock inactive on stale STORED bars, ask the
+    # provider for its latest bar. Stocks outside the universe are not
+    # ingested, so their stored bars age even while they trade (see
+    # ranking_svc.needs_freshness_check). A failed check keeps the stored
+    # facts (the old behaviour) and is logged, not counted as an error.
+    recheck = [
+        c for c in candidates
+        if ranking_svc.needs_freshness_check(c, reference_dates)
+    ]
+    provider_last: dict[str, object] = {}
+    for i in range(0, len(recheck), batch_size):
+        batch = recheck[i : i + batch_size]
+        results = await asyncio.gather(
+            *(_fetch_last_bar_date(provider, c.symbol) for c in batch),
+            return_exceptions=True,
+        )
+        for c, res in zip(batch, results):
+            if isinstance(res, Exception):
+                logger.warning("Freshness check failed for %s: %s", c.symbol, res)
+            elif res is not None:
+                provider_last[c.symbol] = res
+        if i + batch_size < len(recheck):
+            await asyncio.sleep(_MCAP_BATCH_SLEEP_S)
+    if recheck:
+        logger.info(
+            "E9 freshness check: %d stale on stored bars, %d trading at the provider",
+            len(recheck), len(provider_last),
+        )
+    candidates = [
+        ranking_svc.with_provider_last_bar(c, provider_last.get(c.symbol))
         for c in candidates
     ]
 
