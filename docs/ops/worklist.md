@@ -43,12 +43,10 @@ Legend: `[x]` merged to main · `[~]` in progress · `[ ]` not started ·
 - [x] **4** Migrations only via `migrate.yml`; ingest/rank fail fast if the
       schema is behind (PR #6)
 - [x] **5** Remove host/user/db diagnostics from `rank.yml` (PR #6)
-- [~] **6** Reclaim index bloat online: `REINDEX CONCURRENTLY
-      alpha_scores_pkey` (93.8 MB, 0 scans), drop redundant
-      `ix_daily_prices_stock_id` (17.2 MB) and `ix_alpha_scores_symbol`
-      (9.0 MB). Owner approved 2026-11-12; headroom checked (543 MB of
-      1,024 MB). Migration `9a8b7c6d5e4f` (PR pending), then `migrate.yml`
-      outside the nightly window
+- [x] **6** Index bloat reclaimed 2026-11-12: migration `9a8b7c6d5e4f`
+      (PR #31) rebuilt `alpha_scores_pkey` concurrently and dropped the
+      redundant `ix_daily_prices_stock_id` and `ix_alpha_scores_symbol`.
+      Applied by `migrate.yml` (run 43185218810) together with item 18
 - [x] **7** Restore test: `restore-test.yml` restores the newest backup
       artifact into a throwaway Postgres on the runner (no secret, never
       touches production), checks every core table has rows; monthly on the
@@ -60,15 +58,17 @@ Legend: `[x]` merged to main · `[~]` in progress · `[ ]` not started ·
 - [x] **9** All 8 workflows checked active on 2026-11-10 (db-probe was
       re-enabled earlier); `watchdog.yml` now alerts daily on any disabled
       workflow (PR #9)
-- [ ] **10** Private off-GitHub backup copy (repo is public; artifacts last
+- [x] **10** Private off-GitHub backup copy (repo is public; artifacts last
       30 days). The monthly restore test is covered by item 7. Decided
       2026-11-12: Cloudflare R2 (10 GB free, already on Cloudflare, S3
       API, no egress fees). Bucket, bucket-scoped token and the four
       `R2_*` Actions secrets set up by the owner 2026-11-12. The weekly
       `backup.yml` (owner chose weekly: a nightly dump would use about a
       third of Neon's 5 GB/month transfer) copies each verified dump to R2,
-      checks the stored size and keeps the newest 12. Done once a run
-      shows the file in the bucket.
+      checks the stored size and keeps the newest 12 (PRs #34, #36; the
+      artifact uploads first so an R2 failure cannot cost the GitHub copy).
+      Verified 2026-11-12: run 43197245738 copied a 58.7 MB dump and read
+      its size back.
 - [x] **11** Private progress trackers updated 2026-11-12
       (`SEMESTER2_PROGRESS.md` section 17; local, gitignored)
 
@@ -79,13 +79,11 @@ Legend: `[x]` merged to main · `[~]` in progress · `[ ]` not started ·
       weekend-dated rows are left in place (removing them is a data deletion
       and needs owner approval). Not yet seen in production: it only shows
       on a run whose UTC date has no bar (a weekend or post-midnight run)
-- [~] **18** `daily_prices.volume` is a 4-byte integer; widen to BIGINT
-      before a >2.1B-share day fails a symbol's upsert. Migration
-      `c3d4e5f6a7b8` and the model change are on
-      `ops/item18-volume-bigint` (PR pending). Running it on production
-      goes through `migrate.yml`, outside the nightly window, after a Neon
-      headroom check (the type change rewrites the table), and needs the
-      owner's approval
+- [x] **18** `daily_prices.volume` is BIGINT: migration `c3d4e5f6a7b8`
+      (PR #19), applied 2026-11-12 (run 43185218810). The table rewrite
+      also removed old bloat: database 543 MB -> 399 MB (daily_prices
+      206 -> 148 MB, alpha_scores 223 -> 135 MB; read-only probe
+      43185624642)
 - [x] **19** Drift test: builds a throwaway database from the migrations
       alone and fails CI on any difference from the models (PR #11). Its
       first run found and fixed one mismatch: the `ranking_audit.stock_id`
