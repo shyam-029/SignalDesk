@@ -52,7 +52,7 @@ from app.providers.funds_data import (
 from app.providers.news_base import Article, NewsProvider
 from app.providers.nse_master import NseMasterRow, fetch_master_with_retry
 from app.providers.rss_provider import GoogleNewsRSSProvider, NewsProviderError
-from app.services.news_relevance import generic_tokens_from_names
+from app.services.news_relevance import generic_tokens_from_names, is_relevant_article
 from app.providers.sentiment import FinBERTScorer, Sentiment
 from app.providers.upstox_provider import SYMBOL_ALIASES
 from app.providers.yfinance_provider import MarketDataError, YFinanceProvider
@@ -2064,6 +2064,72 @@ async def _record_pass(name: str, run, *args, **kwargs) -> str:
     return status
 
 
+# --- News retention (owner decision 2026-11-12: up to 20 articles per stock) -
+
+NEWS_KEEP_PER_STOCK = 20
+
+
+def news_ids_to_delete(
+    rows: list[tuple[int, str, object]],
+    symbol: str,
+    name: str | None,
+    generic: frozenset[str],
+    keep: int = NEWS_KEEP_PER_STOCK,
+) -> list[int]:
+    """Article ids to delete for one stock: everything except its `keep`
+    newest articles that pass the current relevance rule. rows are
+    (id, title, published_at); undated articles sort oldest."""
+    def sort_key(r):
+        pub = r[2]
+        return (pub is not None, pub or datetime.min.replace(tzinfo=timezone.utc), r[0])
+
+    kept = 0
+    delete: list[int] = []
+    for art_id, title, _pub in sorted(rows, key=sort_key, reverse=True):
+        if kept < keep and is_relevant_article(title, symbol, name, generic):
+            kept += 1
+        else:
+            delete.append(art_id)
+    return delete
+
+
+async def prune_news(keep: int = NEWS_KEEP_PER_STOCK) -> dict:
+    """Keep each stock's `keep` newest relevant articles; delete the rest
+    (their sentiment rows first). Runs after ingest_news."""
+    async with SessionLocal() as session:
+        names = dict(
+            (await session.execute(select(Stock.symbol, Stock.name))).all()
+        )
+        generic = generic_tokens_from_names(n for n in names.values() if n)
+        symbols = (
+            await session.execute(select(NewsArticle.symbol).distinct())
+        ).scalars().all()
+
+    deleted = 0
+    for symbol in symbols:
+        async with SessionLocal() as session:
+            rows = (
+                await session.execute(
+                    select(NewsArticle.id, NewsArticle.title, NewsArticle.published_at)
+                    .where(NewsArticle.symbol == symbol)
+                )
+            ).all()
+            ids = news_ids_to_delete(
+                [tuple(r) for r in rows], symbol, names.get(symbol), generic, keep
+            )
+            if not ids:
+                continue
+            await session.execute(
+                delete(NewsSentiment).where(NewsSentiment.article_id.in_(ids))
+            )
+            await session.execute(delete(NewsArticle).where(NewsArticle.id.in_(ids)))
+            await session.commit()
+            deleted += len(ids)
+    logger.info("News retention: %d symbols, %d articles deleted (keep %d)",
+                len(symbols), deleted, keep)
+    return {"fetched": len(symbols), "deleted": deleted, "errors": 0}
+
+
 async def _ingest_passes() -> dict:
     """All ingestion passes, each recorded and isolated (one row per pass).
 
@@ -2091,6 +2157,8 @@ async def _ingest_passes() -> dict:
         # Plan 18: no nightly LLM pre-warm — explanations are on-demand with
         # the rule-based default; the pre-warm helper remains for manual use.
         ("ingest_news", ingest_news),
+        # Owner decision 2026-11-12: up to 20 relevant articles per stock.
+        ("prune_news", prune_news),
     )
     statuses = []
     for name, run in passes:

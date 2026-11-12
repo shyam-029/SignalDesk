@@ -198,3 +198,43 @@ async def test_sentiment_endpoint_no_news(client, session_factory):
     assert body["count"] == 0
     assert body["score"] is None
     assert body["label"] is None
+
+
+# --- News retention: up to 20 relevant articles per stock (2026-11-12) --------
+
+from app import jobs as _jobs  # noqa: E402
+from app.models import NewsArticle as _NA, NewsSentiment as _NS  # noqa: E402
+
+
+def test_news_ids_to_delete_keeps_newest_relevant():
+    base = datetime(2026, 11, 1, tzinfo=timezone.utc)
+    rows = [(i, f"Reliance shares rise {i}", base + timedelta(days=i)) for i in range(25)]
+    rows.append((100, "Cricket squads announced", base + timedelta(days=30)))  # irrelevant
+    rows.append((101, "Reliance stock undated", None))
+    gone = set(_jobs.news_ids_to_delete(rows, "RELIANCE.NS", "Reliance", frozenset(), keep=20))
+    # Irrelevant always goes; of the 26 relevant, the 20 newest dated stay.
+    assert 100 in gone and 101 in gone
+    assert gone - {100, 101} == {0, 1, 2, 3, 4}
+
+
+async def test_prune_news_deletes_beyond_the_cap(session_factory, monkeypatch):
+    monkeypatch.setattr(_jobs, "SessionLocal", session_factory)
+    async with session_factory() as s:
+        s.add(Stock(symbol="RELIANCE.NS", name="Reliance", sector="E", industry="O"))
+        base = datetime(2026, 11, 1, tzinfo=timezone.utc)
+        arts = [
+            _NA(symbol="RELIANCE.NS", source="T", title=f"Reliance shares {i}",
+                url=f"https://example.com/r/{i}", published_at=base + timedelta(hours=i))
+            for i in range(5)
+        ]
+        s.add_all(arts)
+        await s.flush()
+        s.add_all([_NS(article_id=a.id, score=0.5, label="positive", model="m") for a in arts])
+        await s.commit()
+
+    result = await _jobs.prune_news(keep=3)
+    assert result["deleted"] == 2
+    async with session_factory() as s:
+        left = (await s.execute(select(_NA.title))).scalars().all()
+        assert sorted(left) == ["Reliance shares 2", "Reliance shares 3", "Reliance shares 4"]
+        assert len((await s.execute(select(_NS))).scalars().all()) == 3

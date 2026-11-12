@@ -167,7 +167,11 @@ Legend: `[x]` merged to main · `[~]` in progress · `[ ]` not started ·
       removed); once history is derived, a formula change is free.
       Direction for v2: EMA span 10 at the current scales (keeps v1.5's use
       of the full 0-100 range; daily max step 10 -> 7)
-- [?] News retention policy
+- [x] News retention: up to 20 articles per stock (owner, 2026-11-12).
+      A nightly `prune_news` pass after `ingest_news` keeps each stock's 20
+      newest articles that pass the relevance rule and deletes the rest with
+      their sentiment rows (PR #30). The first night deletes most of the
+      ~63k stored articles (1,000 stocks x 20 = ~20k kept)
 
 ## Speed
 
