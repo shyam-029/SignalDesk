@@ -61,12 +61,25 @@ async def test_build_all_writes_one_file_per_listed_stock(client, seeded, tmp_pa
 async def test_shared_session_mode_returns_the_same_data(client, seeded, session_factory):
     # The batch's fast path (one session per stock) must produce exactly what
     # the normal per-request sessions produce.
-    from app.db import get_session
     from app.main import app
 
     normal = await stock_snapshot.build_one(client, "RELIANCE")
     # The `client` fixture clears all overrides on teardown.
-    app.dependency_overrides[get_session] = stock_snapshot.shared_session
+    stock_snapshot.install_shared_sessions(app, session_factory)
     shared = await stock_snapshot.build_one(client, "RELIANCE", session_factory)
     assert _by_key(shared) == _by_key(normal)
     assert len(shared["queries"]) >= 2
+
+
+async def test_batch_mode_end_to_end(client, seeded, session_factory, tmp_path):
+    # Exactly what main() runs: shared sessions installed, the real
+    # list_symbols (which runs outside any stock's session), then one file
+    # per listed stock. The 2026-11-12 run failed here before this was fixed.
+    from app.main import app
+
+    listed = await stock_snapshot.list_symbols(client)  # normal sessions
+    stock_snapshot.install_shared_sessions(app, session_factory)
+    written, failed = await stock_snapshot.build_all(app, tmp_path, session_factory)
+    assert (written, failed) == (len(listed), 0)
+    for sym in listed:
+        assert (tmp_path / "stock" / f"{sym}.json").exists()
