@@ -55,8 +55,9 @@ function pointAt(t: number): [number, number] {
  * print-like set. The drawn line keeps a two-stop gradient so the stroke
  * itself also shifts as it extends.
  */
-const DARK = { red: "#e0654a", amber: "#e3b34c", green: "#37a583" };
-const LIGHT = { red: "#bd5327", amber: "#b8862f", green: "#2d8a68" };
+// Kept in step with the --down / --cobalt / --up tokens in index.css.
+const DARK = { red: "#f0625a", amber: "#d9a94a", green: "#35c08a" };
+const LIGHT = { red: "#c0352b", amber: "#a8791c", green: "#0f7a4c" };
 
 function colorAt(t: number, p: typeof DARK): string {
   // Two-segment interpolation red -> amber -> green.
@@ -109,7 +110,7 @@ export function ScrollPulse() {
           fill="none"
           stroke="var(--rule)"
           strokeWidth="1"
-          opacity="0.28"
+          opacity="0.55"
           strokeLinejoin="round"
         />
         <motion.path
@@ -122,7 +123,7 @@ export function ScrollPulse() {
           style={{ pathLength: progress }}
         />
         {/* Soft halo + point: color rides the scroll like a price chart. */}
-        <motion.circle r="7" opacity="0.22" style={{ cx: dotX, cy: dotY, fill: dotColor }} />
+        <motion.circle r="6" opacity="0.18" style={{ cx: dotX, cy: dotY, fill: dotColor }} />
         <motion.circle r="2.8" style={{ cx: dotX, cy: dotY, fill: dotColor }} />
       </svg>
     </div>

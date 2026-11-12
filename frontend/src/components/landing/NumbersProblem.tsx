@@ -166,7 +166,7 @@ function RawCloud() {
             className="num inline-flex items-baseline gap-1.5 border border-line bg-surface px-3 py-2 text-xs text-muted"
             style={{ margin: "4px 6px" }}
           >
-            <span className="text-xs font-medium uppercase tracking-wide text-faint">{m.k}</span>
+            <span className="text-xs font-medium text-faint">{m.k}</span>
             <span className="font-medium">{m.v}</span>
           </motion.span>
         );

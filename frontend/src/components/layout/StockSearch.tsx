@@ -121,7 +121,7 @@ export function StockSearch({ className }: { className?: string }) {
           // Keep the input focused on item click: mousedown is prevented so
           // the click still lands on the option before any blur handling.
           onMouseDown={(e) => e.preventDefault()}
-          className="glass absolute left-0 right-0 top-full z-50 mt-1.5 max-h-80 overflow-y-auto rounded-sm p-1"
+          className="pop absolute left-0 right-0 top-full z-50 mt-1.5 max-h-80 overflow-y-auto rounded-sm p-1"
         >
           {loading && (
             <p className="flex items-center gap-2 px-3 py-2.5 text-xs text-muted">

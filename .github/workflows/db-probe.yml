@@ -6,7 +6,7 @@
 # and shares nothing with the ingestion path — ingest.yml, its passes, and
 # its concurrency group are untouched, so the M1-T7 nightly-cron reliability
 # baseline cannot be affected. The Monday 06:00 UTC slot also avoids the
-# nightly (13:30 UTC) and the monthly rank (04:00 UTC on the 1st). The
+# nightly (10:45 UTC) and the monthly rank (04:00 UTC on the 1st). The
 # fresh numbers feed BASELINE_BYTES in app/services/storage.py (the canary)
 # and the retention gate decision.
 name: db-probe

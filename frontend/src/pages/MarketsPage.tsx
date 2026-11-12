@@ -1,9 +1,6 @@
 import * as React from "react";
 import { Link } from "react-router-dom";
 import {
-  ArrowDown,
-  ArrowUp,
-  Calculator,
   Eye,
   ListPlus,
   Plus,
@@ -13,6 +10,7 @@ import {
 
 import { useBenchmarks, useEtfs, useFunds, useMarketNews, useStockList } from "@/lib/hooks";
 import { DataState } from "@/components/data/DataState";
+import { HeatCell, heatScale } from "@/components/data/HeatCell";
 import { SectionHeader } from "@/components/data/SectionHeader";
 import { StockLogo } from "@/components/stock/StockLogo";
 import {
@@ -25,13 +23,14 @@ import { useRecentStocks } from "@/lib/recent";
 import { fmtPrice, fmtSignedPct } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { orderIndexes } from "@/lib/indexOrder";
+import { BreadthPanel, NiftyHeat, SectorMoves } from "@/components/markets/MarketPanels";
 
 /**
- * MarketsPage: the daily dashboard. Index cards up top (Nifty 50, Sensex,
- * India VIX, Nifty Bank, Nifty IT from the stored benchmark tables), then a
- * working grid: today's movers (market-cap bucket filter), the market news
- * feed down the center, device-local recently-viewed and watchlists, ETF and
- * fund snapshots, and the SIP/SWP lab stub.
+ * MarketsPage: the daily dashboard, read top to bottom from the widest view
+ * to the narrowest. Index cards; then what the whole market did (breadth and
+ * the typical move per sector); then the Nifty 50 one tile per company; then
+ * gainers and losers side by side with ETF and fund tables, beside a narrow
+ * column of headlines and device-local lists.
  */
 
 const BUCKETS = [
@@ -43,37 +42,41 @@ const BUCKETS = [
 
 export default function MarketsPage() {
   return (
-    <div className="mx-auto max-w-6xl px-4 py-12 md:px-6">
-      <SectionHeader index="01" kicker="Dashboard" title="Markets" />
-      <p className="mt-3 max-w-2xl text-sm leading-relaxed text-muted">
-        Everything that closes the day in one place: the indexes, today's
-        movers within a size class, the market's headlines, and your own
-        working list. Prices are daily closes; watchlists and recently viewed
-        are stored on this device.
-      </p>
+    <div className="mx-auto max-w-[1500px] px-4 py-10 md:px-6">
+      <SectionHeader kicker="Daily close" title="Markets" />
 
+      {/* 1. The headline numbers. */}
       <IndexStrip />
 
-      <div className="mt-8 grid gap-8 lg:grid-cols-12">
-        {/* Left column: movers + recently viewed */}
-        <div className="space-y-8 lg:col-span-4">
+      {/* 2. What the whole market did: breadth and sectors. */}
+      <div className="mt-6 grid gap-6 lg:grid-cols-12">
+        <BreadthPanel className="lg:col-span-5" />
+        <SectorMoves className="lg:col-span-7" />
+      </div>
+
+      {/* 3. The large caps, one tile each. */}
+      <NiftyHeat className="mt-6" />
+
+      {/* 4. Names and products take the width; news and your own lists sit
+          in a narrow column beside them. */}
+      <div className="mt-6 grid gap-6 lg:grid-cols-12">
+        <div className="space-y-6 lg:col-span-9">
           <MoversPanel />
+          <div className="grid gap-6 xl:grid-cols-2">
+            <EtfPanel />
+            <FundPanel />
+          </div>
+        </div>
+        <div className="space-y-6 lg:col-span-3">
+          <MarketNewsPanel />
           <RecentlyViewed />
           <WatchlistPanel />
         </div>
-
-        {/* Center: market news */}
-        <div className="lg:col-span-5">
-          <MarketNewsPanel />
-        </div>
-
-        {/* Right column: ETFs, funds, lab stub */}
-        <div className="space-y-8 lg:col-span-3">
-          <EtfMiniPanel />
-          <FundMiniPanel />
-          <LabStub />
-        </div>
       </div>
+
+      <p className="mt-6 text-xs text-faint">
+        Prices are daily closes. Watchlists and recently viewed are stored on this device.
+      </p>
     </div>
   );
 }
@@ -96,7 +99,7 @@ function Sparkline({ points, positive }: { points: number[]; positive: boolean }
     .join(" ");
   return (
     <svg viewBox={`0 0 ${w} ${h}`} className="h-9 w-full" preserveAspectRatio="none" aria-hidden>
-      <path d={d} fill="none" stroke={positive ? "var(--band-positive)" : "var(--band-weak)"} strokeWidth="1.5" />
+      <path d={d} fill="none" stroke={positive ? "var(--up)" : "var(--down)"} strokeWidth="1.5" />
     </svg>
   );
 }
@@ -106,7 +109,7 @@ function IndexStrip() {
   const cards = orderIndexes(query.data?.items ?? []);
   // Eight indexes: rows of two (phone) or four (wider), so every row is full.
   return (
-    <div className="mt-8 grid grid-cols-2 gap-px border border-line bg-line md:grid-cols-4">
+    <div className="grid grid-cols-2 gap-px border border-line bg-line lg:grid-cols-5">
       {(cards.length > 0 ? cards : Array.from({ length: 8 }, () => null)).map((c, i) => (
         <div key={c?.symbol ?? i} className="bg-surface p-4">
           {c ? (
@@ -120,7 +123,7 @@ function IndexStrip() {
               <p
                 className={cn(
                   "num text-xs font-medium",
-                  c.change_pct == null ? "text-faint" : c.change_pct >= 0 ? "text-band-positive" : "text-band-weak",
+                  c.change_pct == null ? "text-faint" : c.change_pct >= 0 ? "text-up" : "text-down",
                 )}
               >
                 {fmtSignedPct(c.change_pct)}
@@ -145,80 +148,111 @@ function IndexStrip() {
 
 /* --- Today's movers ---------------------------------------------------------- */
 
+const MOVER_ROWS = 8;
+
+/**
+ * Gainers and losers side by side, sharing one size-class filter. Each row's
+ * underline is its move relative to the largest move on that side.
+ */
 function MoversPanel() {
   const [bucket, setBucket] = React.useState<string>("");
-  const [dir, setDir] = React.useState<"desc" | "asc">("desc");
-  const query = useStockList(1, 10, undefined, "change_pct", dir, bucket || undefined);
-  const items = query.data?.items ?? [];
-  const dirLabel = dir === "desc" ? "Top gainers" : "Top losers";
+  const gainers = useStockList(1, MOVER_ROWS, undefined, "change_pct", "desc", bucket || undefined);
+  const losers = useStockList(1, MOVER_ROWS, undefined, "change_pct", "asc", bucket || undefined);
 
   return (
     <div className="border border-line bg-surface">
-      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line px-5 py-3">
-        <p className="label-caps">{dirLabel} · today</p>
-        <button
-          type="button"
-          onClick={() => setDir((d) => (d === "desc" ? "asc" : "desc"))}
-          className="label-caps inline-flex items-center gap-1 text-muted transition-colors hover:text-foreground"
-        >
-          {dir === "desc" ? <ArrowUp className="size-3" /> : <ArrowDown className="size-3" />}
-          flip
-        </button>
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-5 py-3">
+        <p className="text-sm font-semibold">Biggest moves today</p>
+        <div className="flex flex-wrap gap-1" role="group" aria-label="Company size">
+          {BUCKETS.map((b) => (
+            <button
+              key={b.key}
+              type="button"
+              onClick={() => setBucket(b.key)}
+              aria-pressed={bucket === b.key}
+              className={cn(
+                "border px-2.5 py-1 text-xs font-medium transition-colors",
+                bucket === b.key
+                  ? "border-cobalt text-foreground"
+                  : "border-line text-muted hover:text-foreground",
+              )}
+            >
+              {b.label}
+            </button>
+          ))}
+        </div>
       </div>
-      <div className="flex flex-wrap gap-1 border-b border-line px-5 py-2">
-        {BUCKETS.map((b) => (
-          <button
-            key={b.key}
-            type="button"
-            onClick={() => setBucket(b.key)}
-            aria-pressed={bucket === b.key}
-            className={cn(
-              "border px-2 py-0.5 text-xs font-medium transition-colors",
-              bucket === b.key
-                ? "border-cobalt bg-surface-2 text-foreground"
-                : "border-line text-muted hover:text-foreground",
-            )}
-          >
-            {b.label}
-          </button>
-        ))}
+      <div className="grid md:grid-cols-2 md:divide-x md:divide-line">
+        <MoverSide title="Gainers" query={gainers} tone="up" />
+        <MoverSide title="Losers" query={losers} tone="down" />
       </div>
+    </div>
+  );
+}
+
+function MoverSide({
+  title,
+  query,
+  tone,
+}: {
+  title: string;
+  query: ReturnType<typeof useStockList>;
+  tone: "up" | "down";
+}) {
+  const items = (query.data?.items ?? []).filter((s) => s.change_pct != null);
+  const max = Math.max(0.01, ...items.map((s) => Math.abs(s.change_pct ?? 0)));
+  return (
+    <div>
+      <p className={cn("label-caps border-b border-line px-5 py-2", tone === "up" ? "!text-up" : "!text-down")}>
+        {title}
+      </p>
       <DataState
         loading={query.isLoading}
         error={query.error}
         onRetry={query.refetch}
-        empty={items.length === 0}
-        emptyTitle="No priced stocks in this bucket yet"
-        emptyMessage="Ingestion is still filling the universe's daily bars."
+        empty={Boolean(query.data) && items.length === 0}
+        emptyTitle="No priced stocks in this size class yet"
+        emptyMessage="Today's closes have not been stored for it yet."
         compact
       >
-        <ul className="divide-y divide-line">
-          {items.map((s) => (
-            <li key={s.symbol}>
-              <Link
-                to={`/stocks/${encodeURIComponent(s.symbol)}`}
-                className="flex items-center gap-3 px-5 py-2 transition-colors hover:bg-surface-2/60"
-              >
-                <StockLogo symbol={s.symbol} name={s.name} size="sm" />
-                <span className="min-w-0 flex-1">
-                  <span className="num block text-xs font-semibold">{s.symbol.replace(".NS", "")}</span>
-                  <span className="block truncate text-xs text-muted">{s.name}</span>
-                </span>
-                <span className="num text-right text-xs">
-                  <span className="block">{fmtPrice(s.last_price)}</span>
+        <ol>
+          {items.map((s, i) => {
+            const bare = s.symbol.replace(".NS", "");
+            return (
+              <li key={s.symbol} className="relative border-b border-line last:border-b-0">
+                <Link
+                  to={`/stocks/${encodeURIComponent(bare)}`}
+                  className="flex items-center gap-3 px-5 py-2.5 transition-colors hover:bg-surface-2/60"
+                >
+                  <span className="num w-4 text-xs text-faint">{i + 1}</span>
+                  <StockLogo symbol={s.symbol} name={s.name} size="sm" />
+                  <span className="min-w-0 flex-1">
+                    <span className="tkr block text-sm">{bare}</span>
+                    <span className="block truncate text-xs text-muted">{s.name}</span>
+                  </span>
+                  <span className="num w-24 text-right text-sm text-muted">{fmtPrice(s.last_price)}</span>
                   <span
                     className={cn(
-                      "block font-medium",
-                      (s.change_pct ?? 0) >= 0 ? "text-band-positive" : "text-band-weak",
+                      "num w-20 text-right text-sm font-semibold",
+                      tone === "up" ? "text-up" : "text-down",
                     )}
                   >
                     {fmtSignedPct(s.change_pct)}
                   </span>
-                </span>
-              </Link>
-            </li>
-          ))}
-        </ul>
+                </Link>
+                <span
+                  aria-hidden
+                  className="absolute bottom-0 left-0 h-0.5"
+                  style={{
+                    width: `${Math.round((Math.abs(s.change_pct ?? 0) / max) * 100)}%`,
+                    background: tone === "up" ? "var(--up)" : "var(--down)",
+                    opacity: 0.6,
+                  }}
+                />
+              </li>
+            );
+          })}
+        </ol>
       </DataState>
     </div>
   );
@@ -245,7 +279,7 @@ function RecentlyViewed() {
             >
               <StockLogo symbol={r.symbol} name={r.name} size="sm" />
               <span className="min-w-0 flex-1">
-                <span className="num block text-xs font-semibold">{r.symbol.replace(".NS", "")}</span>
+                <span className="tkr block text-xs font-semibold">{r.symbol.replace(".NS", "")}</span>
                 <span className="block truncate text-xs text-muted">{r.name}</span>
               </span>
               <span className="num text-right text-xs">
@@ -253,7 +287,7 @@ function RecentlyViewed() {
                 <span
                   className={cn(
                     "block font-medium",
-                    (r.changePct ?? 0) >= 0 ? "text-band-positive" : "text-band-weak",
+                    (r.changePct ?? 0) >= 0 ? "text-up" : "text-down",
                   )}
                 >
                   {fmtSignedPct(r.changePct)}
@@ -336,7 +370,7 @@ function WatchlistPanel() {
                       type="button"
                       aria-label={`Delete ${l.name}`}
                       onClick={() => deleteWatchlist(l.id)}
-                      className="text-faint transition-colors hover:text-band-weak"
+                      className="text-faint transition-colors hover:text-down"
                     >
                       <Trash2 className="size-3.5" />
                     </button>
@@ -348,14 +382,14 @@ function WatchlistPanel() {
                       key={sym}
                       className="group inline-flex items-center gap-1 border border-line bg-surface-2 px-1.5 py-0.5 text-xs"
                     >
-                      <Link to={`/stocks/${encodeURIComponent(sym)}`} className="num hover:underline">
+                      <Link to={`/stocks/${encodeURIComponent(sym)}`} className="tkr hover:underline">
                         {sym.replace(".NS", "")}
                       </Link>
                       <button
                         type="button"
                         aria-label={`Remove ${sym}`}
                         onClick={() => removeFromWatchlist(l.id, sym)}
-                        className="text-faint hover:text-band-weak"
+                        className="text-faint hover:text-down"
                       >
                         <X className="size-3" />
                       </button>
@@ -372,15 +406,19 @@ function WatchlistPanel() {
 
 /* --- Market news ---------------------------------------------------------------- */
 
+const NEWS_TONE: Record<string, string> = {
+  positive: "text-up",
+  negative: "text-down",
+  neutral: "text-faint",
+};
+
+/** A narrow headline column: ticker, tone, then the headline. */
 function MarketNewsPanel() {
   const query = useMarketNews(18);
   const items = query.data?.items ?? [];
   return (
     <div className="border border-line bg-surface">
-      <div className="flex items-baseline justify-between border-b border-line px-5 py-3">
-        <p className="label-caps">Market news · latest across the universe</p>
-        <p className="num text-xs text-faint">{query.data ? `${items.length} articles` : ""}</p>
-      </div>
+      <p className="border-b border-line px-4 py-3 text-sm font-semibold">Headlines</p>
       <DataState
         loading={query.isLoading}
         error={query.error}
@@ -390,23 +428,34 @@ function MarketNewsPanel() {
         emptyMessage="News ingestion has not filled today's feed yet."
         compact
       >
-        <ul className="max-h-[520px] divide-y divide-line overflow-y-auto">
+        <ul className="max-h-[640px] divide-y divide-line overflow-y-auto">
           {items.map((a) => (
-            <li key={a.id} className="px-5 py-2.5">
+            <li key={a.id} className="px-4 py-2.5">
+              <p className="flex items-baseline justify-between gap-2 text-xs">
+                <Link
+                  to={`/stocks/${encodeURIComponent(a.symbol.replace(".NS", ""))}`}
+                  className="tkr text-muted hover:text-cobalt dark:hover:text-cobalt-strong"
+                >
+                  {a.symbol.replace(".NS", "")}
+                </Link>
+                {a.sentiment && (
+                  <span className={cn("font-medium capitalize", NEWS_TONE[a.sentiment] ?? "text-faint")}>
+                    {a.sentiment}
+                  </span>
+                )}
+              </p>
               <a
                 href={a.url}
                 target="_blank"
                 rel="noreferrer"
-                className="group block"
+                className="mt-1 block text-[13px] leading-snug underline-offset-4 hover:underline"
               >
-                <p className="text-sm leading-snug group-hover:underline">{a.title}</p>
-                <p className="num mt-0.5 flex flex-wrap items-center gap-2 text-xs text-faint">
-                  <span className="font-semibold text-muted">{a.symbol.replace(".NS", "")}</span>
-                  <span>{a.source}</span>
-                  {a.published_at && <span>{new Date(a.published_at).toLocaleDateString("en-IN")}</span>}
-                  {a.sentiment && <span className="capitalize">{a.sentiment}</span>}
-                </p>
+                {a.title}
               </a>
+              <p className="mt-1 text-xs text-faint">
+                {a.source}
+                {a.published_at ? ` · ${new Date(a.published_at).toLocaleDateString("en-IN")}` : ""}
+              </p>
             </li>
           ))}
         </ul>
@@ -415,110 +464,132 @@ function MarketNewsPanel() {
   );
 }
 
-/* --- ETF + fund snapshots --------------------------------------------------------- */
+/* --- ETF + fund tables ------------------------------------------------------------ */
 
-function EtfMiniPanel() {
+const PRODUCT_ROWS = 8;
+
+function PanelHead({ title, to, linkLabel }: { title: string; to: string; linkLabel: string }) {
+  return (
+    <div className="flex items-baseline justify-between border-b border-line px-5 py-3">
+      <p className="text-sm font-semibold">{title}</p>
+      <Link to={to} className="text-xs text-cobalt hover:underline dark:text-cobalt-strong">
+        {linkLabel}
+      </Link>
+    </div>
+  );
+}
+
+/** ETFs ranked by one-year return, with today's move beside it. */
+function EtfPanel() {
   const query = useEtfs();
-  const items = (query.data?.items ?? [])
-    .filter((e) => e.change_pct != null)
-    .sort((a, b) => Math.abs(b.change_pct ?? 0) - Math.abs(a.change_pct ?? 0))
-    .slice(0, 6);
+  const all = query.data?.items ?? [];
+  const items = [...all]
+    .sort((a, b) => (b.return_1y_pct ?? -Infinity) - (a.return_1y_pct ?? -Infinity))
+    .slice(0, PRODUCT_ROWS);
+  const dayScale = heatScale(all.map((e) => e.change_pct));
+  const yearScale = heatScale(all.map((e) => e.return_1y_pct));
   return (
     <div className="border border-line bg-surface">
-      <div className="flex items-baseline justify-between border-b border-line px-5 py-3">
-        <p className="label-caps">ETFs · biggest moves</p>
-        <Link to="/etfs" className="text-xs text-cobalt hover:underline dark:text-cobalt-strong">
-          all
-        </Link>
-      </div>
-      <ul className="divide-y divide-line">
-        {items.map((e) => (
-          <li key={e.symbol}>
-            <Link
-              to={`/stocks/${encodeURIComponent(e.symbol)}`}
-              className="flex items-center justify-between gap-2 px-5 py-2 transition-colors hover:bg-surface-2/60"
-            >
-              <span className="num truncate text-xs font-semibold">{e.symbol.replace(".NS", "")}</span>
-              <span className="num flex items-baseline gap-2 text-xs">
-                {fmtPrice(e.last_price)}
-                <span className={cn("font-medium", (e.change_pct ?? 0) >= 0 ? "text-band-positive" : "text-band-weak")}>
-                  {fmtSignedPct(e.change_pct)}
-                </span>
-              </span>
-            </Link>
-          </li>
-        ))}
-      </ul>
-    </div>
-  );
-}
-
-function FundMiniPanel() {
-  const query = useFunds("return_1m", "desc");
-  const items = (query.data?.items ?? []).slice(0, 6);
-  return (
-    <div className="border border-line bg-surface">
-      <div className="flex items-baseline justify-between border-b border-line px-5 py-3">
-        <p className="label-caps">Funds · best 1M</p>
-        <Link to="/funds" className="text-xs text-cobalt hover:underline dark:text-cobalt-strong">
-          all
-        </Link>
-      </div>
-      <ul className="divide-y divide-line">
-        {items.map((f) => (
-          <li key={f.id}>
-            <Link
-              to={`/funds/${f.id}`}
-              className="flex items-center justify-between gap-2 px-5 py-2 transition-colors hover:bg-surface-2/60"
-            >
-              <span className="min-w-0">
-                <span className="block truncate text-xs font-semibold">{f.name}</span>
-                <span className="block text-xs text-faint">{f.category ?? "-"}</span>
-              </span>
-              <span
-                className={cn(
-                  "num text-xs font-medium",
-                  (f.return_1m_pct ?? 0) >= 0 ? "text-band-positive" : "text-band-weak",
-                )}
-              >
-                {fmtSignedPct(f.return_1m_pct)}
-              </span>
-            </Link>
-          </li>
-        ))}
-      </ul>
-    </div>
-  );
-}
-
-/* --- SIP/SWP lab stub --------------------------------------------------------------- */
-
-function LabStub() {
-  const [open, setOpen] = React.useState(false);
-  return (
-    <div className="border border-dashed border-line p-5">
-      <p className="label-caps flex items-center gap-2">
-        <Calculator className="size-3.5 text-faint" />
-        SIP / SWP lab
-      </p>
-      <p className="mt-2 text-xs leading-relaxed text-muted">
-        Goal-based SIP and withdrawal simulators over historical NAV
-        distributions. Planned for the scenario lab.
-      </p>
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className="mt-3 border border-line px-2.5 py-1 text-xs font-medium text-foreground transition-colors hover:bg-surface-2"
+      <PanelHead title="ETFs, best one-year return" to="/etfs" linkLabel="All ETFs" />
+      <DataState
+        loading={query.isLoading}
+        error={query.error}
+        onRetry={query.refetch}
+        empty={Boolean(query.data) && items.length === 0}
+        emptyTitle="No ETFs yet"
+        emptyMessage="The ETF catalog fills in when ingestion runs."
+        compact
       >
-        {open ? "Close" : "Preview"}
-      </button>
-      {open && (
-        <p className="mt-2 border border-line bg-surface-2 px-3 py-2 text-xs leading-relaxed text-muted">
-          Coming soon. The simulator is scoped for the scenario and forecast
-          lab: historical bootstrap of SIP/SWP outcomes with explicit
-          uncertainty, never a promised return.
-        </p>
-      )}
+        <table className="w-full border-collapse text-left">
+          <thead>
+            <tr className="border-b border-line">
+              <th scope="col" className="label-caps px-5 py-2">Fund</th>
+              <th scope="col" className="label-caps px-2 py-2 text-right">Price</th>
+              <th scope="col" className="label-caps w-20 px-2 py-2 text-right">Today</th>
+              <th scope="col" className="label-caps w-20 px-2 py-2 text-right">1Y</th>
+            </tr>
+          </thead>
+          <tbody>
+            {items.map((e) => (
+              <tr key={e.symbol} className="border-b border-line last:border-b-0">
+                <td className="px-5 py-2">
+                  <Link to={`/stocks/${encodeURIComponent(e.symbol)}`} className="group block">
+                    <span className="tkr block text-sm group-hover:text-cobalt dark:group-hover:text-cobalt-strong">
+                      {e.symbol.replace(".NS", "")}
+                    </span>
+                    <span className="block max-w-56 truncate text-xs text-muted">{e.name}</span>
+                  </Link>
+                </td>
+                <td className="num px-2 py-2 text-right text-sm">{fmtPrice(e.last_price)}</td>
+                <td className="p-0.5">
+                  <HeatCell value={e.change_pct} scale={dayScale} />
+                </td>
+                <td className="p-0.5">
+                  <HeatCell value={e.return_1y_pct} scale={yearScale} />
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </DataState>
+    </div>
+  );
+}
+
+/** Mutual funds ranked by one-year return, with shorter windows beside it. */
+function FundPanel() {
+  const query = useFunds("return_1y", "desc");
+  const all = query.data?.items ?? [];
+  const items = all.slice(0, PRODUCT_ROWS);
+  const s1m = heatScale(all.map((f) => f.return_1m_pct));
+  const s6m = heatScale(all.map((f) => f.return_6m_pct));
+  const s1y = heatScale(all.map((f) => f.return_1y_pct));
+  return (
+    <div className="border border-line bg-surface">
+      <PanelHead title="Mutual funds, best one-year return" to="/funds" linkLabel="All funds" />
+      <DataState
+        loading={query.isLoading}
+        error={query.error}
+        onRetry={query.refetch}
+        empty={Boolean(query.data) && items.length === 0}
+        emptyTitle="No funds yet"
+        emptyMessage="The fund catalog fills in when ingestion runs."
+        compact
+      >
+        <table className="w-full border-collapse text-left">
+          <thead>
+            <tr className="border-b border-line">
+              <th scope="col" className="label-caps px-5 py-2">Scheme</th>
+              <th scope="col" className="label-caps w-20 px-2 py-2 text-right">1M</th>
+              <th scope="col" className="label-caps w-20 px-2 py-2 text-right">6M</th>
+              <th scope="col" className="label-caps w-20 px-2 py-2 text-right">1Y</th>
+            </tr>
+          </thead>
+          <tbody>
+            {items.map((f) => (
+              <tr key={f.id} className="border-b border-line last:border-b-0">
+                <td className="px-5 py-2">
+                  <Link to={`/funds/${f.id}`} className="group block">
+                    <span className="block max-w-64 truncate text-sm font-medium group-hover:text-cobalt dark:group-hover:text-cobalt-strong">
+                      {f.name}
+                    </span>
+                    <span className="block text-xs text-muted">{f.category ?? "-"}</span>
+                  </Link>
+                </td>
+                <td className="p-0.5">
+                  <HeatCell value={f.return_1m_pct} scale={s1m} />
+                </td>
+                <td className="p-0.5">
+                  <HeatCell value={f.return_6m_pct} scale={s6m} />
+                </td>
+                <td className="p-0.5">
+                  <HeatCell value={f.return_1y_pct} scale={s1y} />
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </DataState>
     </div>
   );
 }

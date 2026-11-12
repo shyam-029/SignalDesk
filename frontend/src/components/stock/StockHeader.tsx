@@ -33,19 +33,8 @@ export function StockHeader({ symbol }: { symbol: string }) {
   const detail = query.data;
 
   return (
-    <header className="relative border-b border-line">
-      {/* Identity wash: a faint petrol pool behind the header (mirrors the
-          landing hero) so the research page carries the site's color in both
-          themes without redesigning the layout. */}
-      <div
-        aria-hidden
-        className="pointer-events-none absolute inset-0"
-        style={{
-          background:
-            "radial-gradient(560px 260px at 20% 20%, color-mix(in srgb, var(--cobalt) 6%, transparent), transparent 72%)",
-        }}
-      />
-      <div className="relative mx-auto max-w-6xl px-4 pb-8 pt-6 md:px-6">
+    <header className="border-b border-line bg-surface">
+      <div className="mx-auto max-w-6xl px-4 pb-7 pt-6 md:px-6">
         <div className="mb-5 flex items-center justify-between">
           <Link
             to="/markets"
@@ -75,7 +64,7 @@ export function StockHeader({ symbol }: { symbol: string }) {
                   <h1 className="font-display text-3xl font-semibold tracking-[-0.01em] md:text-4xl">
                     {detail.name}
                   </h1>
-                  <span className="num border border-line bg-surface-2 px-1.5 py-0.5 text-xs font-semibold">
+                  <span className="tkr border border-line bg-surface-2 px-1.5 py-0.5 text-xs font-semibold">
                     {detail.symbol}
                   </span>
                 </div>
@@ -117,8 +106,8 @@ export function StockHeader({ symbol }: { symbol: string }) {
                       className={cn(
                         "num flex items-center gap-1 text-sm font-medium",
                         detail.quote.change_pct >= 0
-                          ? "text-band-positive"
-                          : "text-band-weak",
+                          ? "text-up"
+                          : "text-down",
                       )}
                     >
                       {detail.quote.change_pct >= 0 ? (
@@ -134,7 +123,7 @@ export function StockHeader({ symbol }: { symbol: string }) {
                   {detail.quote.date ? `Close ${fmtDate(detail.quote.date)}` : "No price data"}
                   {detail.quote.stale === true && (
                     <span
-                      className="ml-2 border border-line bg-surface-2 px-1 py-0.5 text-[10px] font-medium uppercase tracking-[0.08em] text-faint"
+                      className="ml-2 border border-line bg-surface-2 px-1 py-0.5 text-[10px] font-medium text-faint"
                       title="The latest stored close is older than the usual market day — ingestion may be behind."
                     >
                       stale
@@ -174,7 +163,7 @@ function Stat({
 }) {
   return (
     <div>
-      <dt className="flex items-center gap-1 text-xs font-medium uppercase tracking-[0.12em] text-faint">
+      <dt className="flex items-center gap-1 text-xs font-medium text-faint">
         {label}
         {metric && <InfoDot metric={metric} className="size-3.5" />}
       </dt>
@@ -215,7 +204,7 @@ function WatchlistButton({ symbol }: { symbol: string }) {
         {watchedIn.length > 0 ? `Watched (${watchedIn.length})` : "Watchlist"}
       </button>
       {open && (
-        <div className="glass absolute right-0 top-full z-40 mt-1.5 w-64 border border-line bg-background p-2">
+        <div className="pop absolute right-0 top-full z-40 mt-1.5 w-64 p-2">
           {lists.map((l) => {
             const inList = l.symbols.includes(symbol);
             return (
@@ -228,7 +217,7 @@ function WatchlistButton({ symbol }: { symbol: string }) {
                 className="flex w-full items-center justify-between px-2 py-1.5 text-left text-sm transition-colors hover:bg-surface-2"
               >
                 <span className="truncate">{l.name}</span>
-                {inList && <BookmarkCheck className="size-3.5 text-band-positive" />}
+                {inList && <BookmarkCheck className="size-3.5 text-up" />}
               </button>
             );
           })}

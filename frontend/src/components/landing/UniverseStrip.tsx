@@ -69,7 +69,7 @@ export function UniverseStrip() {
                       >
                         {s.symbol.replace(".NS", "").slice(0, 1)}
                       </span>
-                      <span className="num text-xs font-semibold">{s.symbol.replace(".NS", "")}</span>
+                      <span className="tkr text-xs font-semibold">{s.symbol.replace(".NS", "")}</span>
                     </span>
                     <span
                       className={cn(

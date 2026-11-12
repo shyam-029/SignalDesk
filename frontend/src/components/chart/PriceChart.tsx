@@ -63,7 +63,7 @@ export function PriceChart({
         textColor: css("--muted"),
         // Only weights 500+ of IBM Plex Mono are loaded, so the canvas's
         // implicit 400 request resolves to the 500 face per CSS font matching.
-        fontFamily: "'IBM Plex Mono', monospace",
+        fontFamily: "'IBM Plex Sans', sans-serif",
         fontSize: 12,
       },
       grid: {
@@ -95,10 +95,10 @@ export function PriceChart({
     });
 
     const series = chart.addSeries(CandlestickSeries, {
-      upColor: css("--band-positive"),
-      downColor: css("--band-weak"),
-      wickUpColor: css("--band-positive"),
-      wickDownColor: css("--band-weak"),
+      upColor: css("--up"),
+      downColor: css("--down"),
+      wickUpColor: css("--up"),
+      wickDownColor: css("--down"),
       borderVisible: false,
     });
 
@@ -174,7 +174,7 @@ export function PriceChart({
           <span
             className={cn(
               "num",
-              upCandle ? "text-band-positive" : "text-band-weak",
+              upCandle ? "text-up" : "text-down",
             )}
           >
             C <span className="font-semibold">{fmtPrice(shown.close)}</span>

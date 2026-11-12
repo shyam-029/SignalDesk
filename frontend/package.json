@@ -12,8 +12,8 @@
   },
   "dependencies": {
     "@fontsource/ibm-plex-mono": "^5.3.0",
-    "@fontsource/instrument-sans": "^5.3.0",
-    "@fontsource/libre-caslon-text": "^5.2.5",
+    "@fontsource/ibm-plex-sans": "^5.3.0",
+    "@fontsource/newsreader": "^5.3.0",
     "@radix-ui/react-collapsible": "^1.1.11",
     "@radix-ui/react-popover": "^1.1.14",
     "@radix-ui/react-slot": "^1.2.3",
