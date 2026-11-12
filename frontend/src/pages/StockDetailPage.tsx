@@ -47,7 +47,7 @@ export default function StockDetailPage() {
 
   // In-app navigation to another stock: seed its nightly snapshot (a no-op
   // for the symbol already fetched at app start).
-  useEffect(() => {
+  React.useEffect(() => {
     void loadStockSnapshot(queryClient, canonical);
   }, [queryClient, canonical]);
 
