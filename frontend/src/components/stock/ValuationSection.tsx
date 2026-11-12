@@ -8,6 +8,7 @@ import {
 import { DataState } from "@/components/data/DataState";
 import { CollapsibleSection } from "@/components/stock/CollapsibleSection";
 import { PeersTable } from "@/components/stock/PeersTable";
+import { ValuationHistory } from "@/components/stock/ValuationHistory";
 import { ExplainAction } from "@/components/explain/ExplainAction";
 import { InfoDot } from "@/components/data/InfoDot";
 import { fmtCompact, fmtRatio } from "@/lib/format";
@@ -231,6 +232,11 @@ export function ValuationSection({ symbol }: { symbol: string }) {
             </div>
           </div>
         </DataState>
+
+        {/* The same multiples against the stock's own past. */}
+        <div className="mt-8">
+          <ValuationHistory symbol={symbol} />
+        </div>
 
         {/* Peer comparison table: the same peer set the multiples use. */}
         <div className="mt-8">

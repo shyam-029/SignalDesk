@@ -4,6 +4,7 @@ import { useAltman, useScores } from "@/lib/hooks";
 import { DataState } from "@/components/data/DataState";
 import { CollapsibleSection } from "@/components/stock/CollapsibleSection";
 import { FinancialsHistoryChart } from "@/components/stock/FinancialsHistoryChart";
+import { QualityBreakdown } from "@/components/stock/QualityBreakdown";
 import { InfoDot } from "@/components/data/InfoDot";
 import { ExplainAction } from "@/components/explain/ExplainAction";
 import { fundamentalsSummary } from "@/lib/summaries";
@@ -124,6 +125,11 @@ export function FundamentalsSection({ symbol }: { symbol: string }) {
             the scores above or into Alpha. Own query, own honest states. */}
         <div className="mt-8">
           <AltmanBlock symbol={symbol} />
+        </div>
+
+        {/* Why return on equity is what it is: margin, turnover, leverage. */}
+        <div className="mt-8">
+          <QualityBreakdown symbol={symbol} />
         </div>
 
         {/* Multi-year income-statement history (Part D, backend data only). */}

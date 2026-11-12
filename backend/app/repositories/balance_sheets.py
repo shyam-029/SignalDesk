@@ -55,6 +55,21 @@ async def upsert_periods(
     return len(rows)
 
 
+async def get_periods(
+    session: AsyncSession, stock_id: int
+) -> list[BalanceSheetPeriod]:
+    """Every stored annual balance-sheet row for a stock, oldest first."""
+    rows = await session.execute(
+        select(BalanceSheetPeriod)
+        .where(
+            BalanceSheetPeriod.stock_id == stock_id,
+            BalanceSheetPeriod.period_type == "annual",
+        )
+        .order_by(BalanceSheetPeriod.period_end.asc())
+    )
+    return list(rows.scalars())
+
+
 async def get_latest(
     session: AsyncSession, stock_id: int
 ) -> BalanceSheetPeriod | None:
