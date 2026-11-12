@@ -16,7 +16,7 @@ name: watchdog
 
 on:
   schedule:
-    - cron: "0 8 * * *" # 08:00 UTC daily; nightly runs usually finish by ~05:00 UTC
+    - cron: "0 8 * * *" # 08:00 UTC daily; the nightly (10:45 UTC start) has finished by then
   workflow_dispatch: {}
 
 concurrency:
