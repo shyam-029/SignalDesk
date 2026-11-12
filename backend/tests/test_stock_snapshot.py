@@ -56,3 +56,17 @@ async def test_build_all_writes_one_file_per_listed_stock(client, seeded, tmp_pa
     assert files == ["RELIANCE.json", "TCS.json"]
     body = json.loads((tmp_path / "stock" / "TCS.json").read_text(encoding="utf-8"))
     assert body["symbol"] == "TCS"
+
+
+async def test_shared_session_mode_returns_the_same_data(client, seeded, session_factory):
+    # The batch's fast path (one session per stock) must produce exactly what
+    # the normal per-request sessions produce.
+    from app.db import get_session
+    from app.main import app
+
+    normal = await stock_snapshot.build_one(client, "RELIANCE")
+    # The `client` fixture clears all overrides on teardown.
+    app.dependency_overrides[get_session] = stock_snapshot.shared_session
+    shared = await stock_snapshot.build_one(client, "RELIANCE", session_factory)
+    assert _by_key(shared) == _by_key(normal)
+    assert len(shared["queries"]) >= 2

@@ -31,17 +31,29 @@
 import asyncio
 import json
 import sys
+from collections.abc import AsyncIterator
+from contextvars import ContextVar
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote
 
 import httpx
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 SNAPSHOT_VERSION = 1
-# Parallel stocks. Each stock's calls run one after another, so this is also
-# the number of concurrent database sessions (well under the pool limit).
-CONCURRENCY = 6
+# Parallel stocks. Each stock's calls run one after another on ONE database
+# session, so this is also the number of database connections the batch
+# holds (Neon's free compute allows ~100; the live API keeps its own pool).
+CONCURRENCY = 24
+
+# Speed (first run 2026-11-12 took >27 min at 6 stocks with a session per
+# call): the job runs on GitHub's US runners, a long round trip from the
+# database, so its time is almost all waiting. A session per stock (instead
+# of per request) drops the per-request pre-ping, BEGIN and ROLLBACK round
+# trips and lets repeated lookups (the stock row) come from the session's
+# identity map; more stocks in parallel overlaps the remaining waits.
+_stock_session: ContextVar[AsyncSession | None] = ContextVar("_stock_session", default=None)
 
 
 def stock_queries(symbol: str) -> list[tuple[list[Any], str]]:
@@ -79,12 +91,45 @@ def canonical(symbol: str) -> str:
     return s[:-3] if s.endswith(".NS") else s
 
 
-async def build_one(client: httpx.AsyncClient, symbol: str) -> dict[str, Any]:
+async def shared_session() -> AsyncIterator[AsyncSession]:
+    """get_session override for the batch: the current stock's session.
+
+    Installed only by main(); tests and the live API never use it.
+    """
+    session = _stock_session.get()
+    if session is None:  # pragma: no cover - main() always sets one
+        raise RuntimeError("stock snapshot: no session for this request")
+    yield session
+
+
+async def build_one(
+    client: httpx.AsyncClient,
+    symbol: str,
+    session_factory: async_sessionmaker[AsyncSession] | None = None,
+) -> dict[str, Any]:
+    """Call one stock's routes. With a session_factory, all of them share one
+    session (main() points get_session at it); without, each request uses
+    the app's normal dependency."""
     queries: list[dict[str, Any]] = []
-    for key, path in stock_queries(symbol):
-        r = await client.get(f"/api/v1{path}")
-        if r.status_code == 200:
-            queries.append({"key": key, "data": r.json()})
+    if session_factory is None:
+        for key, path in stock_queries(symbol):
+            r = await client.get(f"/api/v1{path}")
+            if r.status_code == 200:
+                queries.append({"key": key, "data": r.json()})
+    else:
+        async with session_factory() as session:
+            token = _stock_session.set(session)
+            try:
+                for key, path in stock_queries(symbol):
+                    r = await client.get(f"/api/v1{path}")
+                    if r.status_code == 200:
+                        queries.append({"key": key, "data": r.json()})
+                    elif r.status_code >= 500:
+                        # A failed statement aborts the transaction; reset it
+                        # so the stock's remaining calls still work.
+                        await session.rollback()
+            finally:
+                _stock_session.reset(token)
     return {
         "version": SNAPSHOT_VERSION,
         "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
@@ -107,7 +152,11 @@ async def list_symbols(client: httpx.AsyncClient) -> list[str]:
         page += 1
 
 
-async def build_all(app, out_dir: Path) -> tuple[int, int]:
+async def build_all(
+    app,
+    out_dir: Path,
+    session_factory: async_sessionmaker[AsyncSession] | None = None,
+) -> tuple[int, int]:
     """Write one file per stock. Returns (written, failed)."""
     target = out_dir / "stock"
     target.mkdir(parents=True, exist_ok=True)
@@ -123,7 +172,7 @@ async def build_all(app, out_dir: Path) -> tuple[int, int]:
             nonlocal written, failed
             async with sem:
                 try:
-                    body = await build_one(client, sym)
+                    body = await build_one(client, sym, session_factory)
                 except Exception as exc:  # one bad stock never stops the run
                     failed += 1
                     print(f"FAILED {sym}: {type(exc).__name__}", flush=True)
@@ -145,7 +194,10 @@ def main(argv: list[str]) -> int:
     if len(argv) != 2:
         print("usage: python -m app.services.stock_snapshot <out_dir>")
         return 2
+    from sqlalchemy.ext.asyncio import create_async_engine
+
     from app.config import settings
+    from app.db import asyncpg_ready_url, get_session
     from app.main import app
 
     # In-process calls all come from one "client"; lift the per-IP limits
@@ -154,7 +206,24 @@ def main(argv: list[str]) -> int:
     settings.rate_limit_default_per_min = 1_000_000
     settings.rate_limit_expensive_per_min = 1_000_000
 
-    written, failed = asyncio.run(build_all(app, Path(argv[1])))
+    async def run() -> tuple[int, int]:
+        # A batch-only engine: no pre-ping (connections are used back to
+        # back), one connection per parallel stock.
+        engine = create_async_engine(
+            asyncpg_ready_url(settings.database_url),
+            pool_pre_ping=False,
+            pool_size=CONCURRENCY,
+            max_overflow=0,
+        )
+        factory = async_sessionmaker(bind=engine, expire_on_commit=False)
+        app.dependency_overrides[get_session] = shared_session
+        try:
+            return await build_all(app, Path(argv[1]), factory)
+        finally:
+            app.dependency_overrides.clear()
+            await engine.dispose()
+
+    written, failed = asyncio.run(run())
     print(f"stock snapshots: {written} written, {failed} failed or skipped")
     # Publish nothing if most stocks failed (e.g. the database was down).
     return 0 if written > 0 and failed <= max(25, written // 10) else 1
