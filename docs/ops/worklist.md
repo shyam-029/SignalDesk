@@ -63,10 +63,12 @@ Legend: `[x]` merged to main · `[~]` in progress · `[ ]` not started ·
 - [ ] **10** Private off-GitHub backup copy (repo is public; artifacts last
       30 days). The monthly restore test is covered by item 7. Decided
       2026-11-12: Cloudflare R2 (10 GB free, already on Cloudflare, S3
-      API, no egress fees). The nightly `backup.yml` uploads each dump and
-      keeps the last 30. Waiting on the owner: create the bucket and an R2
-      API token, add `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`,
-      `R2_SECRET_ACCESS_KEY`, `R2_BUCKET` as Actions secrets
+      API, no egress fees). Bucket, bucket-scoped token and the four
+      `R2_*` Actions secrets set up by the owner 2026-11-12. The weekly
+      `backup.yml` (owner chose weekly: a nightly dump would use about a
+      third of Neon's 5 GB/month transfer) copies each verified dump to R2,
+      checks the stored size and keeps the newest 12. Done once a run
+      shows the file in the bucket.
 - [x] **11** Private progress trackers updated 2026-11-12
       (`SEMESTER2_PROGRESS.md` section 17; local, gitignored)
 
