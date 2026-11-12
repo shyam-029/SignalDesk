@@ -92,7 +92,7 @@ export function PerformanceStrip({ symbol }: { symbol: string }) {
                 </div>
                 {perf.as_of && (
                   <p className="num ml-auto text-xs text-faint">
-                    as of {perf.as_of} · {perf.bars_used} bars
+                    as of {perf.as_of}
                   </p>
                 )}
               </div>

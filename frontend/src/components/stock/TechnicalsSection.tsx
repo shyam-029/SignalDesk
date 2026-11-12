@@ -83,9 +83,6 @@ export function TechnicalsSection({ symbol }: { symbol: string }) {
               {items.length > 0 && (
                 <>
                   <TimeSeriesChart lines={priceLines} height={280} valueFormatter={(v) => fmtPrice(v)} />
-                  <p className="num mt-2 text-xs text-faint">
-                    {items.length} daily bars · indicator values computed by the backend
-                  </p>
                 </>
               )}
             </DataState>

@@ -87,3 +87,23 @@ async def test_rows_match_direct_analysis(client, seeded, session_factory):
                 "valuation_status": a.valuation_status,
                 "margin_pct": a.margin_pct,
             }
+
+
+async def test_industry_filter(client, seeded, session_factory):
+    """A stock page's industry link opens the screener filtered to it."""
+    from sqlalchemy import update
+
+    from app.models import Stock
+
+    async with session_factory() as session:
+        await session.execute(
+            update(Stock).where(Stock.symbol == "RELIANCE.NS").values(industry="Oil & Gas Refining")
+        )
+        await session.commit()
+
+    r = await client.get("/api/v1/screener", params={"industry": "Oil & Gas Refining"})
+    assert r.status_code == 200
+    assert [i["symbol"] for i in r.json()["items"]] == ["RELIANCE.NS"]
+
+    r = await client.get("/api/v1/screener", params={"industry": "Nope"})
+    assert r.json()["total"] == 0

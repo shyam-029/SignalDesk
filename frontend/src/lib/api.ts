@@ -215,6 +215,7 @@ export const api = {
     const q = new URLSearchParams({ page: String(params.page), limit: String(params.limit) });
     if (params.status) q.set("status", params.status);
     if (params.sector) q.set("sector", params.sector);
+    if (params.industry) q.set("industry", params.industry);
     if (params.minProfitability != null) q.set("min_profitability", String(params.minProfitability));
     if (params.minSolvency != null) q.set("min_solvency", String(params.minSolvency));
     if (params.sort) q.set("sort", params.sort);
@@ -271,6 +272,7 @@ export const api = {
 export interface ScreenerParams {
   status?: string | null;
   sector?: string | null;
+  industry?: string | null;
   minProfitability?: number | null;
   minSolvency?: number | null;
   sort?: string;

@@ -187,14 +187,26 @@ baseline). Each item touches `ingest.yml` / `jobs.py`, so one branch each.
 
 ## Product
 
-- [ ] Quick UI fixes: About as a dropdown; remove internal descriptions
-      ("543 bars", weights text); industry link goes to the screener, not
-      markets; even, ordered market cards; valuation section shows dashes
-      instead of going blank when P/B or EBITDA is missing; Ask panel too
-      transparent
-- [ ] Alpha chart: remove the fundamental/sentiment lines; investigate the
-      large technical-score swings
-- [~] News relevance (PR pending): new general rule (no per-ticker list).
+- [x] Quick UI fixes (PR #21): "About the company" is a dropdown,
+      closed by default; bar counts and the weights text removed; sector and
+      industry link to the screener (new `industry` filter); market index
+      cards in a fixed order, four per row; the blank valuation section was
+      a request loop on a missing multiple (a bank's EV/EBITDA: about 100
+      requests a minute, enough to hit the per-IP rate limit), fixed with
+      `retryOnMount: false`. Ask panel done in PR #16
+- [x] Alpha chart: fundamental/sentiment lines removed (they existed only
+      on the few live snapshots) (PR #22). Technical swings
+      investigated 2026-11-11: no bug and no day-to-day noise (median daily
+      step 1-2 points); the v1.5 calibration (2026-09-08: trend scale 600,
+      momentum 4000, EMA span 5) is simply sensitive, so a few percent of
+      price trend moves the score 20-36 points within 20 trading days
+      (INFY 30 -> 86 in October). Measured on 1y of INFY / HDFCBANK / ITC
+      closes, median 20-day range: current 36 / 21 / 20; EMA 10 with the
+      same scales 29 / 16 / 16; EMA 10 with half scales (300 / 2000)
+      15 / 7 / 7; EMA 20 with half scales 10 / 5 / 5. Halving the scales
+      partly undoes v1.5's goal (scores stuck at 40-60). [?] Owner decision:
+      keep, EMA 10 only, or EMA 10 + half scales (fold into alpha v2)
+- [x] News relevance (PR #24): new general rule (no per-ticker list).
       Strong: the name's distinctive words together in order, or a
       multi-word name's non-generic brand word. Ambiguous (needs a market
       word such as shares, Q2, crore, NSE, results): a one-word name, the

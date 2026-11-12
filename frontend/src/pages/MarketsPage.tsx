@@ -24,6 +24,7 @@ import {
 import { useRecentStocks } from "@/lib/recent";
 import { fmtPrice, fmtSignedPct } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import { orderIndexes } from "@/lib/indexOrder";
 
 /**
  * MarketsPage: the daily dashboard. Index cards up top (Nifty 50, Sensex,
@@ -102,10 +103,11 @@ function Sparkline({ points, positive }: { points: number[]; positive: boolean }
 
 function IndexStrip() {
   const query = useBenchmarks();
-  const cards = query.data?.items ?? [];
+  const cards = orderIndexes(query.data?.items ?? []);
+  // Eight indexes: rows of two (phone) or four (wider), so every row is full.
   return (
-    <div className="mt-8 grid grid-cols-2 gap-px border border-line bg-line sm:grid-cols-3 lg:grid-cols-6">
-      {(cards.length > 0 ? cards : Array.from({ length: 6 }, () => null)).map((c, i) => (
+    <div className="mt-8 grid grid-cols-2 gap-px border border-line bg-line md:grid-cols-4">
+      {(cards.length > 0 ? cards : Array.from({ length: 8 }, () => null)).map((c, i) => (
         <div key={c?.symbol ?? i} className="bg-surface p-4">
           {c ? (
             <>
