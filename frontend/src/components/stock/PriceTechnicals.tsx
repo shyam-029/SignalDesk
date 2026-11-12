@@ -57,9 +57,6 @@ export function PriceSection({ symbol }: { symbol: string }) {
             {prices.data && prices.data.items.length > 0 && (
               <>
                 <PriceChart bars={prices.data.items} height={360} />
-                <p className="num mt-2 text-xs text-faint">
-                  {prices.data.items.length} daily bars · {range} window · resample 1d
-                </p>
               </>
             )}
           </DataState>

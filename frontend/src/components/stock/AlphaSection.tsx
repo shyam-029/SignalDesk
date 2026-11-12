@@ -1,4 +1,6 @@
+import * as React from "react";
 import { motion } from "framer-motion";
+import { ChevronDown } from "lucide-react";
 
 import { useAlpha, useAlphaExplanation, useCompanyProfile } from "@/lib/hooks";
 import { DataState } from "@/components/data/DataState";
@@ -39,11 +41,6 @@ export function AlphaSection({ symbol }: { symbol: string }) {
           index="02"
           kicker="Signal"
           title="Alpha Score"
-          aside={
-            <p className="num text-xs text-muted">
-              40% fundamental · 35% technical · 25% sentiment
-            </p>
-          }
         />
 
         <DataState
@@ -259,62 +256,80 @@ function CompanyBox({
   website: string | null;
   source: string | null;
 }) {
+  // A dropdown: closed by default so the description doesn't push the score
+  // analysis down the page.
+  const [open, setOpen] = React.useState(false);
   return (
     <div className="glass rounded-sm">
-      <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-line px-5 py-3">
-        <p className="label-caps">About the company</p>
-        {source && (
-          <p className="num text-xs text-faint">description: {source}</p>
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        aria-controls="about-company-content"
+        className={cn(
+          "flex w-full items-center justify-between gap-2 px-5 py-3 text-left",
+          open && "border-b border-line",
         )}
-      </div>
-      <DataState
-        loading={loading}
-        error={error}
-        onRetry={onRetry}
-        empty={!summary}
-        emptyTitle="No company profile stored"
-        emptyMessage="The provider has not supplied a business description for this stock yet. Nothing is generated in the meantime."
-        compact
       >
-        <div className="px-5 py-4">
-          {summary && (
-            <div className="space-y-3">
-              {summary.split(/\n{2,}|\r\n\r\n/).filter(Boolean).map((para, i) => (
-                <p key={i} className="text-sm leading-relaxed text-muted">
-                  {para.trim()}
-                </p>
-              ))}
-            </div>
-          )}
-          {(ceo || employees != null || website) && (
-            <div className="num mt-4 flex flex-wrap gap-x-6 gap-y-1 border-t border-line pt-3 text-xs text-muted">
-              {ceo && (
-                <span>
-                  CEO <span className="text-foreground">{ceo}</span>
-                </span>
-              )}
-              {employees != null && (
-                <span>
-                  Employees <span className="text-foreground">{EMPLOYEE_FMT.format(employees)}</span>
-                </span>
-              )}
-              {website && (
-                <span>
-                  Website{" "}
-                  <a
-                    href={website.startsWith("http") ? website : `https://${website}`}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="text-foreground underline decoration-line underline-offset-4 hover:text-cobalt dark:hover:text-cobalt-strong"
-                  >
-                    {website.replace(/^https?:\/\//, "")}
-                  </a>
-                </span>
-              )}
-            </div>
-          )}
-        </div>
-      </DataState>
+        <span className="label-caps">About the company</span>
+        <ChevronDown
+          className={cn("size-4 text-muted transition-transform", open && "rotate-180")}
+          aria-hidden
+        />
+      </button>
+      <div id="about-company-content" hidden={!open}>
+        {source && (
+          <p className="num px-5 pt-3 text-xs text-faint">description: {source}</p>
+        )}
+        <DataState
+          loading={loading}
+          error={error}
+          onRetry={onRetry}
+          empty={!summary}
+          emptyTitle="No company profile stored"
+          emptyMessage="The provider has not supplied a business description for this stock yet. Nothing is generated in the meantime."
+          compact
+        >
+          <div className="px-5 py-4">
+            {summary && (
+              <div className="space-y-3">
+                {summary.split(/\n{2,}|\r\n\r\n/).filter(Boolean).map((para, i) => (
+                  <p key={i} className="text-sm leading-relaxed text-muted">
+                    {para.trim()}
+                  </p>
+                ))}
+              </div>
+            )}
+            {(ceo || employees != null || website) && (
+              <div className="num mt-4 flex flex-wrap gap-x-6 gap-y-1 border-t border-line pt-3 text-xs text-muted">
+                {ceo && (
+                  <span>
+                    CEO <span className="text-foreground">{ceo}</span>
+                  </span>
+                )}
+                {employees != null && (
+                  <span>
+                    Employees <span className="text-foreground">{EMPLOYEE_FMT.format(employees)}</span>
+                  </span>
+                )}
+                {website && (
+                  <span>
+                    Website{" "}
+                    <a
+                      href={website.startsWith("http") ? website : `https://${website}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-foreground underline decoration-line underline-offset-4 hover:text-cobalt dark:hover:text-cobalt-strong"
+                    >
+                      {website.replace(/^https?:\/\//, "")}
+                    </a>
+                  </span>
+                )}
+              </div>
+            )}
+          </div>
+        </DataState>
+      </div>
     </div>
   );
 }
