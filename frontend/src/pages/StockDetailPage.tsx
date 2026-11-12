@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { useParams } from "react-router-dom";
+import { useQueryClient } from "@tanstack/react-query";
 
 import { StockHeader } from "@/components/stock/StockHeader";
 import { PerformanceStrip } from "@/components/stock/PerformanceStrip";
@@ -15,6 +16,7 @@ import { ErrorBoundary } from "@/components/data/ErrorBoundary";
 import { normalizeSymbol } from "@/lib/utils";
 import { recordRecent } from "@/lib/recent";
 import { useStockDetail } from "@/lib/hooks";
+import { loadStockSnapshot } from "@/lib/stockSnapshot";
 
 /**
  * StockDetail: the deep-linkable research report for one company. Snapshot,
@@ -29,7 +31,14 @@ import { useStockDetail } from "@/lib/hooks";
 export default function StockDetailPage() {
   const { symbol = "" } = useParams();
   const canonical = normalizeSymbol(symbol);
+  const queryClient = useQueryClient();
   const detail = useStockDetail(canonical);
+
+  // In-app navigation to another stock: seed its nightly snapshot (a no-op
+  // for the symbol already fetched at app start).
+  useEffect(() => {
+    void loadStockSnapshot(queryClient, canonical);
+  }, [queryClient, canonical]);
 
   // Recently viewed: recorded once the detail (name + day snapshot) loads.
   useEffect(() => {
