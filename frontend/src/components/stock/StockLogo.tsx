@@ -1,23 +1,9 @@
 import { cn } from "@/lib/utils";
 
-// Monogram stock mark: a colored disc with the company's initials. Computed
-// entirely from the symbol/name (deterministic hash into a small palette of
-// theme tokens), so it ships zero remote requests and never breaks.
-const PALETTE = [
-  "--accent-jade",
-  "--accent-teal",
-  "--accent-coral",
-  "--accent-amber",
-  "--cobalt",
-];
-
-function hashCode(value: string): number {
-  let h = 0;
-  for (let i = 0; i < value.length; i++) {
-    h = (h * 31 + value.charCodeAt(i)) | 0;
-  }
-  return Math.abs(h);
-}
+// Monogram stock mark: a neutral square tile with the company's initials.
+// Computed entirely from the symbol/name, so it ships zero remote requests
+// and never breaks. Deliberately colorless: a row of rainbow discs made the
+// tables look like an app launcher instead of a research list.
 
 function initials(name: string | undefined, symbol: string): string {
   if (name) {
@@ -42,18 +28,16 @@ export function StockLogo({
   size?: "sm" | "md" | "lg";
   className?: string;
 }) {
-  const colorVar = PALETTE[hashCode(symbol) % PALETTE.length];
   const dims =
-    size === "lg" ? "size-12 text-lg" : size === "sm" ? "size-6 text-[10px]" : "size-9 text-sm";
+    size === "lg" ? "size-11 text-base" : size === "sm" ? "size-6 text-[10px]" : "size-9 text-sm";
   return (
     <span
       aria-hidden
       className={cn(
-        "num inline-flex shrink-0 items-center justify-center rounded-full font-semibold text-white",
+        "num inline-flex shrink-0 items-center justify-center rounded-[3px] border border-rule bg-surface-2 font-semibold tracking-tight text-muted",
         dims,
         className,
       )}
-      style={{ backgroundColor: `color-mix(in srgb, var(${colorVar}) 82%, black 6%)` }}
     >
       {initials(name ?? undefined, symbol)}
     </span>

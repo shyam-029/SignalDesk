@@ -3,17 +3,16 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 /*
- * SignalDesk design tokens ("Institutional Editorial").
+ * SignalDesk design tokens.
  *
- * Light: "Cloud White + Petrol", graded from the approved reference concept:
- * cool blue-tinted whites (#f8f9ff family), deep navy ink (#0b1c30),
- * petroleum-teal identity (#006781), soft periwinkle containers, thin cool
- * borders. White and blue, green/red for the market.
- * Dark:  "Warm Ink + Gold", the approved warm near-black surfaces with a gold
- * identity accent. Unchanged by the light regrade.
+ * Two themes, one token shape. Light is neutral paper with a petrol accent;
+ * dark is neutral graphite with an amber accent. Surfaces are flat and solid:
+ * no blur, no gradient washes, no background ruling. Depth comes from one
+ * hairline border and, for floating panels only, one shadow.
  *
- * Semantic band colors (strong → very weak) are consumed only by analytical
- * conclusions (scores, verdicts, valuation state), never raw metrics.
+ * Semantic band colors (strong to very weak) are consumed only by analytical
+ * conclusions (scores, verdicts, valuation state). Price moves use --up and
+ * --down. Raw metrics stay neutral.
  */
 
 @theme inline {
@@ -27,6 +26,8 @@
   --color-rule: var(--rule);
   --color-cobalt: var(--cobalt);
   --color-cobalt-strong: var(--cobalt-strong);
+  --color-up: var(--up);
+  --color-down: var(--down);
 
   --color-band-strong: var(--band-strong);
   --color-band-positive: var(--band-positive);
@@ -48,62 +49,71 @@
 }
 
 :root {
-  --bg: #f8f9ff;
+  /* Light: "Paper + Petrol". Neutral cool paper, ink text, one petrol accent. */
+  --bg: #f6f7f9;
   --surface: #ffffff;
-  --surface-2: #eff4ff;
-  --section-alt: #eef2fb;
-  --ink: #0b1c30;
-  --muted: #47536b;
+  --surface-2: #eef1f5;
+  --section-alt: #f0f2f6;
+  --ink: #0d1726;
+  --muted: #465366;
   /* >= 4.5:1 against the light background for small label text. */
-  --faint: #647087;
-  --line: #ccd5e6;
-  --rule: #b7c5de;
+  --faint: #626e80;
+  --line: #dfe4eb;
+  --rule: #c9d1dc;
 
-  --cobalt: #006781;
-  --cobalt-strong: #004f63;
+  --cobalt: #005f78;
+  --cobalt-strong: #00485c;
 
   --accent-jade: #167a4e;
-  --accent-amber: #9a6a10;
-  --accent-coral: #b8491f;
-  /* Darkened so white text on stock marks remains readable. */
-  --accent-teal: #087d99;
+  --accent-amber: #8f6410;
+  --accent-coral: #b0481f;
+  --accent-teal: #0a7790;
+
+  /* Market direction: used only for price moves, never for scores. */
+  --up: #0f7a4c;
+  --down: #c0352b;
 
   --band-strong: #17724a;
-  /* AA-checked band tones: raised contrast for small text on the light
-     background (compliance audit 2026-09-07). */
   --band-positive: #267657;
   --band-moderate: #8a5f0d;
   --band-weak: #a84b22;
   --band-veryweak: #a02b21;
+
+  --shadow-pop: 0 18px 44px -18px rgb(13 23 38 / 0.28);
 }
 
 .dark {
-  /* "Warm Ink + Gold": unchanged from the approved dark theme. Warm near-black
-     surfaces, off-white ink, gold identity. The --cobalt token carries the
-     identity accent in both themes (petrol in light, gold in dark). */
-  --bg: #131110;
-  --surface: #1a1814;
-  --surface-2: #221e18;
-  --section-alt: #1b1815;
-  --ink: #f2ede0;
-  --muted: #b6ad9d;
-  --faint: #8a8172;
-  --line: #2c2820;
-  --rule: #3b362b;
+  /* Dark: "Graphite + Amber". Neutral near-black surfaces (no brown cast),
+     soft white ink, one amber accent. The --cobalt token carries the identity
+     accent in both themes (petrol in light, amber in dark). */
+  --bg: #0b0d10;
+  --surface: #111418;
+  --surface-2: #181c22;
+  --section-alt: #0e1114;
+  --ink: #e9ebee;
+  --muted: #a4acb8;
+  --faint: #7d8694;
+  --line: #1f242c;
+  --rule: #2d343e;
 
-  --cobalt: #e3b34c;
-  --cobalt-strong: #f0c768;
+  --cobalt: #d9a94a;
+  --cobalt-strong: #e6bb62;
 
-  --accent-jade: #3ecf9e;
+  --accent-jade: #3fc496;
   --accent-amber: #cf9a3a;
-  --accent-coral: #ec7f60;
-  --accent-teal: #43c3c0;
+  --accent-coral: #e58163;
+  --accent-teal: #4bbcc4;
+
+  --up: #35c08a;
+  --down: #f0625a;
 
   --band-strong: #2fbe8f;
-  --band-positive: #37a583;
+  --band-positive: #45ab89;
   --band-moderate: #d2a04a;
-  --band-weak: #dd7a4f;
-  --band-veryweak: #d0574c;
+  --band-weak: #e2814f;
+  --band-veryweak: #e25a50;
+
+  --shadow-pop: 0 22px 50px -16px rgb(0 0 0 / 0.75);
 }
 
 /* Continuous market marquee: pauses on hover, disabled under reduced motion. */
@@ -117,65 +127,44 @@
 }
 
 @layer components {
-  /* Alternating section wash: every other section sits on a slightly darker
-     shade of the page background so consecutive sections separate visually
-     without hard rules everywhere. Theme-aware via --section-alt. */
+  /* Alternating section wash: every other section sits on a slightly
+     different shade of the page background. */
   .section-alt {
     background: var(--section-alt);
   }
 
-  /* Background grid lines: faint square ruling behind the landing page.
-     Drawn with the theme's --rule color so both themes get a line that is
-     visible but quiet; pure CSS (no images), static, no motion cost. */
-  .grid-lines {
-    background-image:
-      linear-gradient(
-        to right,
-        color-mix(in srgb, var(--rule) 42%, transparent) 1px,
-        transparent 1px
-      ),
-      linear-gradient(
-        to bottom,
-        color-mix(in srgb, var(--rule) 42%, transparent) 1px,
-        transparent 1px
-      );
-    background-size: 80px 80px;
+  /* Panel: the one container style. Solid surface, one hairline. The class
+     keeps its old name so existing markup picks it up. */
+  .glass {
+    background: var(--surface);
+    border: 1px solid var(--line);
   }
 
-  /* Elevated panel: translucent surface, blur, soft depth. Use on small cards,
-     never on full-width strips (blur cost scales with area). */
-  .glass {
-    background: color-mix(in srgb, var(--surface) 74%, transparent);
-    backdrop-filter: blur(14px) saturate(1.15);
-    -webkit-backdrop-filter: blur(14px) saturate(1.15);
-    border: 1px solid color-mix(in srgb, var(--rule) 80%, transparent);
-    box-shadow: 0 24px 48px -28px color-mix(in srgb, black 65%, transparent);
+  /* Floating panel (dialogs, menus): fully opaque with a single shadow. */
+  .pop {
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    box-shadow: var(--shadow-pop);
   }
 
   .marquee-track {
-    animation: pulse-marquee 80s linear infinite;
+    animation: pulse-marquee 120s linear infinite;
   }
 
   .marquee:hover .marquee-track {
     animation-play-state: paused;
   }
 
-  /* Keyword highlight: pulls the eye without shouting. */
+  /* Keyword emphasis in running copy: weight and ink only. */
   .hi {
     color: var(--ink);
     font-weight: 500;
-    text-decoration-line: underline;
-    text-decoration-color: color-mix(in srgb, var(--cobalt) 45%, transparent);
-    text-decoration-thickness: 2px;
-    text-underline-offset: 4px;
   }
 
-  /* Framed chart plate: a distinctly bordered box so charts never merge
-     into the page background. */
+  /* Framed chart plate. */
   .chart-frame {
-    border: 1px solid color-mix(in srgb, var(--cobalt) 18%, transparent);
+    border: 1px solid var(--line);
     background: var(--surface);
-    box-shadow: 0 16px 36px -28px color-mix(in srgb, var(--cobalt) 50%, transparent);
   }
 
   @media (prefers-reduced-motion: reduce) {
@@ -230,4 +219,21 @@
 @keyframes ticker {
   from { transform: translateX(0); }
   to { transform: translateX(-50%); }
+}
+
+/* The signal wave drawing itself: used by the page loader. */
+@keyframes wave-draw {
+  0% { stroke-dashoffset: 1; }
+  60%, 100% { stroke-dashoffset: 0; }
+}
+
+.wave-draw path {
+  stroke-dasharray: 1;
+  animation: wave-draw 1.4s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wave-draw path {
+    animation: none;
+  }
 }

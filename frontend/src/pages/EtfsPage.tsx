@@ -75,9 +75,9 @@ export default function EtfsPage() {
                             etf.change_pct == null
                               ? "text-faint"
                               : etf.change_pct > 0
-                                ? "text-band-positive"
+                                ? "text-up"
                                 : etf.change_pct < 0
-                                  ? "text-band-weak"
+                                  ? "text-down"
                                   : "text-muted",
                           )}
                         >
@@ -89,8 +89,8 @@ export default function EtfsPage() {
                             etf.return_1y_pct == null
                               ? "text-faint"
                               : etf.return_1y_pct >= 0
-                                ? "text-band-positive"
-                                : "text-band-weak",
+                                ? "text-up"
+                                : "text-down",
                           )}
                         >
                           {fmtSignedPct(etf.return_1y_pct)}

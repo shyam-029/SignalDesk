@@ -82,7 +82,7 @@ export function AskPanel({ symbol, displayName }: { symbol: string; displayName:
           role="dialog"
           aria-modal="true"
           aria-label={`Ask a research question about ${displayName}`}
-          className="glass fixed bottom-4 right-4 z-50 flex w-[min(26rem,calc(100vw-2rem))] flex-col rounded-sm"
+          className="pop fixed bottom-4 right-4 z-50 flex max-h-[calc(100svh-2rem)] w-[min(26rem,calc(100vw-2rem))] flex-col overflow-y-auto rounded-sm"
         >
           <div className="flex items-center justify-between border-b border-line px-4 py-3">
             <div>
@@ -114,8 +114,8 @@ export function AskPanel({ symbol, displayName }: { symbol: string; displayName:
               onChange={(e) => setQuestion(e.target.value.slice(0, QUESTION_MAX))}
               rows={3}
               maxLength={QUESTION_MAX}
-              placeholder={`Ask about ${symbol} — its scores, valuation, fundamentals, technicals or news…`}
-              className="w-full resize-none border border-line bg-surface px-3 py-2 text-sm text-foreground placeholder:text-faint focus:outline-none"
+              placeholder={`Ask about ${symbol}: its scores, valuation, fundamentals, technicals or news`}
+              className="w-full resize-none border border-rule bg-background px-3 py-2 text-sm text-foreground placeholder:text-faint focus:outline-none"
               aria-describedby="ask-processing-note ask-character-count"
             />
             <div className="flex items-center justify-between gap-3">
@@ -189,7 +189,7 @@ export function AskPanel({ symbol, displayName }: { symbol: string; displayName:
                     const wait = err.retryAfterSeconds;
                     return (
                       <p className="text-xs leading-relaxed text-band-weak">
-                        Too many requests{wait != null ? ` — retry in about ${wait}s` : ""}.
+                        Too many requests{wait != null ? `, retry in about ${wait}s` : ""}.
                         <button
                           type="button"
                           className="ml-1 cursor-pointer underline underline-offset-2"

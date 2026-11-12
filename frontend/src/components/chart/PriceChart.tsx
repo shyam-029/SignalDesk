@@ -95,10 +95,10 @@ export function PriceChart({
     });
 
     const series = chart.addSeries(CandlestickSeries, {
-      upColor: css("--band-positive"),
-      downColor: css("--band-weak"),
-      wickUpColor: css("--band-positive"),
-      wickDownColor: css("--band-weak"),
+      upColor: css("--up"),
+      downColor: css("--down"),
+      wickUpColor: css("--up"),
+      wickDownColor: css("--down"),
       borderVisible: false,
     });
 
@@ -174,7 +174,7 @@ export function PriceChart({
           <span
             className={cn(
               "num",
-              upCandle ? "text-band-positive" : "text-band-weak",
+              upCandle ? "text-up" : "text-down",
             )}
           >
             C <span className="font-semibold">{fmtPrice(shown.close)}</span>

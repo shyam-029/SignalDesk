@@ -3,7 +3,6 @@ import { Link } from "react-router-dom";
 import {
   ArrowDown,
   ArrowUp,
-  Calculator,
   Eye,
   ListPlus,
   Plus,
@@ -30,7 +29,7 @@ import { cn } from "@/lib/utils";
  * India VIX, Nifty Bank, Nifty IT from the stored benchmark tables), then a
  * working grid: today's movers (market-cap bucket filter), the market news
  * feed down the center, device-local recently-viewed and watchlists, ETF and
- * fund snapshots, and the SIP/SWP lab stub.
+ * fund snapshots.
  */
 
 const BUCKETS = [
@@ -43,7 +42,7 @@ const BUCKETS = [
 export default function MarketsPage() {
   return (
     <div className="mx-auto max-w-6xl px-4 py-12 md:px-6">
-      <SectionHeader index="01" kicker="Dashboard" title="Markets" />
+      <SectionHeader kicker="Daily close" title="Markets" />
       <p className="mt-3 max-w-2xl text-sm leading-relaxed text-muted">
         Everything that closes the day in one place: the indexes, today's
         movers within a size class, the market's headlines, and your own
@@ -70,7 +69,6 @@ export default function MarketsPage() {
         <div className="space-y-8 lg:col-span-3">
           <EtfMiniPanel />
           <FundMiniPanel />
-          <LabStub />
         </div>
       </div>
     </div>
@@ -95,18 +93,43 @@ function Sparkline({ points, positive }: { points: number[]; positive: boolean }
     .join(" ");
   return (
     <svg viewBox={`0 0 ${w} ${h}`} className="h-9 w-full" preserveAspectRatio="none" aria-hidden>
-      <path d={d} fill="none" stroke={positive ? "var(--band-positive)" : "var(--band-weak)"} strokeWidth="1.5" />
+      <path d={d} fill="none" stroke={positive ? "var(--up)" : "var(--down)"} strokeWidth="1.5" />
     </svg>
   );
 }
 
+// Reading order for the index cards: headline indexes first, then breadth and
+// volatility, then sectors, then the non-equity references. Anything the
+// backend adds later that is not listed here is appended after these.
+const INDEX_ORDER = [
+  "^NSEI",
+  "^BSESN",
+  "^NSEBANK",
+  "^NSEMDCP50",
+  "^INDIAVIX",
+  "^CNXIT",
+  "^CNXPHARMA",
+  "^CRSLDX",
+  "GC=F",
+  "INR=X",
+];
+
+function indexRank(symbol: string): number {
+  const i = INDEX_ORDER.indexOf(symbol);
+  return i === -1 ? INDEX_ORDER.length : i;
+}
+
 function IndexStrip() {
   const query = useBenchmarks();
-  const cards = query.data?.items ?? [];
+  const cards = [...(query.data?.items ?? [])].sort(
+    (a, b) => indexRank(a.symbol) - indexRank(b.symbol),
+  );
+  // Cells draw their own right/bottom hairlines on one flat surface, so a
+  // last row that is not full simply ends: no dark empty slots.
   return (
-    <div className="mt-8 grid grid-cols-2 gap-px border border-line bg-line sm:grid-cols-3 lg:grid-cols-6">
-      {(cards.length > 0 ? cards : Array.from({ length: 6 }, () => null)).map((c, i) => (
-        <div key={c?.symbol ?? i} className="bg-surface p-4">
+    <div className="mt-8 grid grid-cols-2 overflow-hidden border-l border-t border-line bg-surface sm:grid-cols-3 lg:grid-cols-5">
+      {(cards.length > 0 ? cards : Array.from({ length: 10 }, () => null)).map((c, i) => (
+        <div key={c?.symbol ?? i} className="border-b border-r border-line p-4">
           {c ? (
             <>
               <p className="label-caps truncate" title={c.name ?? c.symbol}>
@@ -118,7 +141,7 @@ function IndexStrip() {
               <p
                 className={cn(
                   "num text-xs font-medium",
-                  c.change_pct == null ? "text-faint" : c.change_pct >= 0 ? "text-band-positive" : "text-band-weak",
+                  c.change_pct == null ? "text-faint" : c.change_pct >= 0 ? "text-up" : "text-down",
                 )}
               >
                 {fmtSignedPct(c.change_pct)}
@@ -207,7 +230,7 @@ function MoversPanel() {
                   <span
                     className={cn(
                       "block font-medium",
-                      (s.change_pct ?? 0) >= 0 ? "text-band-positive" : "text-band-weak",
+                      (s.change_pct ?? 0) >= 0 ? "text-up" : "text-down",
                     )}
                   >
                     {fmtSignedPct(s.change_pct)}
@@ -232,7 +255,7 @@ function RecentlyViewed() {
       <div className="flex items-center gap-2 border-b border-line px-5 py-3">
         <Eye className="size-3.5 text-faint" />
         <p className="label-caps">Recently viewed</p>
-        <span className="num ml-auto text-xs text-faint">device-local</span>
+        <span className="ml-auto text-xs text-faint">on this device</span>
       </div>
       <ul className="divide-y divide-line">
         {recents.map((r) => (
@@ -251,7 +274,7 @@ function RecentlyViewed() {
                 <span
                   className={cn(
                     "block font-medium",
-                    (r.changePct ?? 0) >= 0 ? "text-band-positive" : "text-band-weak",
+                    (r.changePct ?? 0) >= 0 ? "text-up" : "text-down",
                   )}
                 >
                   {fmtSignedPct(r.changePct)}
@@ -334,7 +357,7 @@ function WatchlistPanel() {
                       type="button"
                       aria-label={`Delete ${l.name}`}
                       onClick={() => deleteWatchlist(l.id)}
-                      className="text-faint transition-colors hover:text-band-weak"
+                      className="text-faint transition-colors hover:text-down"
                     >
                       <Trash2 className="size-3.5" />
                     </button>
@@ -353,7 +376,7 @@ function WatchlistPanel() {
                         type="button"
                         aria-label={`Remove ${sym}`}
                         onClick={() => removeFromWatchlist(l.id, sym)}
-                        className="text-faint hover:text-band-weak"
+                        className="text-faint hover:text-down"
                       >
                         <X className="size-3" />
                       </button>
@@ -439,7 +462,7 @@ function EtfMiniPanel() {
               <span className="num truncate text-xs font-semibold">{e.symbol.replace(".NS", "")}</span>
               <span className="num flex items-baseline gap-2 text-xs">
                 {fmtPrice(e.last_price)}
-                <span className={cn("font-medium", (e.change_pct ?? 0) >= 0 ? "text-band-positive" : "text-band-weak")}>
+                <span className={cn("font-medium", (e.change_pct ?? 0) >= 0 ? "text-up" : "text-down")}>
                   {fmtSignedPct(e.change_pct)}
                 </span>
               </span>
@@ -476,7 +499,7 @@ function FundMiniPanel() {
               <span
                 className={cn(
                   "num text-xs font-medium",
-                  (f.return_1m_pct ?? 0) >= 0 ? "text-band-positive" : "text-band-weak",
+                  (f.return_1m_pct ?? 0) >= 0 ? "text-up" : "text-down",
                 )}
               >
                 {fmtSignedPct(f.return_1m_pct)}
@@ -485,38 +508,6 @@ function FundMiniPanel() {
           </li>
         ))}
       </ul>
-    </div>
-  );
-}
-
-/* --- SIP/SWP lab stub --------------------------------------------------------------- */
-
-function LabStub() {
-  const [open, setOpen] = React.useState(false);
-  return (
-    <div className="border border-dashed border-line p-5">
-      <p className="label-caps flex items-center gap-2">
-        <Calculator className="size-3.5 text-faint" />
-        SIP / SWP lab
-      </p>
-      <p className="mt-2 text-xs leading-relaxed text-muted">
-        Goal-based SIP and withdrawal simulators over historical NAV
-        distributions. Planned for the scenario lab.
-      </p>
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className="mt-3 border border-line px-2.5 py-1 text-xs font-medium text-foreground transition-colors hover:bg-surface-2"
-      >
-        {open ? "Close" : "Preview"}
-      </button>
-      {open && (
-        <p className="mt-2 border border-line bg-surface-2 px-3 py-2 text-xs leading-relaxed text-muted">
-          Coming soon. The simulator is scoped for the scenario and forecast
-          lab: historical bootstrap of SIP/SWP outcomes with explicit
-          uncertainty, never a promised return.
-        </p>
-      )}
     </div>
   );
 }

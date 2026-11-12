@@ -1,5 +1,4 @@
 import * as React from "react";
-import { motion } from "framer-motion";
 
 import {
   useFundamentals,
@@ -31,27 +30,49 @@ const METRIC_INFO_KEYS: Record<string, "pe" | "ev_ebitda" | "pb" | "ps"> = {
   PS: "ps",
 };
 
+type MetricKeyV = (typeof VALUATION_METRICS)[number];
+
 /**
  * ValuationSection: relative multiples vs same-industry peers.
- * The section frame ALWAYS renders: the verdict panel reflects the selected
- * metric (verdict when computable, an honest compact "not computable" note
- * when the snapshot lacks the inputs), and the multiples grid stays visible
- * with "-" for every gap. A data gap never collapses the whole section into
- * an error card.
+ *
+ * All four multiples are fetched here, once, so the section can decide what
+ * to show from the full picture:
+ *   - the verdict panel opens on the first multiple that IS computable (a
+ *     stock with no P/E but a valid P/B opens on P/B, not on an empty panel);
+ *   - a multiple the snapshot cannot produce shows "-" and is not selectable;
+ *   - the frame and the grid always render, so a gap in one multiple never
+ *     hides the others.
  */
 export function ValuationSection({ symbol }: { symbol: string }) {
-  const [metric, setMetric] = React.useState<string>("PE");
-  const selected = useValuation(symbol, metric as "PE" | "EV_EBITDA" | "PB" | "PS");
+  const pe = useValuation(symbol, "PE");
+  const evEbitda = useValuation(symbol, "EV_EBITDA");
+  const pb = useValuation(symbol, "PB");
+  const ps = useValuation(symbol, "PS");
+  const queries: Record<MetricKeyV, typeof pe> = { PE: pe, EV_EBITDA: evEbitda, PB: pb, PS: ps };
   const fundamentals = useFundamentals(symbol);
+
+  // The user's explicit choice; null until they pick one. Reset per stock.
+  const [picked, setPicked] = React.useState<MetricKeyV | null>(null);
+  React.useEffect(() => setPicked(null), [symbol]);
+
+  const firstComputable = VALUATION_METRICS.find((m) => queries[m].data) ?? null;
+  const metric: MetricKeyV =
+    picked && queries[picked].data ? picked : (firstComputable ?? picked ?? "PE");
+  const selected = queries[metric];
   const valuation = selected.data;
 
+  const anyLoading = VALUATION_METRICS.some((m) => queries[m].isLoading);
   const error = queryError(selected.error);
   const noPeers = error?.code === "NO_PEERS";
-  const insufficient = error?.code === "INSUFFICIENT_DATA";
-  // Soft codes are data gaps: the verdict panel reports them as an honest
-  // note; only genuine failures (network, 5xx) surface as errors.
-  const soft = Boolean(noPeers || insufficient);
-  const hardError = soft ? null : (selected.error as Error | null);
+  // Soft codes are data gaps, reported as a note. Only genuine failures
+  // (network, 5xx) on every multiple surface as an error.
+  const hardErrors = VALUATION_METRICS.map((m) => queries[m].error).filter(
+    (e) => e && !isSoft(e),
+  ) as Error[];
+  const hardError =
+    !firstComputable && !anyLoading && hardErrors.length === VALUATION_METRICS.length
+      ? hardErrors[0]
+      : null;
 
   const sem = valuation ? valuationSemantics(valuation.status) : null;
   const ratios = fundamentals.data?.key_ratios ?? {};
@@ -59,16 +80,15 @@ export function ValuationSection({ symbol }: { symbol: string }) {
   return (
     <CollapsibleSection
       id="valuation"
-      index="04"
       kicker="Valuation"
       title="Relative valuation"
       summary={valuationSummary(valuation)}
       defaultOpen
       aside={
-        <Tabs value={metric} onValueChange={setMetric}>
+        <Tabs value={metric} onValueChange={(v) => setPicked(v as MetricKeyV)}>
           <TabsList aria-label="Valuation metric">
             {VALUATION_METRICS.map((m) => (
-              <TabsTrigger key={m} value={m}>
+              <TabsTrigger key={m} value={m} disabled={!queries[m].data}>
                 {METRIC_LABELS[m]}
               </TabsTrigger>
             ))}
@@ -77,24 +97,16 @@ export function ValuationSection({ symbol }: { symbol: string }) {
       }
     >
         <DataState
-          loading={selected.isLoading}
+          loading={!firstComputable && anyLoading}
           error={hardError}
-          onRetry={selected.refetch}
+          onRetry={() => VALUATION_METRICS.forEach((m) => queries[m].refetch())}
           skeleton={<VerdictSkeleton />}
         >
           <div className="grid gap-8 lg:grid-cols-12">
-            {/* Status + relative position for the selected metric. Data gaps
-                (not computable / no peers) render as a compact honest note;
-                the multiples grid beside it is unaffected. */}
+            {/* Verdict + relative position for the selected multiple. */}
             <div className="lg:col-span-5">
               {valuation ? (
-                <div
-                  className={cn(
-                    "border bg-surface p-5",
-                    sem?.band.border,
-                    sem && `${sem.band.bg.replace("/10", "/6")}`,
-                  )}
-                >
+                <div className="border border-line bg-surface p-5">
                   <p className="label-caps">Verdict · {valuation.metric}</p>
                   <p className={cn("mt-1 font-display text-2xl font-semibold", sem?.band.text)}>
                     {sem?.headline}
@@ -105,15 +117,15 @@ export function ValuationSection({ symbol }: { symbol: string }) {
                   </p>
                   <div className="mt-5">
                     <p className="label-caps mb-3">
-                      {valuation.symbol} vs same-industry peers
+                      {valuation.symbol.replace(".NS", "")} vs same-industry peers
                     </p>
                     <RelativePosition
                       current={valuation.current}
                       median={valuation.peer_median}
                     />
                     <p className="mt-3 flex justify-between text-xs font-medium text-faint">
-                      <span>Cheapest peer</span>
-                      <span>Priciest peer</span>
+                      <span>Cheaper</span>
+                      <span>Pricier</span>
                     </p>
                   </div>
                   <p className="mt-4 border-t border-line pt-3 text-xs leading-relaxed text-muted">
@@ -125,27 +137,26 @@ export function ValuationSection({ symbol }: { symbol: string }) {
                   </p>
                 </div>
               ) : (
-                <div className="border border-dashed border-line px-5 py-6">
-                  <p className="label-caps">Verdict · {METRIC_LABELS[metric]}</p>
+                <div className="border border-dashed border-rule px-5 py-6">
+                  <p className="label-caps">Verdict</p>
                   <p className="num mt-1 text-2xl font-medium text-faint">-</p>
                   <p className="mt-2 text-xs leading-relaxed text-muted">
                     {noPeers
                       ? "No valid peer multiples exist for this stock's industry, so a relative verdict would be misleading."
-                      : "The financial snapshot lacks the inputs for this multiple (e.g. negative or missing EBITDA for EV/EBITDA). Nothing is estimated."}
-                  </p>
-                  <p className="mt-3 text-xs text-faint">
-                    The other multiples below may still be computable - select one.
+                      : "None of the four multiples can be computed from the stored snapshot (for example negative earnings or a missing EBITDA). Nothing is estimated."}
                   </p>
                 </div>
               )}
               <p className="mt-3 text-xs leading-relaxed text-faint">
-                &ldquo;Relatively cheaper&rdquo; does not mean intrinsically cheap. Peer set:{" "}
-                {valuation?.peers.length ?? 0} same-industry companies from the SignalDesk catalog.
+                &ldquo;Relatively cheaper&rdquo; does not mean intrinsically cheap.
+                {valuation
+                  ? ` Compared with ${valuation.peers.length} same-industry companies.`
+                  : ""}
               </p>
             </div>
 
-            {/* The four multiples, each backed by its own valuation query.
-                Always rendered: gaps show "-", never an error. */}
+            {/* The four multiples. Always rendered: a gap shows "-" and is
+                not selectable; the rest stay usable. */}
             <div className="lg:col-span-7">
               <div className="border border-line bg-surface">
                 <div className="border-b border-line px-5 py-3">
@@ -155,16 +166,17 @@ export function ValuationSection({ symbol }: { symbol: string }) {
                   {VALUATION_METRICS.map((m) => (
                     <MultipleRow
                       key={m}
-                      symbol={symbol}
                       metric={m}
-                      active={m === metric}
-                      onSelect={() => setMetric(m)}
+                      value={queries[m].data ?? null}
+                      loading={queries[m].isLoading}
+                      active={m === metric && Boolean(queries[m].data)}
+                      onSelect={() => setPicked(m)}
                     />
                   ))}
                 </div>
 
                 {/* Secondary inputs, expandable, not the primary focus. */}
-                <details className="border-t border-line px-5 py-3">
+                <details className="px-5 py-3">
                   <summary className="flex cursor-pointer items-center justify-between text-xs font-medium text-muted">
                     Valuation inputs
                     <InfoDot metric="value_signal" className="size-3.5" />
@@ -200,7 +212,7 @@ export function ValuationSection({ symbol }: { symbol: string }) {
                     </div>
                   </div>
                   <p className="mt-3 text-xs text-faint">
-                    Underlying inputs for the multiples above · snapshot updated{" "}
+                    Snapshot updated{" "}
                     {fundamentals.data?.updated_at
                       ? new Date(fundamentals.data.updated_at).toLocaleDateString("en-IN")
                       : "-"}
@@ -220,12 +232,17 @@ export function ValuationSection({ symbol }: { symbol: string }) {
           </div>
         </DataState>
 
-        {/* Peer comparison table (Part D): the same peer set the multiples use. */}
+        {/* Peer comparison table: the same peer set the multiples use. */}
         <div className="mt-8">
           <PeersTable symbol={symbol} />
         </div>
     </CollapsibleSection>
   );
+}
+
+function isSoft(error: unknown): boolean {
+  const code = (error as { code?: string } | null)?.code;
+  return code === "NO_PEERS" || code === "INSUFFICIENT_DATA";
 }
 
 function VerdictSkeleton() {
@@ -258,12 +275,12 @@ function RelativePosition({ current, median }: { current: number; median: number
   return (
     <div className="relative h-10">
       <div className="absolute inset-x-0 top-2 h-px bg-rule" />
-      <motion.span
-        className="absolute top-2 h-2.5 w-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full"
-        style={{ background: cheaper ? "var(--band-positive)" : "var(--band-weak)" }}
-        initial={{ left: "0%" }}
-        animate={{ left: `${clamp(pct(current))}%` }}
-        transition={{ duration: 0.8, ease: [0.22, 1, 0.36, 1] }}
+      <span
+        className="absolute top-2 size-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full"
+        style={{
+          left: `${clamp(pct(current))}%`,
+          background: cheaper ? "var(--band-positive)" : "var(--band-weak)",
+        }}
       />
       <span
         className="absolute top-2 -translate-x-1/2 -translate-y-1/2"
@@ -286,50 +303,64 @@ function clamp(v: number, lo = 2, hi = 98): number {
 }
 
 /**
- * One multiple row: owns its valuation query so all four multiples display
- * their own peer medians simultaneously (the endpoint is per-metric).
+ * One multiple cell. A multiple the snapshot cannot produce renders "-" and
+ * is inert (not a button): there is nothing behind it to open.
  */
 function MultipleRow({
-  symbol,
   metric,
+  value,
+  loading,
   active,
   onSelect,
 }: {
-  symbol: string;
   metric: string;
+  value: { current: number; peer_median: number } | null;
+  loading: boolean;
   active: boolean;
   onSelect: () => void;
 }) {
-  const query = useValuation(symbol, metric);
-  const v = query.data;
-  const err = queryError(query.error);
+  const cell = "border-b border-line px-5 py-4 text-left sm:[&:nth-child(odd)]:border-r";
+  const label = (
+    <p className="flex items-center gap-1.5 text-xs text-muted">
+      {METRIC_LABELS[metric]}
+      <InfoDot metric={METRIC_INFO_KEYS[metric]} className="size-3.5" />
+    </p>
+  );
+
+  if (loading) {
+    return (
+      <div className={cell}>
+        {label}
+        <div className="mt-2 h-5 w-20 animate-pulse bg-surface-2" />
+      </div>
+    );
+  }
+
+  if (!value) {
+    return (
+      <div className={cell} title="Not computable from the stored snapshot">
+        {label}
+        <p className="num mt-1 text-xl font-medium text-faint">-</p>
+        <p className="mt-0.5 text-xs text-faint">Not computable</p>
+      </div>
+    );
+  }
 
   return (
     <button
+      type="button"
       onClick={onSelect}
+      aria-pressed={active}
       className={cn(
-        "border-b border-line px-5 py-4 text-left transition-colors sm:[&:nth-child(odd)]:border-r",
+        cell,
+        "relative transition-colors",
         active ? "bg-surface-2" : "hover:bg-surface-2/60",
       )}
-      aria-pressed={active}
     >
-      <p className="flex items-center gap-1.5 text-xs text-muted">
-        {METRIC_LABELS[metric]}
-        <InfoDot metric={METRIC_INFO_KEYS[metric]} className="size-3.5" />
-        {active && err == null && <span className="label-caps ml-1">chart shown</span>}
-      </p>
-      {err ? (
-        <p className="num mt-1 text-xl font-medium text-faint">-</p>
-      ) : v ? (
-        <>
-          <p className="num mt-1 text-xl font-medium">{fmtRatio(v.current, 2)}</p>
-          <p className="num mt-0.5 text-xs text-faint">
-            peer median {fmtRatio(v.peer_median)}
-          </p>
-        </>
-      ) : (
-        <div className="mt-2 h-5 w-20 animate-pulse bg-surface-2" />
-      )}
+      {active && <span aria-hidden className="absolute inset-y-0 left-0 w-0.5 bg-cobalt" />}
+      {label}
+      <p className="num mt-1 text-xl font-medium">{fmtRatio(value.current, 2)}</p>
+      <p className="num mt-0.5 text-xs text-faint">peer median {fmtRatio(value.peer_median)}</p>
     </button>
   );
 }
@@ -338,7 +369,9 @@ function queryError(error: unknown): { code?: string; message: string } | null {
   if (!error) return null;
   const e = error as { code?: string; message?: string };
   return { code: e.code, message: e.message ?? "Request failed" };
-}function fmtSignedShort(v: number): string {
+}
+
+function fmtSignedShort(v: number): string {
   const sign = v > 0 ? "+" : "";
   return `${sign}${v.toFixed(1)}%`;
 }

@@ -77,8 +77,8 @@ export function ProductPreview() {
                     <span
                       className={
                         (detail.data.quote.change_pct ?? 0) >= 0
-                          ? "num text-xs text-band-positive"
-                          : "num text-xs text-band-weak"
+                          ? "num text-xs text-up"
+                          : "num text-xs text-down"
                       }
                     >
                       {fmtSignedPct(detail.data.quote.change_pct)}

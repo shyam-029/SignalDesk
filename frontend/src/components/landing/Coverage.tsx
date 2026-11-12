@@ -1,7 +1,6 @@
 ﻿import { CheckCircle2 } from "lucide-react";
 
 import { Reveal } from "@/components/motion/Reveal";
-import { CandleField } from "@/components/landing/CandleField";
 
 /**
  * Coverage: the product scope, stated plainly. Equities are live today; ETFs
@@ -125,16 +124,6 @@ export function Coverage() {
             </Reveal>
           </div>
         </div>
-
-        <figure className="chart-frame mt-12">
-          <CandleField className="h-auto w-full" />
-          <figcaption className="flex items-baseline gap-3 border-t border-line px-4 py-2.5">
-            <span className="label-caps">The listed universe</span>
-            <span className="num text-xs text-muted">
-              The 50 largest ranked companies · one bar each · today's move, colored like the price charts
-            </span>
-          </figcaption>
-        </figure>
       </div>
     </section>
   );

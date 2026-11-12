@@ -124,8 +124,8 @@ export default function FundDetailPage() {
                         value == null
                           ? "text-faint"
                           : value >= 0
-                            ? "text-band-positive"
-                            : "text-band-weak",
+                            ? "text-up"
+                            : "text-down",
                       )}
                     >
                       {fmtSignedPct(value)}

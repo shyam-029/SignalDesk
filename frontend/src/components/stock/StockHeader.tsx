@@ -26,26 +26,16 @@ import { cn } from "@/lib/utils";
  * StockHeader: the market snapshot: identity (with the company's monogram
  * mark), price, daily movement (with a directional arrow), size, day range.
  * One API call (GET /stocks/{symbol}); editorial composition, not a row of
- * dashboard cards. The sector is a link to the sector-filtered markets list.
+ * dashboard cards. Sector and industry link to the screener filtered to that
+ * group, so "who else is in this industry" is one click away.
  */
 export function StockHeader({ symbol }: { symbol: string }) {
   const query = useStockDetail(symbol);
   const detail = query.data;
 
   return (
-    <header className="relative border-b border-line">
-      {/* Identity wash: a faint petrol pool behind the header (mirrors the
-          landing hero) so the research page carries the site's color in both
-          themes without redesigning the layout. */}
-      <div
-        aria-hidden
-        className="pointer-events-none absolute inset-0"
-        style={{
-          background:
-            "radial-gradient(560px 260px at 20% 20%, color-mix(in srgb, var(--cobalt) 6%, transparent), transparent 72%)",
-        }}
-      />
-      <div className="relative mx-auto max-w-6xl px-4 pb-8 pt-6 md:px-6">
+    <header className="border-b border-line bg-surface">
+      <div className="mx-auto max-w-6xl px-4 pb-7 pt-6 md:px-6">
         <div className="mb-5 flex items-center justify-between">
           <Link
             to="/markets"
@@ -82,15 +72,30 @@ export function StockHeader({ symbol }: { symbol: string }) {
                 <p className="mt-1.5 text-sm text-muted">
                   {detail.sector ? (
                     <Link
-                      to={`/markets?sector=${encodeURIComponent(detail.sector)}`}
-                      className="underline decoration-line underline-offset-4 transition-colors hover:text-cobalt hover:decoration-cobalt dark:hover:text-cobalt-strong"
+                      to={`/screener?sector=${encodeURIComponent(detail.sector)}`}
+                      title={`Screen other ${detail.sector} stocks`}
+                      className="underline decoration-rule underline-offset-4 transition-colors hover:text-cobalt hover:decoration-cobalt dark:hover:text-cobalt-strong"
                     >
                       {detail.sector}
                     </Link>
                   ) : (
                     "-"
                   )}
-                  {detail.industry ? <span className="text-faint"> · {detail.industry}</span> : null}
+                  {detail.industry ? (
+                    <>
+                      <span className="text-faint"> · </span>
+                      <Link
+                        to={`/screener?${new URLSearchParams({
+                          ...(detail.sector ? { sector: detail.sector } : {}),
+                          industry: detail.industry,
+                        }).toString()}`}
+                        title={`Screen other ${detail.industry} stocks`}
+                        className="underline decoration-rule underline-offset-4 transition-colors hover:text-cobalt hover:decoration-cobalt dark:hover:text-cobalt-strong"
+                      >
+                        {detail.industry}
+                      </Link>
+                    </>
+                  ) : null}
                 </p>
               </div>
 
@@ -104,8 +109,8 @@ export function StockHeader({ symbol }: { symbol: string }) {
                       className={cn(
                         "num flex items-center gap-1 text-sm font-medium",
                         detail.quote.change_pct >= 0
-                          ? "text-band-positive"
-                          : "text-band-weak",
+                          ? "text-up"
+                          : "text-down",
                       )}
                     >
                       {detail.quote.change_pct >= 0 ? (
@@ -202,7 +207,7 @@ function WatchlistButton({ symbol }: { symbol: string }) {
         {watchedIn.length > 0 ? `Watched (${watchedIn.length})` : "Watchlist"}
       </button>
       {open && (
-        <div className="glass absolute right-0 top-full z-40 mt-1.5 w-64 border border-line bg-background p-2">
+        <div className="pop absolute right-0 top-full z-40 mt-1.5 w-64 p-2">
           {lists.map((l) => {
             const inList = l.symbols.includes(symbol);
             return (
@@ -215,7 +220,7 @@ function WatchlistButton({ symbol }: { symbol: string }) {
                 className="flex w-full items-center justify-between px-2 py-1.5 text-left text-sm transition-colors hover:bg-surface-2"
               >
                 <span className="truncate">{l.name}</span>
-                {inList && <BookmarkCheck className="size-3.5 text-band-positive" />}
+                {inList && <BookmarkCheck className="size-3.5 text-up" />}
               </button>
             );
           })}

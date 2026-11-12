@@ -167,7 +167,7 @@ export default function FundsPage() {
                               key={w}
                               className={cn(
                                 "num px-3 py-3 text-right text-sm font-medium",
-                                value == null ? "text-faint" : value >= 0 ? "text-band-positive" : "text-band-weak",
+                                value == null ? "text-faint" : value >= 0 ? "text-up" : "text-down",
                               )}
                             >
                               {fmtSignedPct(value)}

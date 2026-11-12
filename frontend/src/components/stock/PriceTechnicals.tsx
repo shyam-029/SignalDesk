@@ -22,8 +22,8 @@ export function PriceSection({ symbol }: { symbol: string }) {
   const prices = usePrices(symbol, range);
 
   return (
-    <section id="price" className="section-alt border-b border-line">
-      <div className="mx-auto max-w-6xl px-4 py-12 md:px-6">
+    <section id="price" className="section-alt scroll-mt-28 border-b border-line">
+      <div className="mx-auto max-w-6xl px-4 py-10 md:px-6">
         <SectionHeader
           index="03"
           kicker="Price"
@@ -55,12 +55,7 @@ export function PriceSection({ symbol }: { symbol: string }) {
             compact
           >
             {prices.data && prices.data.items.length > 0 && (
-              <>
-                <PriceChart bars={prices.data.items} height={360} />
-                <p className="num mt-2 text-xs text-faint">
-                  {prices.data.items.length} daily bars · {range} window · resample 1d
-                </p>
-              </>
+              <PriceChart bars={prices.data.items} height={360} />
             )}
           </DataState>
         </div>

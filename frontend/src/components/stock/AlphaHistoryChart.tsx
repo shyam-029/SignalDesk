@@ -32,15 +32,11 @@ export function AlphaHistoryChart({ symbol }: { symbol: string }) {
     });
     return [
       series("composite", "Alpha", "--cobalt", (i) => i.composite),
-      // Component lines appear only when the stored snapshots support them.
-      ...(items.some((i) => i.fundamental != null)
-        ? [series("fundamental", "Fundamental", "--accent-jade", (i) => i.fundamental)]
-        : []),
+      // Only the technical pillar has real per-day history. The fundamental
+      // and sentiment pillars move too slowly to read as daily lines, so
+      // they are left out instead of being drawn as near-flat series.
       ...(items.some((i) => i.technical != null)
-        ? [series("technical", "Technical", "--accent-coral", (i) => i.technical)]
-        : []),
-      ...(items.some((i) => i.sentiment != null)
-        ? [series("sentiment", "Sentiment", "--accent-teal", (i) => i.sentiment)]
+        ? [series("technical", "Technical score", "--faint", (i) => i.technical)]
         : []),
     ];
   }, [items]);
@@ -49,9 +45,9 @@ export function AlphaHistoryChart({ symbol }: { symbol: string }) {
   const last = items.at(-1)?.date;
 
   return (
-    <div className="glass rounded-sm p-5">
+    <div className="border border-line bg-surface p-5">
       <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
-        <p className="label-caps">Alpha over time</p>
+        <p className="label-caps">Alpha over time · score 0 to 100</p>
         {first && last && (
           <p className="num text-xs text-faint">
             {fmtDate(first)} to {fmtDate(last)}
@@ -68,18 +64,11 @@ export function AlphaHistoryChart({ symbol }: { symbol: string }) {
         compact
       >
         {lines.length > 0 && (
-          <>
-            <TimeSeriesChart
-              lines={lines}
-              height={220}
-              valueFormatter={(v) => String(Math.round(v))}
-            />
-            <p className="num mt-2 text-xs text-faint">
-              {items.length} snapshots · scale 0 to 100 · fundamental/sentiment lines appear
-              only as real daily snapshots accumulate (history is not carried back) · valuation
-              is kept separate and is not charted here
-            </p>
-          </>
+          <TimeSeriesChart
+            lines={lines}
+            height={220}
+            valueFormatter={(v) => String(Math.round(v))}
+          />
         )}
       </DataState>
     </div>

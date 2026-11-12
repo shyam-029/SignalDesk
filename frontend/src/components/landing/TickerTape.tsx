@@ -1,45 +1,50 @@
 import { Link } from "react-router-dom";
 
-import { useStockList } from "@/lib/hooks";
+import { useNifty50 } from "@/lib/nifty50";
+import { useReducedMotionSafe } from "@/components/motion/Reveal";
 import { fmtPrice, fmtSignedPct } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 /**
- * TickerTape: the landing page's opening strip - the 50 largest ranked
- * companies, each with its day's move, in a continuous slow scroll. Real
- * stored data (daily close); red below, green above. A second, reversed
- * copy fills the loop so the animation is seamless. Pauses on hover.
+ * TickerTape: the landing page's opening strip. The Nifty 50 constituents,
+ * each with its stored close and the day's move, in one slow continuous
+ * scroll. Real stored data; every ticker links to its research page. The
+ * list is doubled so the loop is seamless. Pauses on hover; a plain
+ * scrollable row under reduced motion.
  */
 export function TickerTape() {
-  const list = useStockList(1, 50, undefined, "market_cap", "desc");
-  const items = (list.data?.items ?? []).filter((s) => s.change_pct != null);
+  const { items } = useNifty50();
+  const reduced = useReducedMotionSafe();
   if (items.length === 0) return null;
 
-  const doubled = [...items, ...items];
+  const loop = reduced ? items : [...items, ...items];
 
   return (
     <div
-      className="group overflow-hidden border-b border-line bg-surface"
-      aria-label="The 50 largest companies and today's moves"
+      className={cn(
+        "group border-b border-line bg-surface",
+        reduced ? "overflow-x-auto" : "overflow-hidden",
+      )}
+      aria-label="Nifty 50 companies and today's moves"
     >
       <div
-        className="flex w-max animate-[ticker_70s_linear_infinite] gap-8 py-2 group-hover:[animation-play-state:paused]"
-        style={{ animationName: "ticker" }}
+        className={cn(
+          "flex w-max gap-8 px-4 py-2",
+          !reduced && "group-hover:[animation-play-state:paused]",
+        )}
+        style={reduced ? undefined : { animation: "ticker 90s linear infinite" }}
       >
-        {doubled.map((s, i) => (
+        {loop.map((s, i) => (
           <Link
             key={`${s.symbol}-${i}`}
-            to={`/stocks/${encodeURIComponent(s.symbol)}`}
-            className="num flex shrink-0 items-baseline gap-2 text-xs"
+            to={`/stocks/${encodeURIComponent(s.symbol.replace(".NS", ""))}`}
+            aria-hidden={i >= items.length}
+            tabIndex={i >= items.length ? -1 : undefined}
+            className="num flex shrink-0 items-baseline gap-2 text-xs text-muted transition-colors hover:text-foreground"
           >
             <span className="font-semibold text-foreground">{s.symbol.replace(".NS", "")}</span>
             <span>{fmtPrice(s.last_price)}</span>
-            <span
-              className={cn(
-                "font-medium",
-                (s.change_pct ?? 0) >= 0 ? "text-band-positive" : "text-band-weak",
-              )}
-            >
+            <span className={cn("font-medium", (s.change_pct ?? 0) >= 0 ? "text-up" : "text-down")}>
               {fmtSignedPct(s.change_pct)}
             </span>
           </Link>
