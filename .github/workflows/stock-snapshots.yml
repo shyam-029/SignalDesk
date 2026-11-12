@@ -1,0 +1,105 @@
+name: stock-snapshots
+
+# After each successful nightly ingest, build one JSON file per listed stock
+# (backend/app/services/stock_snapshot.py) and upload them to the private
+# Cloudflare R2 cache bucket. The frontend Worker serves them at
+# /snapshot/stock/<SYMBOL>.json and the stock page renders from them at
+# once, even while the Render API sleeps.
+#
+# Free-tier budget (owner requirement: free now and long term), for ~1,000
+# stocks a night, measured 2026-11-12:
+#   R2 storage   ~25 MB of 10 GB
+#   R2 writes    ~1,000 a night = ~31k a month of 1M (Class A)
+#   Neon         ~0.7 GB a month of 5 GB network transfer; a few minutes of
+#                compute a night
+#   GitHub       public repo: Actions minutes are free
+# The two heaviest charts are left out of the files on purpose (see the
+# service's notes); adding them would push Neon transfer to ~3 GB a month.
+#
+# Read-only against the database. The upload key can only touch the cache
+# bucket. Secret values are masked in the log.
+
+on:
+  workflow_run:
+    workflows: [ingest]
+    types: [completed]
+  workflow_dispatch: {}
+
+concurrency:
+  group: stock-snapshots
+  cancel-in-progress: false
+
+permissions: {}
+
+jobs:
+  snapshots:
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements-render.txt
+      - name: Install dependencies (the API's own, no ML stack)
+        run: pip install -r requirements-render.txt
+
+      - name: Build one snapshot per stock
+        run: |
+          set -euo pipefail
+          python -m app.services.stock_snapshot "$RUNNER_TEMP/snap"
+          n=$(ls "$RUNNER_TEMP/snap/stock" | wc -l)
+          size=$(du -sh "$RUNNER_TEMP/snap" | cut -f1)
+          echo "files: $n, total: $size"
+          echo "### Stock snapshots: $n files, $size" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload to the R2 cache bucket
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_CACHE_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_CACHE_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          AWS_REQUEST_CHECKSUM_CALCULATION: when_required
+          AWS_RESPONSE_CHECKSUM_VALIDATION: when_required
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_CACHE_BUCKET: ${{ secrets.R2_CACHE_BUCKET }}
+        run: |
+          set -euo pipefail
+          ACCT=$(printf '%s' "$R2_ACCOUNT_ID" | grep -oiE '[0-9a-f]{32}' | head -n1 || true)
+          BUCKET=$(printf '%s' "$R2_CACHE_BUCKET" | tr -d '[:space:]' | sed -e 's#/*$##' -e 's#.*/##')
+          echo "::add-mask::$ACCT"
+          [ -n "$ACCT" ] || { echo "::error::R2_ACCOUNT_ID has no 32-character account id"; exit 1; }
+          # The Worker reads the bucket named in frontend/wrangler.jsonc; an
+          # upload anywhere else would never be served.
+          WANT=$(grep -oE '"bucket_name": *"[^"]+"' ../frontend/wrangler.jsonc | sed -E 's/.*"([^"]+)"$/\1/')
+          if [ "$BUCKET" != "$WANT" ]; then
+            echo "::error::R2_CACHE_BUCKET does not match the bucket_name in frontend/wrangler.jsonc ($WANT)."
+            exit 1
+          fi
+          # sync uploads every file (all change nightly) and --delete removes
+          # snapshots of stocks that left the listed universe.
+          aws s3 sync "$RUNNER_TEMP/snap/stock" "s3://$BUCKET/stock" \
+            --endpoint-url "https://${ACCT}.r2.cloudflarestorage.com" \
+            --delete --only-show-errors \
+            --content-type application/json \
+            --cache-control "public, max-age=300"
+          echo "uploaded to R2"
+
+  alert:
+    needs: snapshots
+    if: always() && needs.snapshots.result != 'skipped'
+    permissions: { issues: write, contents: read }
+    uses: ./.github/workflows/run-alert.yml
+    with:
+      title: "Stock snapshots failing"
+      outcome: ${{ needs.snapshots.result }}

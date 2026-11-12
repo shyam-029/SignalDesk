@@ -32,6 +32,11 @@
     "binding": "ASSETS",
     "not_found_handling": "single-page-application"
   },
+  // Per-stock page snapshots, written nightly by stock-snapshots.yml and
+  // served at /snapshot/stock/<SYMBOL>.json (worker/index.js). Read-only use.
+  "r2_buckets": [
+    { "binding": "SNAPSHOTS", "bucket_name": "signaldesk-cache" }
+  ],
   "triggers": {
     "crons": ["*/10 2-18 * * *"]
   },

@@ -12,6 +12,7 @@ import { SkipLink } from "@/components/layout/SkipLink";
 import LegalPage from "@/pages/LegalPage";
 import { persistQueryCache } from "@/lib/queryPersist";
 import { loadLandingSnapshot } from "@/lib/landingSnapshot";
+import { loadStockSnapshot, symbolFromPath } from "@/lib/stockSnapshot";
 
 const LandingPage = lazy(() => import("@/pages/LandingPage"));
 const MarketsPage = lazy(() => import("@/pages/MarketsPage"));
@@ -39,6 +40,13 @@ persistQueryCache(queryClient);
 // nightly (item 13), so a first visit renders without waiting for the API.
 if (typeof window !== "undefined" && window.location.pathname === "/") {
   void loadLandingSnapshot(queryClient);
+}
+
+// Same for a direct visit to a stock page: its nightly snapshot is fetched
+// from the Cloudflare Worker in parallel with the page's code.
+if (typeof window !== "undefined") {
+  const stockSymbol = symbolFromPath(window.location.pathname);
+  if (stockSymbol) void loadStockSnapshot(queryClient, stockSymbol);
 }
 
 function ScrollToTop() {
