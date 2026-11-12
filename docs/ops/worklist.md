@@ -30,8 +30,9 @@ Legend: `[x]` merged to main · `[~]` in progress · `[ ]` not started ·
       2026-11-10 nightly (42896037285) Upstox filled 17 days and the night
       was `success`. Remaining open question, not blocking: `POWERIETF.NS`
       and `VEEFIN.NS` have no data on either source (Yahoo 404), and
-      `ICICINIFTY.NS` is unknown to Upstox. Decide whether repair should
-      skip or retire such instruments
+      `ICICINIFTY.NS` is unknown to Upstox. Decided 2026-11-12 (owner):
+      ICICINIFTY trades as NIFTYIETF now; POWERIETF is retired; VEEFIN
+      began trading on NSE on 2026-11-11 and fills itself (PR #29)
 - [x] **2c** First nightly with PRs #10-#17 (42896037285): 65 min instead
       of 123, every pass about half its time (pooling likely; not a
       controlled comparison, so confirm over the next nights); writes
@@ -60,9 +61,14 @@ Legend: `[x]` merged to main · `[~]` in progress · `[ ]` not started ·
       re-enabled earlier); `watchdog.yml` now alerts daily on any disabled
       workflow (PR #9)
 - [ ] **10** Private off-GitHub backup copy (repo is public; artifacts last
-      30 days). The monthly restore test is covered by item 7
-- [ ] **11** Update the private progress trackers kept outside the repo
-      (stale since 2026-09-10)
+      30 days). The monthly restore test is covered by item 7. Decided
+      2026-11-12: Cloudflare R2 (10 GB free, already on Cloudflare, S3
+      API, no egress fees). The nightly `backup.yml` uploads each dump and
+      keeps the last 30. Waiting on the owner: create the bucket and an R2
+      API token, add `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`,
+      `R2_SECRET_ACCESS_KEY`, `R2_BUCKET` as Actions secrets
+- [x] **11** Private progress trackers updated 2026-11-12
+      (`SEMESTER2_PROGRESS.md` section 17; local, gitignored)
 
 ### Hardening and correctness found in the audit
 
@@ -103,19 +109,24 @@ Legend: `[x]` merged to main · `[~]` in progress · `[ ]` not started ·
       needs owner approval: run `rank.yml` once so the trapped stocks
       re-enter (the nightly's 2y refetch fills their gap); count the
       trapped symbols first from `ranking_audit` (`inactive_proxy` rows)
-- [ ] **24** Clean up the parallel session's worktrees
-      (`signaldesk-ops3`, `signaldesk-ops45`) and their local branches
+- [x] **24** Removed 2026-11-12 (owner approved): worktrees
+      `signaldesk-ops3`, `signaldesk-ops45`, `signaldesk-ask`; local
+      branches `docs/verify-ops-runs`, `ops/m2-t1-storage-reclaim` and the
+      three worktree branches; remote `backup/pre-attribution-rewrite`
 
 ## Render configuration (owner action, found 2026-11-10)
 
-- [ ] Build command installs the full `requirements.txt` (torch,
+- [x] Build command installs the full `requirements.txt` (torch,
       transformers, CUDA wheels) instead of `requirements-render.txt`: slow
       builds (about 8 min to deploy PR #15), large image. Set Build Command
       to `pip install -r requirements-render.txt`
-- [ ] Render builds on Python 3.14 while CI and all tests use 3.12. Set
+- [x] Render builds on Python 3.14 while CI and all tests use 3.12. Set
       `PYTHON_VERSION=3.12.7` (any 3.12.x), then Manual Deploy
 - [ ] Note: cold boot to first `/health` 200 is ~41 s on the free
       instance; `keep-warm.yml` (item 16) avoids it during IST hours
+- [x] Both settings changed by the owner; latest deploy confirmed Live
+      2026-11-12. Ask re-tested on the live site the same day (ADANIGREEN:
+      answered from computed price facts, high confidence)
 
 ## Owner decisions
 
@@ -130,15 +141,36 @@ Legend: `[x]` merged to main · `[~]` in progress · `[ ]` not started ·
 - [x] Neon database password rotated by the owner on 2026-11-10;
       `DATABASE_URL` updated in GitHub Actions (verified: read-only db-probe
       succeeded with it) and in Render (owner confirmed)
-- [?] Adjusted-price seam at the 2y fetch edge: store raw prices plus
-      adjustment factors, or re-fetch full history after corporate actions
-- [?] Storage strategy before fund work: derive backfilled alpha history
-      from prices instead of storing it (~110-120 MB), and/or move funds
-      to a second database
-- [~] News retention: up to 20 articles per stock (owner, 2026-11-12).
+- [x] Adjusted-price seam (decided 2026-11-12): keep storing Yahoo's
+      adjusted prices and re-fetch a symbol's full 2y history when its
+      history has been re-adjusted. Detection needs no extra API: the
+      incremental fetch (item 27) asks for ~10 days, which overlap stored
+      bars; if any overlapping close differs from the stored one by more
+      than 0.1%, Yahoo has re-adjusted (split or dividend) and that symbol
+      gets a full refetch. Chosen over raw prices + adjustment factors:
+      no schema change, every reader keeps reading one adjusted series,
+      and only the few symbols with a corporate action pay the full fetch
+- [x] Storage strategy (decided 2026-11-12): funds go to a second Neon
+      project on the same account, created when fund work (M4/M5) starts.
+      Neon's Free plan gives each project its own 100 CU-hours a month and
+      1 GB (20 GB per account), so the second project does not eat the main
+      one's quota. Create it in the same region as the main project so the
+      API's latency to both is the same; fund ingest runs as its own job and
+      never slows the equity nightly. Trade-off: no SQL joins between stocks
+      and funds ("funds holding this stock" joins in the app by ISIN).
+      Deriving alpha history on demand stays the next storage saving, and
+      the technical-score recalibration waits for it (below)
+- [x] Technical-score sensitivity (decided 2026-11-12, "better for the
+      long run"): change it together with alpha v2, after alpha history is
+      derived on demand. Changing the formula now rewrites all ~480k stored
+      backfilled rows in one night (a churn and bloat spike Phase 2 just
+      removed); once history is derived, a formula change is free.
+      Direction for v2: EMA span 10 at the current scales (keeps v1.5's use
+      of the full 0-100 range; daily max step 10 -> 7)
+- [x] News retention: up to 20 articles per stock (owner, 2026-11-12).
       A nightly `prune_news` pass after `ingest_news` keeps each stock's 20
       newest articles that pass the relevance rule and deletes the rest with
-      their sentiment rows (PR pending). The first night deletes most of the
+      their sentiment rows (PR #30). The first night deletes most of the
       ~63k stored articles (1,000 stocks x 20 = ~20k kept)
 
 ## Speed
