@@ -26,7 +26,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db import SessionLocal
 from app.config import settings
 from app.data.funds import CURATED_FUNDS, MFAPI_BACKFILL_DAYS
-from app.data.ranking_exclusions import ETF_SYMBOLS
+from app.data.ranking_exclusions import ETF_SYMBOLS, RETIRED_SYMBOLS
 from app.models import (
     AlphaScore,
     CompanyProfile,
@@ -1210,8 +1210,15 @@ async def repair_catalog_gaps(provider: MarketDataProvider | None = None) -> dic
 
     async with SessionLocal() as session:
         stocks = (
-            await session.execute(select(Stock).where(price_gap | financials_gap | profile_gap))
+            await session.execute(
+                select(Stock).where(
+                    (price_gap | financials_gap | profile_gap)
+                    & Stock.active.is_(True)
+                )
+            )
         ).scalars().all()
+    # Retired instruments have no source; repairing them fails every night.
+    stocks = [s for s in stocks if s.symbol.split(".")[0] not in RETIRED_SYMBOLS]
 
     if not stocks:
         logger.info("Catalog repair pass: no gaps found.")
@@ -1452,7 +1459,7 @@ ETF_NAMES: dict[str, str] = {
     "SILVERBEES": "Nippon India Silver ETF",
     "LIQUIDBEES": "Nippon India ETF Liquid BeES",
     "HDFCNIFTY": "HDFC Nifty 50 ETF",
-    "ICICINIFTY": "ICICI Prudential Nifty 50 ETF",
+    "NIFTYIETF": "ICICI Prudential Nifty 50 ETF",
     "ITBEES": "Nippon India ETF IT BeES",
     "PSUBNKBEES": "Nippon India ETF PSU Bank BeES",
     "MOM100": "Motilal Oswal M100 ETF",
@@ -1482,6 +1489,17 @@ async def _ensure_etf_catalog(session) -> int:
             )
         )
         created += 1
+    # Curated ETFs that left the list (renamed or retired) drop off the ETF
+    # pages; the row and its price history are kept.
+    stale = (
+        await session.execute(select(Stock).where(Stock.is_etf.is_(True), Stock.active.is_(True)))
+    ).scalars().all()
+    for row in stale:
+        bare = row.symbol.split(".")[0]
+        if bare not in ETF_SYMBOLS:
+            row.active = False
+            row.delisted_reason = "retired"
+            row.delisted_at = datetime.now(timezone.utc)
     if created:
         await session.flush()
     return created

@@ -884,3 +884,24 @@ async def test_stale_and_not_trading_stays_excluded(session_factory, monkeypatch
         cycle = (await s.execute(select(RankingCycle))).scalars().first()
     sleepy = next(r for r in await _audit_rows(session_factory, cycle.id) if r.symbol == "SLEEPY")
     assert (sleepy.outcome, sleepy.reason) == ("excluded", "inactive_proxy")
+
+
+# --- Retired / renamed instruments (owner, 2026-11-12) ------------------------
+
+
+def test_retired_symbols_are_excluded_and_deactivated():
+    from app.data.ranking_exclusions import ETF_SYMBOLS, RETIRED_SYMBOLS, curated_exclusion
+
+    assert curated_exclusion("POWERIETF")[0] == "retired"
+    assert curated_exclusion("ICICINIFTY")[0] == "retired"
+    # The ICICI Nifty 50 ETF trades as NIFTYIETF now.
+    assert "NIFTYIETF" in ETF_SYMBOLS and "ICICINIFTY" not in ETF_SYMBOLS
+    assert curated_exclusion("NIFTYIETF") == ("etf", "ETF")
+    assert set(RETIRED_SYMBOLS).isdisjoint(ETF_SYMBOLS)
+
+    d = svc.evaluate(
+        [_cand("POWERIETF", master=_row("POWERIETF"), stock_id=9,
+               catalog_symbol="POWERIETF.NS", mcap=1.0)],
+        _ctx(),
+    )[0]
+    assert (d.outcome, d.reason, d.deactivate) == (svc.EXCLUDED, "retired", True)

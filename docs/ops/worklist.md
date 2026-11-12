@@ -42,10 +42,12 @@ Legend: `[x]` merged to main · `[~]` in progress · `[ ]` not started ·
 - [x] **4** Migrations only via `migrate.yml`; ingest/rank fail fast if the
       schema is behind (PR #6)
 - [x] **5** Remove host/user/db diagnostics from `rank.yml` (PR #6)
-- [ ] **6** Reclaim index bloat online: `REINDEX CONCURRENTLY
+- [~] **6** Reclaim index bloat online: `REINDEX CONCURRENTLY
       alpha_scores_pkey` (93.8 MB, 0 scans), drop redundant
       `ix_daily_prices_stock_id` (17.2 MB) and `ix_alpha_scores_symbol`
-      (9.0 MB); check Neon headroom first; prod DDL needs approval
+      (9.0 MB). Owner approved 2026-11-12; headroom checked (543 MB of
+      1,024 MB). Migration `9a8b7c6d5e4f` (PR pending), then `migrate.yml`
+      outside the nightly window
 - [x] **7** Restore test: `restore-test.yml` restores the newest backup
       artifact into a throwaway Postgres on the runner (no secret, never
       touches production), checks every core table has rows; monthly on the
@@ -69,8 +71,13 @@ Legend: `[x]` merged to main · `[~]` in progress · `[ ]` not started ·
       weekend-dated rows are left in place (removing them is a data deletion
       and needs owner approval). Not yet seen in production: it only shows
       on a run whose UTC date has no bar (a weekend or post-midnight run)
-- [ ] **18** `daily_prices.volume` is a 4-byte integer; widen to BIGINT
-      before a >2.1B-share day fails a symbol's upsert (migration)
+- [~] **18** `daily_prices.volume` is a 4-byte integer; widen to BIGINT
+      before a >2.1B-share day fails a symbol's upsert. Migration
+      `c3d4e5f6a7b8` and the model change are on
+      `ops/item18-volume-bigint` (PR pending). Running it on production
+      goes through `migrate.yml`, outside the nightly window, after a Neon
+      headroom check (the type change rewrites the table), and needs the
+      owner's approval
 - [x] **19** Drift test: builds a throwaway database from the migrations
       alone and fails CI on any difference from the models (PR #11). Its
       first run found and fixed one mismatch: the `ranking_audit.stock_id`

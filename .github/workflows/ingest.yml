@@ -51,7 +51,13 @@ jobs:
             echo "::error::SCHEMA CHECK FAILED: could not read the database's Alembic revision (${kind:-unknown error}). Details withheld from public logs. Run the 'migrate' workflow to test connectivity."
             exit 1
           fi
-          if echo "$out" | grep -q "(head)"; then
+          # Compare revision hashes explicitly (they are not secret) instead of
+          # looking for alembic's "(head)" marker, and print both so a mismatch
+          # is diagnosable from the public log.
+          current=$(echo "$out" | grep -Eo '^[0-9a-f]{12}' | head -1)
+          head=$(alembic heads 2>/dev/null | grep -Eo '^[0-9a-f]{12}' | head -1)
+          echo "Database revision: ${current:-none}; code head: ${head:-none}"
+          if [ -n "$current" ] && [ "$current" = "$head" ]; then
             echo "Schema is at Alembic head."
           else
             echo "::error::SCHEMA BEHIND CODE: database is not at Alembic head. Dispatch the 'migrate' workflow (direction=upgrade, revision=head) and then re-run this workflow. Nothing was ingested."

@@ -370,6 +370,7 @@ def evaluate(candidates: list[Candidate], ctx: RankContext) -> list[Decision]:
                         flag=None,
                         detail=detail,
                         is_etf=reason == "etf",
+                        deactivate=reason == "retired",
                     )
                 )
                 continue

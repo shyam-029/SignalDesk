@@ -74,7 +74,9 @@ async def list_etfs(session: SessionDep) -> EtfListResponse:
     """
     etfs = (
         await session.execute(
-            select(Stock).where(Stock.is_etf.is_(True)).order_by(Stock.symbol)
+            select(Stock)
+            .where(Stock.is_etf.is_(True), Stock.active.is_(True))
+            .order_by(Stock.symbol)
         )
     ).scalars().all()
 
