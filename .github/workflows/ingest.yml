@@ -2,15 +2,18 @@ name: ingest
 
 # M1-T5: production nightly ingestion (Plan 21.2, 28). GitHub Actions is the
 # ONLY scheduler (D79; the in-process APScheduler registers no jobs in
-# production since f43776c). Nominal 13:30 UTC = 19:00 IST after market
-# close; GitHub cron can drift minutes-to-~30 during peak, which idempotent
-# upserts tolerate. Measured runtime 1.5-2 h vs the 6 h job cap (Plan 22);
+# production since f43776c). Nominal 10:45 UTC = 16:15 IST, 45 minutes
+# after NSE closes (owner decision 2026-11-12, was 13:30 UTC = 19:00 IST), so
+# the day's data is on the site the same evening. Each run refetches 2 years
+# of bars, so a close Yahoo revises after 16:15 is corrected the next day.
+# GitHub cron can start late (the 13:30 slot often began hours later), which
+# idempotent upserts tolerate. Measured runtime 1.5-2 h vs the 6 h job cap (Plan 22);
 # timeout-minutes fails fast at 5.5 h with a clear signal instead of an
 # opaque runner wall.
 
 on:
   schedule:
-    - cron: "30 13 * * *"
+    - cron: "45 10 * * *" # 16:15 IST daily
   workflow_dispatch: {}
 
 concurrency:

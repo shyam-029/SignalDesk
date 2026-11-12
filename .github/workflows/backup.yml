@@ -21,7 +21,7 @@ name: backup
 
 on:
   schedule:
-    - cron: "0 2 * * 0" # Sundays 02:00 UTC; far from ingest (13:30) and rank (04:00)
+    - cron: "0 2 * * 0" # Sundays 02:00 UTC; far from ingest (10:45) and rank (04:00)
   workflow_dispatch: {}
 
 concurrency:

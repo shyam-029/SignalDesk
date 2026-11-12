@@ -2,8 +2,8 @@ name: rank
 
 # M1-T2: top-1000 universe ranking (E1-E12 eligibility, mcap rank, audit).
 # M1-T5 wires the monthly schedule (workflow_dispatch retained for manual
-# re-runs). 04:00 UTC on the 1st = 09:30 IST: about 9.5 h away from the
-# 13:30 UTC nightly ingestion (no overlap; rank runs ~9.5 min anyway), and
+# re-runs). 04:00 UTC on the 1st = 09:30 IST: about 6.75 h before the
+# 10:45 UTC nightly ingestion (no overlap; rank runs ~40 min), and
 # the same evening's nightly picks up the refreshed universe. Targets the
 # PRODUCTION database via the DATABASE_URL Actions secret — no scratch
 # Postgres service container.
@@ -24,7 +24,7 @@ jobs:
     # egress IPs and Yahoo throttles them hard (429 + 3-attempt backoff per
     # symbol) — observed ~40 percent through the candidate alphabet at 26
     # min, projecting ~60-75 min total. 90 min leaves 3x headroom while
-    # staying far under the 6 h job cap and clear of the 13:30 UTC nightly.
+    # staying far under the 6 h job cap and clear of the 10:45 UTC nightly.
     timeout-minutes: 90
     env:
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
