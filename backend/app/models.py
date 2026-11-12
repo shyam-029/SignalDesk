@@ -113,14 +113,17 @@ class DailyPrice(Base):
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    stock_id: Mapped[int] = mapped_column(ForeignKey("stocks.id"), index=True)
+    # No separate index: uq_daily_prices_stock_date (stock_id, date) already
+    # serves stock_id lookups (item 6 dropped the redundant ix_daily_prices_stock_id).
+    stock_id: Mapped[int] = mapped_column(ForeignKey("stocks.id"))
     date: Mapped[date]
     # Prices as Numeric (fixed-precision decimal) — no float rounding errors.
     open: Mapped[Numeric] = mapped_column(Numeric(16, 4))
     high: Mapped[Numeric] = mapped_column(Numeric(16, 4))
     low: Mapped[Numeric] = mapped_column(Numeric(16, 4))
     close: Mapped[Numeric] = mapped_column(Numeric(16, 4))
-    volume: Mapped[int]
+    # BIGINT: a day above 2.1 billion shares would overflow INTEGER.
+    volume: Mapped[int] = mapped_column(BigInteger)
 
     # Back-reference to the owning stock.
     stock: Mapped["Stock"] = relationship()
@@ -316,7 +319,9 @@ class AlphaScore(Base):
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    symbol: Mapped[str] = mapped_column(index=True)
+    # No separate index: uq_alpha_scores_symbol_date (symbol, date) covers it
+    # (item 6 dropped the redundant ix_alpha_scores_symbol).
+    symbol: Mapped[str] = mapped_column()
     date: Mapped[date]
 
     # Sub-scores 0-100 (nullable when a dimension has no data).
@@ -404,7 +409,7 @@ class RankingAudit(Base):
         # One audit row per master symbol per cycle (idempotency anchor).
         UniqueConstraint("cycle_id", "symbol", name="uq_ranking_audit_cycle_symbol"),
         Index("ix_ranking_audit_cycle_outcome", "cycle_id", "outcome"),
-        Index("ix_ranking_audit_stock", "stock_id"),
+        Index("ix_ranking_audit_stock_id", "stock_id"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)

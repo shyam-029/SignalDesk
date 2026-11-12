@@ -1,7 +1,7 @@
 import { usePerformance } from "@/lib/hooks";
 import { DataState } from "@/components/data/DataState";
 import { InfoDot } from "@/components/data/InfoDot";
-import { fmtDate, fmtPrice, fmtSignedPct } from "@/lib/format";
+import { fmtPrice, fmtSignedPct } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 const WINDOWS: Array<{ key: string; label: string }> = [
@@ -25,9 +25,9 @@ export function PerformanceStrip({ symbol }: { symbol: string }) {
 
   return (
     <section id="performance" aria-label="Price performance">
-      <div className="border-b border-line">
-        <div className="mx-auto max-w-6xl px-4 md:px-6">
-          <div className="py-4">
+      <div className="border-b border-line bg-surface-2/30">
+        <div className="mx-auto max-w-6xl px-4 py-4 md:px-6">
+          <div className="glass rounded-sm px-5 py-4">
           <DataState
             loading={query.isLoading}
             error={query.error}
@@ -62,7 +62,7 @@ export function PerformanceStrip({ symbol }: { symbol: string }) {
                       <p
                         className={cn(
                           "num text-sm font-medium",
-                          pct == null ? "text-faint" : pct > 0 ? "text-up" : pct < 0 ? "text-down" : "text-muted",
+                          pct == null ? "text-faint" : pct > 0 ? "text-band-positive" : pct < 0 ? "text-band-weak" : "text-muted",
                         )}
                         title={pct == null ? "Not enough history for this window" : undefined}
                       >
@@ -92,7 +92,7 @@ export function PerformanceStrip({ symbol }: { symbol: string }) {
                 </div>
                 {perf.as_of && (
                   <p className="num ml-auto text-xs text-faint">
-                    as of {fmtDate(perf.as_of)}
+                    as of {perf.as_of}
                   </p>
                 )}
               </div>

@@ -800,3 +800,108 @@ async def test_rank_universe_uses_injected_master_without_network(session_factor
         provider=_stub_provider(), master_rows=_master_rows()
     )
     assert result["ranked"] == 3
+
+
+# --- E9 freshness check: our own data gap is not inactivity (2026-11-11) -----
+# RELIANCE and TCS were dropped from the universe by throttled market-cap
+# fetches on 2026-09-09. Outside the universe the nightly stops fetching
+# them, so their stored bars aged past 30 trading days and E9 deactivated
+# them for good. E9 now checks the provider's latest bar first.
+
+
+def test_needs_freshness_check_only_for_rankable_stale_candidates():
+    ref = tuple(sorted(date(2026, 9, 8) - timedelta(days=i) for i in range(40)))
+    stale = _cand("GAP", master=_row("GAP"), stock_id=1, catalog_symbol="GAP.NS",
+                  mcap=10.0, last_bar=ref[8], first_bar=ref[0])
+    fresh = _cand("OK", master=_row("OK"), stock_id=2, catalog_symbol="OK.NS",
+                  mcap=10.0, last_bar=ref[-1], first_bar=ref[0])
+    absent = _cand("GONE", master=None, stock_id=3, catalog_symbol="GONE.NS",
+                   mcap=None, last_bar=ref[8], first_bar=ref[0])
+    assert svc.needs_freshness_check(stale, ref) is True
+    assert svc.needs_freshness_check(fresh, ref) is False
+    assert svc.needs_freshness_check(absent, ref) is False
+
+
+def test_provider_last_bar_rescues_a_stock_we_stopped_fetching():
+    ref = tuple(sorted(date(2026, 9, 8) - timedelta(days=i) for i in range(40)))
+    c = _cand("GAP", master=_row("GAP"), stock_id=1, catalog_symbol="GAP.NS",
+              mcap=10.0, last_bar=ref[8], first_bar=ref[0])
+    assert svc.evaluate([c], _ctx(ref=ref))[0].reason == "inactive_proxy"
+
+    rescued = svc.with_provider_last_bar(c, ref[-1])
+    d = svc.evaluate([rescued], _ctx(ref=ref))[0]
+    assert d.outcome != svc.EXCLUDED
+
+    # An older or missing provider bar never makes a stock look staler.
+    assert svc.with_provider_last_bar(c, None) is c
+    assert svc.with_provider_last_bar(c, ref[0]) is c
+
+
+class _TradingProvider(StubRankProvider):
+    """Stub whose price history says SLEEPY still trades."""
+
+    def __init__(self, *a, last_bars: dict[str, date], **kw):
+        super().__init__(*a, **kw)
+        self.last_bars = last_bars
+        self.history_calls: list[str] = []
+
+    async def get_price_history(self, symbol, period):
+        from app.providers.base import OHLCV
+
+        bare = symbol.split(".")[0]
+        self.history_calls.append(bare)
+        d = self.last_bars.get(bare)
+        return [OHLCV(date=d, open=1, high=1, low=1, close=1, volume=1)] if d else []
+
+
+async def test_stale_but_trading_stock_is_ranked_again(session_factory, monkeypatch):
+    monkeypatch.setattr(jobs_module, "SessionLocal", session_factory)
+    await _seed_catalog(session_factory)
+    provider = _TradingProvider(
+        mcaps={"RELIANCE": 100.0, "TCS": 50.0, "NEWIPO": 5.0, "SLEEPY": 20.0},
+        last_bars={"SLEEPY": date(2026, 9, 8)},
+    )
+
+    await jobs_module.rank_universe(provider=provider, master_rows=_master_rows())
+
+    # Only stale candidates are checked (fresh ones cost no extra call).
+    assert provider.history_calls == ["SLEEPY"]
+    async with session_factory() as s:
+        cycle = (await s.execute(select(RankingCycle))).scalars().first()
+    sleepy = next(r for r in await _audit_rows(session_factory, cycle.id) if r.symbol == "SLEEPY")
+    assert sleepy.outcome != "excluded", sleepy.reason
+
+
+async def test_stale_and_not_trading_stays_excluded(session_factory, monkeypatch):
+    monkeypatch.setattr(jobs_module, "SessionLocal", session_factory)
+    await _seed_catalog(session_factory)
+    provider = _TradingProvider(
+        mcaps={"RELIANCE": 100.0, "TCS": 50.0, "NEWIPO": 5.0, "SLEEPY": 20.0},
+        last_bars={},
+    )
+    await jobs_module.rank_universe(provider=provider, master_rows=_master_rows())
+    async with session_factory() as s:
+        cycle = (await s.execute(select(RankingCycle))).scalars().first()
+    sleepy = next(r for r in await _audit_rows(session_factory, cycle.id) if r.symbol == "SLEEPY")
+    assert (sleepy.outcome, sleepy.reason) == ("excluded", "inactive_proxy")
+
+
+# --- Retired / renamed instruments (owner, 2026-11-12) ------------------------
+
+
+def test_retired_symbols_are_excluded_and_deactivated():
+    from app.data.ranking_exclusions import ETF_SYMBOLS, RETIRED_SYMBOLS, curated_exclusion
+
+    assert curated_exclusion("POWERIETF")[0] == "retired"
+    assert curated_exclusion("ICICINIFTY")[0] == "retired"
+    # The ICICI Nifty 50 ETF trades as NIFTYIETF now.
+    assert "NIFTYIETF" in ETF_SYMBOLS and "ICICINIFTY" not in ETF_SYMBOLS
+    assert curated_exclusion("NIFTYIETF") == ("etf", "ETF")
+    assert set(RETIRED_SYMBOLS).isdisjoint(ETF_SYMBOLS)
+
+    d = svc.evaluate(
+        [_cand("POWERIETF", master=_row("POWERIETF"), stock_id=9,
+               catalog_symbol="POWERIETF.NS", mcap=1.0)],
+        _ctx(),
+    )[0]
+    assert (d.outcome, d.reason, d.deactivate) == (svc.EXCLUDED, "retired", True)

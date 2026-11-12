@@ -63,7 +63,7 @@ from app.jobs import start_scheduler
 from app.logging_utils import configure_logging, request_id_middleware
 from app.nan_guard import nan_guard_middleware
 from app.repositories import job_runs as job_runs_repo
-from app.routers import alpha, altman, ask, debug, etfs, explain, fundamentals, funds, history, market, news, scores, screener, stocks, technicals, valuation
+from app.routers import alpha, altman, ask, debug, etfs, explain, fundamentals, funds, history, landing, market, news, scores, screener, stocks, technicals, valuation
 from app.services.valuation import InsufficientDataError, NoPeersError
 
 logger = logging.getLogger(__name__)
@@ -199,6 +199,28 @@ async def production_docs_guard(request: Request, call_next):
         return response
     return await call_next(request)
 
+
+# Browser cache for research reads (work list item 12). Every /api/v1 GET is
+# public, identical for all callers and refreshed at most nightly, so a
+# successful response may be reused for a minute and served stale for five
+# more while the browser revalidates in the background. Errors, POSTs
+# (ask/explain) and operational routes (/health, /status, /debug) are never
+# marked cacheable. A route that sets its own Cache-Control keeps it.
+API_CACHE_CONTROL = "public, max-age=60, stale-while-revalidate=300"
+
+
+@app.middleware("http")
+async def api_cache_headers(request: Request, call_next):
+    response = await call_next(request)
+    if (
+        request.method == "GET"
+        and request.url.path.startswith("/api/v1/")
+        and response.status_code == 200
+        and "cache-control" not in response.headers
+    ):
+        response.headers["Cache-Control"] = API_CACHE_CONTROL
+    return response
+
 # Browser origins allowed to call the API (from CORS_ORIGINS in .env).
 # Empty config disables CORS entirely (e.g. same-origin deployments).
 # Production requires explicit origins ("*" fails startup above). Methods
@@ -242,6 +264,7 @@ app.include_router(technicals.router, prefix="/api/v1")
 app.include_router(history.router, prefix="/api/v1")
 app.include_router(ask.router, prefix="/api/v1")
 app.include_router(explain.router, prefix="/api/v1")
+app.include_router(landing.router, prefix="/api/v1")
 # Operational endpoint: intentionally not under /api/v1 (not a public
 # product API). Phase 8: requires OPS_API_KEY (the debug router declares the
 # dependency; unauthenticated callers get a 404 with no oracle).

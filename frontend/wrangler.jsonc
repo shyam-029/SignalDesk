@@ -1,4 +1,6 @@
-// Cloudflare Workers config for the SignalDesk frontend (static assets only).
+// Cloudflare Workers config for the SignalDesk frontend: static assets, plus a
+// small script (worker/index.js) whose only extra job is a Cron Trigger that
+// pings the Render API so it is awake when visitors arrive.
 //
 // Live at https://signaldesk.shyamsundar2935.workers.dev, built by Cloudflare
 // Workers Builds with Root directory = /frontend:
@@ -17,11 +19,21 @@
 //
 // VITE_API_BASE is NOT set here: it is a build-time variable held in the
 // Worker's Build settings and baked into the bundle by `vite build`.
+//
+// Cron: every 10 minutes from 02:00 to 18:59 UTC (07:30-00:30 IST). Not 24/7:
+// Render's free tier allows 750 instance-hours a month across all free
+// services and always-on would use ~744. This window uses ~520.
 {
   "name": "signaldesk",
+  "main": "worker/index.js",
   "compatibility_date": "2026-11-01",
   "assets": {
     "directory": "./dist",
+    "binding": "ASSETS",
     "not_found_handling": "single-page-application"
-  }
+  },
+  "triggers": {
+    "crons": ["*/10 2-18 * * *"]
+  },
+  "observability": { "enabled": true }
 }

@@ -8,8 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_session
 from app.errors import ValidationError
-from app.repositories import stocks as stock_repo
-from app.services import analysis
+from app.services import screener_cache
 
 router = APIRouter(prefix="/screener", tags=["screener"])
 
@@ -44,6 +43,7 @@ async def screener(
     session: SessionDep,
     status: str | None = None,
     sector: str | None = None,
+    industry: str | None = None,
     min_profitability: float | None = Query(None, ge=0, le=100),
     min_solvency: float | None = Query(None, ge=0, le=100),
     sort: str = Query("symbol"),
@@ -73,15 +73,16 @@ async def screener(
             {"direction": direction, "supported": ["asc", "desc"]},
         )
 
-    symbols = await stock_repo.list_all_symbols(session)
+    # The analysed universe comes from a snapshot rebuilt only when a job has
+    # written new data (services/screener_cache.py); filtering, sorting and
+    # paging below are unchanged and run in memory per request.
     results: list[ScreenResult] = []
 
-    for sym in symbols:
-        stock = await stock_repo.get_stock(session, sym)
-        if sector and stock.sector != sector:
+    for a in await screener_cache.get_rows(session):
+        if sector and a.sector != sector:
             continue
-        a = await analysis.analyze_stock(session, stock)
-
+        if industry and a.industry != industry:
+            continue
         if status and a.valuation_status != status:
             continue
         if min_profitability is not None and (

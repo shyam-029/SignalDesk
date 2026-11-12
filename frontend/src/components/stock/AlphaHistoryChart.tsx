@@ -8,9 +8,8 @@ import { fmtDate } from "@/lib/format";
 /**
  * AlphaHistoryChart: stored Alpha Score snapshots over time (Part D), read
  * from the backend's /alpha/history endpoint. The composite is the primary
- * line; the three component scores render only where the snapshots actually
- * carry them, and gaps in the history break the line rather than being
- * interpolated. Sparse history (fewer than two points) is an honest
+ * line, with the technical component beside it. Gaps in the history break
+ * the line rather than being interpolated. Sparse history (fewer than two points) is an honest
  * insufficient state: history builds up as scores are computed per day.
  */
 export function AlphaHistoryChart({ symbol }: { symbol: string }) {
@@ -32,11 +31,12 @@ export function AlphaHistoryChart({ symbol }: { symbol: string }) {
     });
     return [
       series("composite", "Alpha", "--cobalt", (i) => i.composite),
-      // Only the technical pillar has real per-day history. The fundamental
-      // and sentiment pillars move too slowly to read as daily lines, so
-      // they are left out instead of being drawn as near-flat series.
+      // Only the technical component is charted beside the composite. The
+      // fundamental and sentiment scores exist only on the few live
+      // snapshots (backfilled history is technical-only), so their lines
+      // were a few dots at the right edge and read as noise.
       ...(items.some((i) => i.technical != null)
-        ? [series("technical", "Technical score", "--faint", (i) => i.technical)]
+        ? [series("technical", "Technical", "--accent-coral", (i) => i.technical)]
         : []),
     ];
   }, [items]);
@@ -45,9 +45,9 @@ export function AlphaHistoryChart({ symbol }: { symbol: string }) {
   const last = items.at(-1)?.date;
 
   return (
-    <div className="border border-line bg-surface p-5">
+    <div className="glass rounded-sm p-5">
       <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
-        <p className="label-caps">Alpha over time · score 0 to 100</p>
+        <p className="label-caps">Alpha over time</p>
         {first && last && (
           <p className="num text-xs text-faint">
             {fmtDate(first)} to {fmtDate(last)}
@@ -64,11 +64,14 @@ export function AlphaHistoryChart({ symbol }: { symbol: string }) {
         compact
       >
         {lines.length > 0 && (
-          <TimeSeriesChart
-            lines={lines}
-            height={220}
-            valueFormatter={(v) => String(Math.round(v))}
-          />
+          <>
+            <TimeSeriesChart
+              lines={lines}
+              height={220}
+              valueFormatter={(v) => String(Math.round(v))}
+            />
+            <p className="num mt-2 text-xs text-faint">Scale 0 to 100</p>
+          </>
         )}
       </DataState>
     </div>

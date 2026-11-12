@@ -27,6 +27,10 @@ jobs:
       - name: Install minimal deps
         run: pip install "sqlalchemy[asyncio]>=2.0,<2.1" asyncpg
       - name: Probe catalog + price freshness
+        # The dispatch input reaches Python through env, never interpolated
+        # into the source (a crafted value could otherwise run as code).
+        env:
+          SYMBOLS: ${{ inputs.symbols }}
         run: |
           python - <<'PY'
           import asyncio, os
@@ -49,7 +53,7 @@ jobs:
               u = u.set(query=q)
               engine = create_async_engine(u)
               prefixes = [s.strip().upper() for s in
-                          "${{ inputs.symbols }}".split(",") if s.strip()]
+                          os.environ.get("SYMBOLS", "").split(",") if s.strip()]
               async with engine.connect() as conn:
                   print("== universes ==")
                   for r in (await conn.execute(text(

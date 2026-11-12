@@ -26,7 +26,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db import SessionLocal
 from app.config import settings
 from app.data.funds import CURATED_FUNDS, MFAPI_BACKFILL_DAYS
-from app.data.ranking_exclusions import ETF_SYMBOLS
+from app.data.ranking_exclusions import ETF_SYMBOLS, RETIRED_SYMBOLS
 from app.models import (
     AlphaScore,
     CompanyProfile,
@@ -52,6 +52,7 @@ from app.providers.funds_data import (
 from app.providers.news_base import Article, NewsProvider
 from app.providers.nse_master import NseMasterRow, fetch_master_with_retry
 from app.providers.rss_provider import GoogleNewsRSSProvider, NewsProviderError
+from app.services.news_relevance import generic_tokens_from_names, is_relevant_article
 from app.providers.sentiment import FinBERTScorer, Sentiment
 from app.providers.upstox_provider import SYMBOL_ALIASES
 from app.providers.yfinance_provider import MarketDataError, YFinanceProvider
@@ -397,12 +398,23 @@ async def ingest_universe(
         written["updated"],
         written["unchanged"],
     )
+    # Upstox price fallback (providers/fallback.py): how often Yahoo's answer
+    # was unusable and Upstox was asked instead, by reason.
+    fallbacks = dict(getattr(provider, "fallbacks", {}) or {})
+    fallback_failures = int(getattr(provider, "fallback_failures", 0) or 0)
+    if fallbacks or fallback_failures:
+        logger.info(
+            "Upstox price fallback used: %s (upstox also failed: %d)",
+            ", ".join(f"{k}={v}" for k, v in sorted(fallbacks.items())) or "none",
+            fallback_failures,
+        )
     return {
         "fetched": len(symbols) - len(errors),
         "bars": total_bars,
         "errors": len(errors),
         "skipped": skipped,
         **written,
+        "upstox_fallbacks": sum(fallbacks.values()),
     }
 
 
@@ -759,6 +771,11 @@ async def ingest_news(
         logger.warning("No symbols found for universe '%s'.", UNIVERSE_NAME)
         return {"fetched": 0, "inserted": 0, "scored": 0, "errors": 0}
 
+    # Words shared by many company names in the universe ("bank", "hdfc",
+    # "tata") never attach an article to one company on their own.
+    if hasattr(provider, "generic_tokens"):
+        provider.generic_tokens = generic_tokens_from_names(n for _, n in universe if n)
+
     total_inserted = 0
     total_scored = 0
     errors: list[str] = []
@@ -909,6 +926,15 @@ async def record_live_alpha_snapshot(symbol: str) -> bool:
     backfill sweep covers history; this helper covers the "today" row so a
     day's live view still accumulates per-component history without any
     request-time write. Returns True when a snapshot was stored.
+
+    The snapshot is dated by the stock's LATEST STORED BAR, not the runner's
+    calendar date (work list item 17). The nightly runs every day and GitHub
+    often starts it after midnight UTC, so calendar dating produced rows on
+    weekends and holidays (4,010 of 18,305 live rows on 2026-11-10) that
+    describe the previous trading day's prices. Dating by the bar keeps every
+    snapshot on a real trading day; a re-run on a non-trading day refreshes
+    that day's row instead of adding a new one. Only a stock with no stored
+    bars at all falls back to the calendar date (previous behaviour).
     """
     from datetime import date
 
@@ -922,10 +948,13 @@ async def record_live_alpha_snapshot(symbol: str) -> bool:
         result = await alpha_svc.compute_alpha(session, stock)
         if result.composite is None:
             return False
+        last_bar = await session.scalar(
+            select(func.max(DailyPrice.date)).where(DailyPrice.stock_id == stock.id)
+        )
         await alpha_repo.upsert_snapshot(
             session,
             symbol=stock.symbol,
-            snapshot_date=date.today(),
+            snapshot_date=last_bar or date.today(),
             composite=result.composite,
             fundamental=result.fundamental,
             technical=result.technical,
@@ -1181,8 +1210,15 @@ async def repair_catalog_gaps(provider: MarketDataProvider | None = None) -> dic
 
     async with SessionLocal() as session:
         stocks = (
-            await session.execute(select(Stock).where(price_gap | financials_gap | profile_gap))
+            await session.execute(
+                select(Stock).where(
+                    (price_gap | financials_gap | profile_gap)
+                    & Stock.active.is_(True)
+                )
+            )
         ).scalars().all()
+    # Retired instruments have no source; repairing them fails every night.
+    stocks = [s for s in stocks if s.symbol.split(".")[0] not in RETIRED_SYMBOLS]
 
     if not stocks:
         logger.info("Catalog repair pass: no gaps found.")
@@ -1423,7 +1459,7 @@ ETF_NAMES: dict[str, str] = {
     "SILVERBEES": "Nippon India Silver ETF",
     "LIQUIDBEES": "Nippon India ETF Liquid BeES",
     "HDFCNIFTY": "HDFC Nifty 50 ETF",
-    "ICICINIFTY": "ICICI Prudential Nifty 50 ETF",
+    "NIFTYIETF": "ICICI Prudential Nifty 50 ETF",
     "ITBEES": "Nippon India ETF IT BeES",
     "PSUBNKBEES": "Nippon India ETF PSU Bank BeES",
     "MOM100": "Motilal Oswal M100 ETF",
@@ -1453,6 +1489,17 @@ async def _ensure_etf_catalog(session) -> int:
             )
         )
         created += 1
+    # Curated ETFs that left the list (renamed or retired) drop off the ETF
+    # pages; the row and its price history are kept.
+    stale = (
+        await session.execute(select(Stock).where(Stock.is_etf.is_(True), Stock.active.is_(True)))
+    ).scalars().all()
+    for row in stale:
+        bare = row.symbol.split(".")[0]
+        if bare not in ETF_SYMBOLS:
+            row.active = False
+            row.delisted_reason = "retired"
+            row.delisted_at = datetime.now(timezone.utc)
     if created:
         await session.flush()
     return created
@@ -1711,6 +1758,17 @@ async def _fetch_one_mcap(
     return bare_symbol, fundamentals.market_cap
 
 
+async def _fetch_last_bar_date(provider: MarketDataProvider, bare_symbol: str):
+    """The provider's newest daily bar date for one symbol (None if no bars)."""
+    bars = await _with_retry(
+        lambda: provider.get_price_history(f"{bare_symbol}.NS", "1mo"),
+        what=f"freshness check for {bare_symbol}",
+        delays=_MCAP_RETRY_DELAYS,
+        jitter=_MCAP_RETRY_JITTER,
+    )
+    return max((b.date for b in bars), default=None)
+
+
 async def rank_universe(
     provider: MarketDataProvider | None = None,
     master_rows: list[NseMasterRow] | None = None,
@@ -1795,6 +1853,39 @@ async def rank_universe(
         for c in candidates
     ]
 
+    # E9 guard: before calling a stock inactive on stale STORED bars, ask the
+    # provider for its latest bar. Stocks outside the universe are not
+    # ingested, so their stored bars age even while they trade (see
+    # ranking_svc.needs_freshness_check). A failed check keeps the stored
+    # facts (the old behaviour) and is logged, not counted as an error.
+    recheck = [
+        c for c in candidates
+        if ranking_svc.needs_freshness_check(c, reference_dates)
+    ]
+    provider_last: dict[str, object] = {}
+    for i in range(0, len(recheck), batch_size):
+        batch = recheck[i : i + batch_size]
+        results = await asyncio.gather(
+            *(_fetch_last_bar_date(provider, c.symbol) for c in batch),
+            return_exceptions=True,
+        )
+        for c, res in zip(batch, results):
+            if isinstance(res, Exception):
+                logger.warning("Freshness check failed for %s: %s", c.symbol, res)
+            elif res is not None:
+                provider_last[c.symbol] = res
+        if i + batch_size < len(recheck):
+            await asyncio.sleep(_MCAP_BATCH_SLEEP_S)
+    if recheck:
+        logger.info(
+            "E9 freshness check: %d stale on stored bars, %d trading at the provider",
+            len(recheck), len(provider_last),
+        )
+    candidates = [
+        ranking_svc.with_provider_last_bar(c, provider_last.get(c.symbol))
+        for c in candidates
+    ]
+
     ctx = ranking_svc.RankContext(
         today=date.today(),
         reference_dates=reference_dates,
@@ -1845,15 +1936,29 @@ def run_daily_ingestion() -> str:
 
 
 async def _ingest_all_with_job_engine() -> str:
-    """Run the nightly passes on a job-scoped engine, then dispose of it."""
+    """Run the nightly passes on a job-scoped engine, then dispose of it.
+
+    Pooled (work list item 22). The passes open a short session per symbol
+    (thousands per night); with NullPool each one paid a fresh TCP + TLS +
+    auth handshake to Neon. A small pool reuses connections instead, sized
+    for BATCH_SIZE concurrent symbols plus the job_runs recorder. The same
+    settings as the API's engine (app.db), which already pools against the
+    same URL: pool_pre_ping replaces connections Neon closed during long
+    provider-fetch gaps, and pool_recycle retires them before Neon's idle
+    timeout. The engine is still created inside this run's event loop and
+    disposed at the end, so the cross-loop problem above cannot return.
+    """
     from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
-    from sqlalchemy.pool import NullPool
 
     from app.db import asyncpg_ready_url
 
     global SessionLocal
     engine = create_async_engine(
-        asyncpg_ready_url(settings.database_url), poolclass=NullPool
+        asyncpg_ready_url(settings.database_url),
+        pool_size=BATCH_SIZE + 2,
+        max_overflow=BATCH_SIZE,
+        pool_pre_ping=True,
+        pool_recycle=300,
     )
     original = SessionLocal
     SessionLocal = async_sessionmaker(
@@ -1959,6 +2064,72 @@ async def _record_pass(name: str, run, *args, **kwargs) -> str:
     return status
 
 
+# --- News retention (owner decision 2026-11-12: up to 20 articles per stock) -
+
+NEWS_KEEP_PER_STOCK = 20
+
+
+def news_ids_to_delete(
+    rows: list[tuple[int, str, object]],
+    symbol: str,
+    name: str | None,
+    generic: frozenset[str],
+    keep: int = NEWS_KEEP_PER_STOCK,
+) -> list[int]:
+    """Article ids to delete for one stock: everything except its `keep`
+    newest articles that pass the current relevance rule. rows are
+    (id, title, published_at); undated articles sort oldest."""
+    def sort_key(r):
+        pub = r[2]
+        return (pub is not None, pub or datetime.min.replace(tzinfo=timezone.utc), r[0])
+
+    kept = 0
+    delete: list[int] = []
+    for art_id, title, _pub in sorted(rows, key=sort_key, reverse=True):
+        if kept < keep and is_relevant_article(title, symbol, name, generic):
+            kept += 1
+        else:
+            delete.append(art_id)
+    return delete
+
+
+async def prune_news(keep: int = NEWS_KEEP_PER_STOCK) -> dict:
+    """Keep each stock's `keep` newest relevant articles; delete the rest
+    (their sentiment rows first). Runs after ingest_news."""
+    async with SessionLocal() as session:
+        names = dict(
+            (await session.execute(select(Stock.symbol, Stock.name))).all()
+        )
+        generic = generic_tokens_from_names(n for n in names.values() if n)
+        symbols = (
+            await session.execute(select(NewsArticle.symbol).distinct())
+        ).scalars().all()
+
+    deleted = 0
+    for symbol in symbols:
+        async with SessionLocal() as session:
+            rows = (
+                await session.execute(
+                    select(NewsArticle.id, NewsArticle.title, NewsArticle.published_at)
+                    .where(NewsArticle.symbol == symbol)
+                )
+            ).all()
+            ids = news_ids_to_delete(
+                [tuple(r) for r in rows], symbol, names.get(symbol), generic, keep
+            )
+            if not ids:
+                continue
+            await session.execute(
+                delete(NewsSentiment).where(NewsSentiment.article_id.in_(ids))
+            )
+            await session.execute(delete(NewsArticle).where(NewsArticle.id.in_(ids)))
+            await session.commit()
+            deleted += len(ids)
+    logger.info("News retention: %d symbols, %d articles deleted (keep %d)",
+                len(symbols), deleted, keep)
+    return {"fetched": len(symbols), "deleted": deleted, "errors": 0}
+
+
 async def _ingest_passes() -> dict:
     """All ingestion passes, each recorded and isolated (one row per pass).
 
@@ -1986,6 +2157,8 @@ async def _ingest_passes() -> dict:
         # Plan 18: no nightly LLM pre-warm — explanations are on-demand with
         # the rule-based default; the pre-warm helper remains for manual use.
         ("ingest_news", ingest_news),
+        # Owner decision 2026-11-12: up to 20 relevant articles per stock.
+        ("prune_news", prune_news),
     )
     statuses = []
     for name, run in passes:

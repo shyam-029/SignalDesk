@@ -2,7 +2,7 @@
 // Keys are structured so caches dedupe across pages (e.g. the landing preview
 // and the stock page share the same RELIANCE.NS detail entry).
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { api, type ScreenerParams } from "@/lib/api";
 import type { ExplainQuestionType } from "@/lib/types";
@@ -139,6 +139,14 @@ export function useValuation(symbol: string, metric: string = "PE") {
       if (code === "NO_PEERS" || code === "INSUFFICIENT_DATA") return false;
       return failureCount < 2;
     },
+    // A multiple the stock lacks (a bank's EV/EBITDA) is a settled answer.
+    // Without this, the selected-metric query and the multiples grid fed a
+    // loop: a refetch on mount sets the errored query back to pending, the
+    // section shows its skeleton and unmounts the grid, the error remounts
+    // the grid, which refetches again: a blank section and ~100 requests a
+    // minute that exhausted the API's per-IP rate limit. The Retry button
+    // still refetches on demand.
+    retryOnMount: false,
   });
 }
 
@@ -198,6 +206,9 @@ export function useScreener(params: ScreenerParams) {
     queryKey: ["screener", params],
     queryFn: () => api.screener(params),
     staleTime: 60_000,
+    // Paging: keep showing the current page while the next one loads,
+    // instead of flashing the loading skeleton on every page change.
+    placeholderData: keepPreviousData,
   });
 }
 

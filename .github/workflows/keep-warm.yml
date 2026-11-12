@@ -1,0 +1,44 @@
+name: keep-warm
+
+# Work list item 16. Render's free instance sleeps after ~15 minutes without
+# traffic, and the next visitor waits 30-60 s for it to wake. This pings the
+# API every 10 minutes during Indian daytime and evening so visitors rarely
+# meet a cold instance.
+#
+# Each ping also requests one screener row, which builds the screener
+# snapshot (services/screener_cache.py) after any restart or nightly run, so
+# no visitor pays for that build either.
+#
+# Hours: 02:30-18:59 UTC = 08:00-00:30 IST. Not 24/7 on purpose: Render's
+# free tier allows 750 instance-hours per month across ALL free services, and
+# an always-on instance alone would use ~744. This window uses ~500.
+# GitHub may delay or skip scheduled runs under load; in practice this ran
+# about once every 8-14 hours (2026-11-10..12). The primary pinger is now the
+# Cloudflare Cron Trigger on the frontend Worker (frontend/worker/index.js,
+# same window); this workflow stays as a backup and for manual wakes.
+
+on:
+  schedule:
+    - cron: "*/10 2-18 * * *"
+  workflow_dispatch: {}
+
+concurrency:
+  group: keep-warm
+  cancel-in-progress: true
+
+permissions: {}
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - name: Wake the API and warm the screener snapshot
+        # Never fails the run: a missed ping is not an incident (the watchdog
+        # and per-run alerts cover real failures).
+        run: |
+          API=https://signaldesk-31gt.onrender.com
+          curl -sS -o /dev/null -w "health %{http_code} in %{time_total}s\n" \
+            --max-time 90 --retry 2 --retry-delay 10 "$API/health" || true
+          curl -sS -o /dev/null -w "screener %{http_code} in %{time_total}s\n" \
+            --max-time 120 "$API/api/v1/screener?limit=1" || true

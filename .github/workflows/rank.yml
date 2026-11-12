@@ -2,8 +2,8 @@ name: rank
 
 # M1-T2: top-1000 universe ranking (E1-E12 eligibility, mcap rank, audit).
 # M1-T5 wires the monthly schedule (workflow_dispatch retained for manual
-# re-runs). 04:00 UTC on the 1st = 09:30 IST: about 9.5 h away from the
-# 13:30 UTC nightly ingestion (no overlap; rank runs ~9.5 min anyway), and
+# re-runs). 04:00 UTC on the 1st = 09:30 IST: about 6.75 h before the
+# 10:45 UTC nightly ingestion (no overlap; rank runs ~40 min), and
 # the same evening's nightly picks up the refreshed universe. Targets the
 # PRODUCTION database via the DATABASE_URL Actions secret — no scratch
 # Postgres service container.
@@ -24,7 +24,7 @@ jobs:
     # egress IPs and Yahoo throttles them hard (429 + 3-attempt backoff per
     # symbol) — observed ~40 percent through the candidate alphabet at 26
     # min, projecting ~60-75 min total. 90 min leaves 3x headroom while
-    # staying far under the 6 h job cap and clear of the 13:30 UTC nightly.
+    # staying far under the 6 h job cap and clear of the 10:45 UTC nightly.
     timeout-minutes: 90
     env:
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
@@ -59,7 +59,13 @@ jobs:
             echo "::error::SCHEMA CHECK FAILED: could not read the database's Alembic revision (${kind:-unknown error}). Details withheld from public logs. Run the 'migrate' workflow to test connectivity."
             exit 1
           fi
-          if echo "$out" | grep -q "(head)"; then
+          # Compare revision hashes explicitly (they are not secret) instead of
+          # looking for alembic's "(head)" marker, and print both so a mismatch
+          # is diagnosable from the public log.
+          current=$(echo "$out" | grep -Eo '^[0-9a-f]{12}' | head -1)
+          head=$(alembic heads 2>/dev/null | grep -Eo '^[0-9a-f]{12}' | head -1)
+          echo "Database revision: ${current:-none}; code head: ${head:-none}"
+          if [ -n "$current" ] && [ "$current" = "$head" ]; then
             echo "Schema is at Alembic head."
           else
             echo "::error::SCHEMA BEHIND CODE: database is not at Alembic head. Dispatch the 'migrate' workflow (direction=upgrade, revision=head) and then re-run this workflow. Nothing was run."
@@ -95,3 +101,16 @@ jobs:
 
           asyncio.run(main())
           EOF
+
+  # Item 8: a failed run opens (or updates) a GitHub issue; the next success
+  # closes it. See ops/ci/alert.sh.
+  alert:
+    needs: rank
+    if: always()
+    permissions:
+      issues: write
+      contents: read
+    uses: ./.github/workflows/run-alert.yml
+    with:
+      title: "Monthly ranking failing"
+      outcome: ${{ needs.rank.result }}

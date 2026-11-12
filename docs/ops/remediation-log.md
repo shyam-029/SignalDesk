@@ -4,6 +4,171 @@ Running record of the 2026-11 audit remediation: what changed, why, how it was
 verified, and what risk remains open. Newest entries first. Production numbers
 come from workflow logs; nothing here contains credentials or hostnames.
 
+<<<<<<< HEAD
+=======
+## Nightly of 2026-11-10 — first run with PRs #10-#17 (recorded 2026-11-11)
+
+Run 42896037285 (scheduled), 20:30-21:39 UTC, success. Code at 13db529,
+the pre-rewrite SHA of today's main (same tree as 40055e5), so it includes
+the Upstox price fallback, pooled job connections (item 22), the
+snapshot-date fix (item 17) and the Phase 2 guards.
+
+**Runtime: 65.2 min (nightly_ingestion 3,914 s), was 123 min.**
+
+| Pass | 2026-11-10 16:17 run (s) | This run (s) |
+|---|---|---|
+| ingest_prices | 655 | 350 |
+| ingest_financials | 529 | 301 |
+| ingest_financial_periods | 940 | 535 |
+| ingest_balance_sheets | 524 | 311 |
+| ingest_company_profiles | 872 | 471 |
+| ingest_etfs / funds | 18 / 92 | 13 / 51 |
+| repair_catalog_gaps | 584 (54 stocks) | 25 (4 stocks) |
+| backfill_alpha_history | 1,264 | 673 |
+| record_live_alpha_snapshots | 861 | 517 |
+| ingest_news | 1,005 | 641 |
+
+Every pass ran at roughly half its previous time, including the
+fetch-bound ones. Connection pooling (no fresh TLS handshake per symbol) is
+the most likely cause, but the two runs are not a controlled comparison:
+the earlier one ran in the afternoon UTC on a manual dispatch, this one at
+the scheduled night slot, and Yahoo's latency differs by time of day. The
+next few nightlies will show whether ~65 min holds. Repair was fast mainly
+because the earlier run had already repaired 50 of its 54 stocks.
+
+**Writes (Phase 2 guards, second confirmation):**
+
+| Pass | Offered | Inserted | Updated | Unchanged |
+|---|---|---|---|---|
+| Prices | 453,298 | 0 | 36,616 | 416,682 (91.9%) |
+| Alpha backfill | 482,555 | 0 | 40,528 | 442,027 (91.6%) |
+
+0 price rows inserted is expected: the 16:17 run had already stored
+2026-11-10, a market holiday. Stale alpha dates deleted: 0. Live snapshots
+stored: 1,000.
+
+**Upstox fallback (first night with the token):**
+
+- Main price pass: no fallback needed; Yahoo answered all 1,000 symbols.
+- `NXT100CASE.NS` (item 2b): Yahoo's frame was stale (2 bars, newest
+  2026-10-16), Upstox filled 17 trading days. Repair finished 4/4 with 0
+  failures, so the night is `success` for the first time since 2b began
+  (it was `partial`). The 17 filled days are unadjusted exchange prices
+  inside an adjusted series, the trade-off accepted in
+  `providers/fallback.py`. That only matters if this ETF has a split or
+  dividend in the gap.
+- `POWERIETF.NS`, `VEEFIN.NS` (catalog repair): Yahoo returns 404 "Quote
+  not found" and Upstox returns 0 candles. Likely delisted or renamed, so
+  neither source has data. They did not fail the pass.
+- `ICICINIFTY.NS` (ETF pass and repair): Yahoo empty; the Upstox lookup
+  raised MarketDataError, most likely because the symbol is not in Upstox's
+  NSE equity instrument list. It did not fail the pass.
+
+**Item 17 not exercised.** The run started at 20:30 UTC on 2026-11-10, so
+the runner's date and the last bar's date were the same day. The fix
+(snapshots dated by the latest stored bar) only shows on a run whose UTC
+date has no bar, e.g. a Saturday/Sunday run or one after midnight UTC.
+Verified by tests only so far.
+
+## Items 12, 14, 16 — Screener cache, browser caching, keep-warm (2026-11-10)
+
+**Problems.**
+
+- The screener analysed every stock in the top-1000 on every request:
+  one stock lookup plus `analyze_stock` (financials, peers, peer
+  financials) each, about 4,000 database round trips from Render's free
+  instance to Neon per page load and per sort click.
+- API responses carried no cache headers, so every navigation refetched.
+- Render's free instance sleeps after ~15 minutes idle; the next visitor
+  waits 30-60 s.
+
+**Change.**
+
+- `services/screener_cache.py`: the analysed universe is built once and
+  reused until the newest finished `job_runs` row changes (any nightly,
+  rank or manual pass) or 1 hour passes. Concurrent first requests share
+  one build. The router's filters, sorting and paging are unchanged;
+  `analyze_stock` is unchanged, so results are identical. The unused
+  `stocks.list_all_symbols` was removed.
+- `main.py`: successful `GET /api/v1/*` responses get
+  `Cache-Control: public, max-age=60, stale-while-revalidate=300`.
+- `keep-warm.yml`: pings `/health` and `/api/v1/screener?limit=1` every 10
+  minutes, 02:30-18:59 UTC (08:00-00:30 IST). Not 24/7: Render's free tier
+  allows 750 instance-hours a month across all free services; this uses
+  about 500.
+- Frontend `lib/queryPersist.ts`: successful queries are saved to
+  `localStorage` (12 h max age, 1.5 MB cap, versioned) and restored on load,
+  then refetched in the background as usual. No new dependency.
+
+**Verification.** Frontend: 78 tests pass (6 new for persistence: round
+trip, failed queries skipped, expiry, version mismatch, blocked/corrupt
+storage, size cap), type check and production build pass. Backend: new
+tests prove repeat screener requests reuse one analysis, a finished job or
+the max age triggers exactly one rebuild, cached rows equal direct
+`analyze_stock` output field for field, and cache headers appear only on
+successful API GETs. Backend tests run in CI (no local Postgres).
+
+**Not done.** Item 15 (rate-limiter client IP): Render does not document
+how it forwards the client IP, so the trusted `X-Forwarded-For` hop must be
+confirmed from real request headers first. No shared edge cache yet: the
+browser calls Render directly, so `Cache-Control` only helps each visitor's
+own browser.
+
+## Items 7, 8, 9, 20, 21, 23 — Restore test, failure alerts, workflow hardening (2026-11-10)
+
+**Problems.** Nobody had ever restored a backup (the backup job only reads
+the archive's table of contents). 45 nightly runs failed unnoticed. A
+scheduled workflow (db-probe) had been silently disabled by GitHub. The
+production `restore.yml` could run with one click and during an ingest, and
+printed the database user. Several dispatch inputs were interpolated straight
+into shell or Python source.
+
+**Change.**
+
+- `restore-test.yml` (item 7): restores the newest `signaldesk-db-dump`
+  artifact into a Postgres 17 service container on the runner, with
+  `pg_restore --exit-on-error`, then fails if any core table has zero rows.
+  It has no database secret, so it cannot reach production. Monthly on the
+  2nd at 05:00 UTC and on demand. (Replaces an untracked draft that needed a
+  scratch Neon database, which would also have counted against the cap.)
+- Alerts (item 8): `ops/ci/alert.sh` opens one GitHub issue per alert title
+  (label `ops-alert`), comments on it while the problem repeats, and closes
+  it on recovery. `run-alert.yml` is the reusable job; `ingest`, `rank`,
+  `backup` (the backup job, not the canary) and `restore-test` call it.
+- `watchdog.yml` (items 8 and 9): daily at 08:00 UTC, alerts if no ingest
+  run succeeded in the last 30 hours or if any workflow is not `active`.
+  Read-only, GitHub API only.
+- `restore.yml` (item 20): requires typing `RESTORE-PRODUCTION`, joins the
+  `nightly-ingestion` concurrency group, no longer prints database or user.
+- Inputs via env (item 21): `db-forensics.yml`, `migrate.yml`,
+  `restore.yml`, `restore-test.yml` (which also rejects a non-numeric run id).
+- `.gitignore` (item 23): `*.dump`.
+
+**Verification.** All workflow files parse. `alert.sh` was exercised
+against a stub `gh` for eight cases: first failure opens, repeat failure
+comments, success closes only the exact title, a different open alert is
+left alone, titles with quotes, and an invalid state exits 2. Its filter,
+the watchdog's ingest-age calculation (10 h at the time) and its
+disabled-workflow query were run against the real repository (read-only).
+Verified on GitHub after merging (PR #9, 2026-11-10):
+
+- `restore-test` run 42850802659: **success.** Restored backup run
+  42803216508 (`signaldesk-20261110-1055.dump`, 55 MB) with
+  `--exit-on-error`. Row counts match the Phase 1 forensics exactly:
+  daily_prices 1,273,188; alpha_scores 507,321; news_articles 61,264;
+  ranking_audit 29,301; mf_nav_history 16,772; benchmark_prices 5,395;
+  stocks 3,001; financials 2,923; alembic_version 1. The backup is
+  restorable. Its alert job ran and found nothing to open.
+- `watchdog` run 42850822540: **success.** Last successful ingest 10 h
+  earlier; no disabled workflows; no issue opened.
+- All 11 workflows are registered and active, including `restore-test`,
+  `run-alert` and `watchdog`.
+
+**Known limits.** GitHub can disable the watchdog itself after 60 days
+without repository activity. A `partial` nightly (some symbols failed)
+exits 0 and does not alert.
+
+>>>>>>> origin/main
 ## Phases 4 and 5 — Migrations only by hand; no connection details in public logs (2026-11-10)
 
 **Problem.**
@@ -116,6 +281,29 @@ are now in place (same ids, often HOT) instead of delete+insert, which is
 what stops the index bloat, but the row-version count for alpha may stay
 high. The first nightly log after deploy gives the real split.
 
+<<<<<<< HEAD
+=======
+**Result (item 2a)** — run 42852962417, 2026-11-10 16:17-18:22 UTC (an NSE
+holiday; code at 4ad7afb, i.e. Phase 2 included, PRs #10-#15 not yet):
+
+| Pass | Offered | Inserted | Updated | Unchanged | Before Phase 2 |
+|---|---|---|---|---|---|
+| Prices | 453,298 | 778 | 32,343 | 420,177 (92.7%) | ~462,514 rewritten |
+| Alpha backfill | 482,555 | 605 | 18,362 | 463,588 (96.1%) | ~493,386 deleted + re-inserted |
+
+- Rows written per night: ~52k instead of ~1.45M row operations, about a
+  96% cut. Stale alpha dates deleted: 0.
+- The alpha saving is larger than feared: the latest-sentiment blend
+  changed only ~3.8% of backfilled rows.
+- Runtime 123 min (nightly_ingestion 7,381 s). Alpha backfill 21.1 min
+  (was 26.0). Prices 10.9 min (was 11.1). Phase 2 cut writes, not fetching.
+- Night status `partial`: one catalog-repair failure, `NXT100CASE.NS`
+  (Yahoo's last bar 2026-10-16, refused by the stale-frame guard; work
+  list 2b). Repair handled 54 stocks because the morning's ranking added
+  new catalog rows.
+- The schema-at-head check (Phase 4) passed on its first real run.
+
+>>>>>>> origin/main
 **Not changed.** No schema change, no migration, no data deleted beyond
 what the old backfill already deleted. Existing bloat is not reclaimed by
 this phase (that is Phase 6: online index rebuild).
@@ -230,8 +418,17 @@ a TOC read is not a restore.
 | Risk | Status |
 |---|---|
 | `prune-alpha` gate is armed (uses `pg_database_size`, which includes bloat) | fixed (Phase 3): needs an explicit confirmation phrase, no size gate |
+<<<<<<< HEAD
 | Migrations auto-apply to production via `ingest.yml` / `rank.yml` | fixed in workflows (Phase 4); Render's own start/release command unverified |
 | Alpha backfill delete+insert churns ~493k rows/run and is non-atomic | fixed (Phase 2, PR #5); awaiting first nightly numbers |
 | Price upsert rewrites ~462k unchanged rows/run | fixed (Phase 2, PR #5); awaiting first nightly numbers |
 | Adjusted-price seam at the 2y fetch-window edge | open — needs owner decision |
 | `rank.yml` logs DB host/user/db name to public Actions logs | steps removed (Phase 5); old logs and password rotation are owner decisions |
+=======
+| Migrations auto-apply to production via `ingest.yml` / `rank.yml` | fixed (Phase 4); Render's start command is plain `uvicorn` (owner confirmed 2026-11-10), so no deploy path migrates |
+| Alpha backfill delete+insert churns ~493k rows/run and is non-atomic | fixed (Phase 2, PR #5); awaiting first nightly numbers |
+| Price upsert rewrites ~462k unchanged rows/run | fixed (Phase 2, PR #5); awaiting first nightly numbers |
+| Adjusted-price seam at the 2y fetch-window edge | open — needs owner decision |
+| `rank.yml` logs DB host/user/db name to public Actions logs | steps removed (Phase 5); the 12 runs whose logs showed host/user deleted 2026-11-10 (11 rank, 1 restore); password rotation still open (owner) |
+| Orphan `prune-alpha-recovery` / `db-probe-recovery` workflows registered on GitHub | removed 2026-11-10 (runs deleted; no workflow file on any branch) |
+>>>>>>> origin/main

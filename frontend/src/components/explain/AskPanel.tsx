@@ -16,7 +16,14 @@ const SUGGESTIONS = [
   "How is this stock valued vs peers?",
   "What is driving the fundamentals?",
   "How has it performed over the last year?",
+  "What are the main risks?",
+  "What does the company do?",
 ];
+
+const SOURCE_NOTE: Partial<Record<AskResponse["source"], string>> = {
+  model: "Written by an AI model from SignalDesk's stored data.",
+  rule_based: "Answered directly from SignalDesk's stored data. The AI assistant is not available right now.",
+};
 
 const CONFIDENCE_LABEL: Record<AskResponse["confidence"], string> = {
   high: "High confidence",
@@ -82,7 +89,7 @@ export function AskPanel({ symbol, displayName }: { symbol: string; displayName:
           role="dialog"
           aria-modal="true"
           aria-label={`Ask a research question about ${displayName}`}
-          className="pop fixed bottom-4 right-4 z-50 flex max-h-[calc(100svh-2rem)] w-[min(26rem,calc(100vw-2rem))] flex-col overflow-y-auto rounded-sm"
+          className="fixed bottom-4 right-4 z-50 flex max-h-[calc(100vh-2rem)] w-[min(26rem,calc(100vw-2rem))] flex-col overflow-y-auto rounded-sm border border-line bg-surface shadow-2xl"
         >
           <div className="flex items-center justify-between border-b border-line px-4 py-3">
             <div>
@@ -114,8 +121,8 @@ export function AskPanel({ symbol, displayName }: { symbol: string; displayName:
               onChange={(e) => setQuestion(e.target.value.slice(0, QUESTION_MAX))}
               rows={3}
               maxLength={QUESTION_MAX}
-              placeholder={`Ask about ${symbol}: its scores, valuation, fundamentals, technicals or news`}
-              className="w-full resize-none border border-rule bg-background px-3 py-2 text-sm text-foreground placeholder:text-faint focus:outline-none"
+              placeholder={`Ask about ${symbol} — its scores, valuation, fundamentals, technicals or news…`}
+              className="w-full resize-none border border-line bg-surface px-3 py-2 text-sm text-foreground placeholder:text-faint focus:outline-none"
               aria-describedby="ask-processing-note ask-character-count"
             />
             <div className="flex items-center justify-between gap-3">
@@ -189,7 +196,7 @@ export function AskPanel({ symbol, displayName }: { symbol: string; displayName:
                     const wait = err.retryAfterSeconds;
                     return (
                       <p className="text-xs leading-relaxed text-band-weak">
-                        Too many requests{wait != null ? `, retry in about ${wait}s` : ""}.
+                        Too many requests{wait != null ? ` — retry in about ${wait}s` : ""}.
                         <button
                           type="button"
                           className="ml-1 cursor-pointer underline underline-offset-2"
@@ -226,6 +233,11 @@ export function AskPanel({ symbol, displayName }: { symbol: string; displayName:
             {result && (
               <div className="border-l-2 border-cobalt/40 pl-3" aria-live="polite">
                 <p className="text-xs leading-relaxed text-foreground">{result.answer}</p>
+                {SOURCE_NOTE[result.source] && (
+                  <p data-testid="ask-source-note" className="mt-2 text-xs leading-relaxed text-faint">
+                    {SOURCE_NOTE[result.source]}
+                  </p>
+                )}
                 {result.evidence.length > 0 && (
                   <div className="mt-2.5">
                     <p className="label-caps mb-1">Evidence used</p>

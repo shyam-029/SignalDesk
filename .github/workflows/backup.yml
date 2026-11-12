@@ -1,7 +1,8 @@
 name: backup
 
 # M1-T5 weekly backup (Plan 28): pg_dump of the Neon database uploaded as a
-# workflow artifact (30-day retention), plus the Plan 22 storage canary.
+# workflow artifact (30-day retention) and copied to a private Cloudflare R2
+# bucket (newest 12 kept), plus the Plan 22 storage canary.
 #
 # Two INDEPENDENT jobs (Phase 0 remediation, 2026-11-10):
 #   backup          dump -> verify the archive -> upload. Its result answers
@@ -20,7 +21,7 @@ name: backup
 
 on:
   schedule:
-    - cron: "0 2 * * 0" # Sundays 02:00 UTC; far from ingest (13:30) and rank (04:00)
+    - cron: "0 2 * * 0" # Sundays 02:00 UTC; far from ingest (10:45) and rank (04:00)
   workflow_dispatch: {}
 
 concurrency:
@@ -83,6 +84,62 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
+      - name: Copy the dump to Cloudflare R2 (private, off-GitHub)
+        # Item 10: the repo is public and workflow artifacts expire after 30
+        # days, so each verified dump is also kept in a private R2 bucket.
+        # Weekly run, newest 12 kept (~3 months, well under 1 GB of the
+        # 10 GB free tier). The key can only touch this one bucket. GitHub
+        # masks the secret values in the log. The checksum settings are
+        # Cloudflare's recommendation for the AWS CLI against R2. It runs
+        # after the artifact upload so an R2 problem can never cost the
+        # GitHub copy (observed 2026-11-12: a DNS failure skipped it).
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          AWS_REQUEST_CHECKSUM_CALCULATION: when_required
+          AWS_RESPONSE_CHECKSUM_VALIDATION: when_required
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          KEEP: "12"
+        run: |
+          set -euo pipefail
+          # Accept the secrets as pasted: the account id is the 32-hex part
+          # (also when the whole S3 API URL was stored), the bucket is the
+          # last path segment of a URL or the plain name.
+          ACCT=$(printf '%s' "$R2_ACCOUNT_ID" | grep -oiE '[0-9a-f]{32}' | head -n1 || true)
+          R2_BUCKET=$(printf '%s' "$R2_BUCKET" | tr -d '[:space:]' | sed -e 's#/*$##' -e 's#.*/##')
+          if [ -z "$ACCT" ]; then
+            echo "::error::R2_ACCOUNT_ID has no 32-character account id; paste the part of the S3 API URL before .r2.cloudflarestorage.com"; exit 1
+          fi
+          if [ -z "$R2_BUCKET" ]; then
+            echo "::error::R2_BUCKET is empty"; exit 1
+          fi
+          # GitHub masks a secret only as stored; mask the extracted parts too.
+          echo "::add-mask::$ACCT"
+          echo "::add-mask::$R2_BUCKET"
+          echo "secrets look well-formed (account id 32 hex, bucket name ${#R2_BUCKET} chars)"
+          EP="https://${ACCT}.r2.cloudflarestorage.com"
+          aws s3 cp "$DUMP" "s3://${R2_BUCKET}/db/$DUMP" --endpoint-url "$EP" --only-show-errors
+          # Read it back: the stored size must match the local file.
+          REMOTE=$(aws s3api head-object --bucket "$R2_BUCKET" --key "db/$DUMP" \
+            --endpoint-url "$EP" --query ContentLength --output text)
+          LOCAL=$(stat -c %s "$DUMP")
+          if [ "$REMOTE" != "$LOCAL" ]; then
+            echo "::error::R2 copy size $REMOTE != local $LOCAL"; exit 1
+          fi
+          echo "R2 copy verified ($LOCAL bytes)"
+          # Retention: names sort by date, so delete all but the newest $KEEP.
+          aws s3api list-objects-v2 --bucket "$R2_BUCKET" --prefix db/ \
+            --endpoint-url "$EP" --query 'Contents[].Key' --output text \
+            | tr '\t' '\n' | grep -E '^db/signaldesk-[0-9]{8}-[0-9]{4}\.dump$' \
+            | sort | head -n -"$KEEP" | while read -r old; do
+                aws s3 rm "s3://${R2_BUCKET}/$old" --endpoint-url "$EP" --only-show-errors
+                echo "pruned $old"
+              done
+          echo "- R2: copied and verified, newest $KEEP kept" >> "$GITHUB_STEP_SUMMARY"
+
+
   storage-canary:
     # Runs after the backup job whatever its outcome (sequenced only to avoid
     # two simultaneous connections to Neon), and can never affect it.
@@ -109,3 +166,16 @@ jobs:
             echo "::error::STORAGE ALARM: at/above 800 MB (Neon enforces 1024 MB). Run db-probe forensics (dead tuples, index sizes) before acting. Do NOT run prune-alpha or delete data without owner approval."
             exit 1
           fi
+
+  # Item 8: a failed run opens (or updates) a GitHub issue; the next success
+  # closes it. See ops/ci/alert.sh.
+  alert:
+    needs: backup
+    if: always()
+    permissions:
+      issues: write
+      contents: read
+    uses: ./.github/workflows/run-alert.yml
+    with:
+      title: "Weekly backup failing"
+      outcome: ${{ needs.backup.result }}

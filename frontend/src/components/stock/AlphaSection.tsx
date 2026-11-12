@@ -1,8 +1,10 @@
+import * as React from "react";
+import { motion } from "framer-motion";
 import { ChevronDown } from "lucide-react";
 
 import { useAlpha, useAlphaExplanation, useCompanyProfile } from "@/lib/hooks";
 import { DataState } from "@/components/data/DataState";
-import { ScaleBar, ScoreBlock } from "@/components/data/ScoreBlock";
+import { ScoreBlock } from "@/components/data/ScoreBlock";
 import { SectionHeader } from "@/components/data/SectionHeader";
 import { InfoDot } from "@/components/data/InfoDot";
 import { ExplainAction } from "@/components/explain/ExplainAction";
@@ -30,10 +32,16 @@ export function AlphaSection({ symbol }: { symbol: string }) {
   const explanation = useAlphaExplanation(symbol, Boolean(alpha));
   const profile = useCompanyProfile(symbol);
 
+  const compositeBand = scoreBand(alpha?.composite);
+
   return (
-    <section id="alpha" className="scroll-mt-28 border-b border-line">
-      <div className="mx-auto max-w-6xl px-4 py-10 md:px-6">
-        <SectionHeader kicker="Signal" title="Alpha Score" />
+    <section id="alpha" className="border-b border-line">
+      <div className="mx-auto max-w-6xl px-4 py-12 md:px-6">
+        <SectionHeader
+          index="02"
+          kicker="Signal"
+          title="Alpha Score"
+        />
 
         <DataState
           loading={query.isLoading}
@@ -46,7 +54,13 @@ export function AlphaSection({ symbol }: { symbol: string }) {
             <div className="grid gap-8 lg:grid-cols-12">
               {/* Score + components */}
               <div className="lg:col-span-7">
-                <div className="border border-line bg-surface p-6">
+                <div
+                  className={cn(
+                    "border bg-surface p-6 transition-colors",
+                    compositeBand?.border,
+                    compositeBand && `${compositeBand.bg.replace("/10", "/6")}`,
+                  )}
+                >
                   <div className="grid gap-6 md:grid-cols-2">
                     <ScoreBlock
                       score={alpha.composite}
@@ -80,7 +94,7 @@ export function AlphaSection({ symbol }: { symbol: string }) {
 
                 {/* Technical sub-components (evidence, not conclusions). */}
                 {Object.keys(alpha.components).length > 0 && (
-                  <div className="mt-4 border border-line bg-surface p-4">
+                  <div className="glass mt-4 rounded-sm p-4">
                     <p className="label-caps mb-3">Technical evidence</p>
                     <div className="grid grid-cols-3 gap-4">
                       {[
@@ -98,7 +112,14 @@ export function AlphaSection({ symbol }: { symbol: string }) {
                                 {v != null ? v.toFixed(0) : "-"}
                               </span>
                             </div>
-                            <ScaleBar score={v ?? null} band={b} className="mt-1.5" />
+                            <div className="mt-1.5 h-1 bg-line">
+                              <motion.div
+                                className={cn("h-full", b?.bar ?? "bg-faint")}
+                                initial={{ width: 0 }}
+                                animate={{ width: `${v ?? 0}%` }}
+                                transition={{ duration: 0.7, ease: [0.22, 1, 0.36, 1] }}
+                              />
+                            </div>
                           </div>
                         );
                       })}
@@ -112,7 +133,12 @@ export function AlphaSection({ symbol }: { symbol: string }) {
                 {alpha.value_signal && (
                   <div>
                     <p className="label-caps mb-2">Value signal · separate from Alpha</p>
-                    <div className="border border-line bg-surface p-4">
+                    <div
+                      className={cn(
+                        "border bg-surface p-4",
+                        valuationSemantics(alpha.value_signal.status)?.band.border,
+                      )}
+                    >
                       <div className="flex items-baseline justify-between gap-2">
                         <p
                           className={cn(
@@ -138,7 +164,7 @@ export function AlphaSection({ symbol }: { symbol: string }) {
 
                 {/* Written explanation: lazy companion call, own region.
                     Only this sentence shows a loading state (cache misses). */}
-                <div className="border border-line bg-surface p-5">
+                <div className="glass rounded-sm p-5">
                   <div className="flex items-center justify-between gap-3">
                     <p className="label-caps">Written explanation</p>
                     <ExplainAction
@@ -181,13 +207,8 @@ export function AlphaSection({ symbol }: { symbol: string }) {
           )}
         </DataState>
 
-        {/* Score over time: stored snapshots only, never back-filled. */}
+        {/* Provider-sourced company background below the alpha score. */}
         <div className="mt-8">
-          <AlphaHistoryChart symbol={symbol} />
-        </div>
-
-        {/* Provider-sourced company background, collapsed by default. */}
-        <div className="mt-4">
           <CompanyBox
             loading={profile.isLoading}
             error={profile.error ?? null}
@@ -196,7 +217,13 @@ export function AlphaSection({ symbol }: { symbol: string }) {
             ceo={profile.data?.ceo ?? null}
             employees={profile.data?.employees ?? null}
             website={profile.data?.website ?? null}
+            source={profile.data?.source ?? null}
           />
+        </div>
+
+        {/* Score over time: stored snapshots only, never back-filled. */}
+        <div className="mt-8">
+          <AlphaHistoryChart symbol={symbol} />
         </div>
       </div>
     </section>
@@ -218,6 +245,7 @@ function CompanyBox({
   ceo,
   employees,
   website,
+  source,
 }: {
   loading: boolean;
   error: Error | null;
@@ -226,67 +254,83 @@ function CompanyBox({
   ceo: string | null;
   employees: number | null;
   website: string | null;
+  source: string | null;
 }) {
+  // A dropdown: closed by default so the description doesn't push the score
+  // analysis down the page.
+  const [open, setOpen] = React.useState(false);
   return (
-    <details className="group border border-line bg-surface">
-      <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-5 py-3 [&::-webkit-details-marker]:hidden">
+    <div className="glass rounded-sm">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        aria-controls="about-company-content"
+        className={cn(
+          "flex w-full items-center justify-between gap-2 px-5 py-3 text-left",
+          open && "border-b border-line",
+        )}
+      >
         <span className="label-caps">About the company</span>
         <ChevronDown
+          className={cn("size-4 text-muted transition-transform", open && "rotate-180")}
           aria-hidden
-          className="size-4 text-faint transition-transform group-open:rotate-180"
         />
-      </summary>
-      <div className="border-t border-line">
-      <DataState
-        loading={loading}
-        error={error}
-        onRetry={onRetry}
-        empty={!summary}
-        emptyTitle="No company profile stored"
-        emptyMessage="The provider has not supplied a business description for this stock yet. Nothing is generated in the meantime."
-        compact
-      >
-        <div className="px-5 py-4">
-          {summary && (
-            <div className="space-y-3">
-              {summary.split(/\n{2,}|\r\n\r\n/).filter(Boolean).map((para, i) => (
-                <p key={i} className="text-sm leading-relaxed text-muted">
-                  {para.trim()}
-                </p>
-              ))}
-            </div>
-          )}
-          {(ceo || employees != null || website) && (
-            <div className="num mt-4 flex flex-wrap gap-x-6 gap-y-1 border-t border-line pt-3 text-xs text-muted">
-              {ceo && (
-                <span>
-                  CEO <span className="text-foreground">{ceo}</span>
-                </span>
-              )}
-              {employees != null && (
-                <span>
-                  Employees <span className="text-foreground">{EMPLOYEE_FMT.format(employees)}</span>
-                </span>
-              )}
-              {website && (
-                <span>
-                  Website{" "}
-                  <a
-                    href={website.startsWith("http") ? website : `https://${website}`}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="text-foreground underline decoration-line underline-offset-4 hover:text-cobalt dark:hover:text-cobalt-strong"
-                  >
-                    {website.replace(/^https?:\/\//, "")}
-                  </a>
-                </span>
-              )}
-            </div>
-          )}
-        </div>
-      </DataState>
+      </button>
+      <div id="about-company-content" hidden={!open}>
+        {source && (
+          <p className="num px-5 pt-3 text-xs text-faint">description: {source}</p>
+        )}
+        <DataState
+          loading={loading}
+          error={error}
+          onRetry={onRetry}
+          empty={!summary}
+          emptyTitle="No company profile stored"
+          emptyMessage="The provider has not supplied a business description for this stock yet. Nothing is generated in the meantime."
+          compact
+        >
+          <div className="px-5 py-4">
+            {summary && (
+              <div className="space-y-3">
+                {summary.split(/\n{2,}|\r\n\r\n/).filter(Boolean).map((para, i) => (
+                  <p key={i} className="text-sm leading-relaxed text-muted">
+                    {para.trim()}
+                  </p>
+                ))}
+              </div>
+            )}
+            {(ceo || employees != null || website) && (
+              <div className="num mt-4 flex flex-wrap gap-x-6 gap-y-1 border-t border-line pt-3 text-xs text-muted">
+                {ceo && (
+                  <span>
+                    CEO <span className="text-foreground">{ceo}</span>
+                  </span>
+                )}
+                {employees != null && (
+                  <span>
+                    Employees <span className="text-foreground">{EMPLOYEE_FMT.format(employees)}</span>
+                  </span>
+                )}
+                {website && (
+                  <span>
+                    Website{" "}
+                    <a
+                      href={website.startsWith("http") ? website : `https://${website}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-foreground underline decoration-line underline-offset-4 hover:text-cobalt dark:hover:text-cobalt-strong"
+                    >
+                      {website.replace(/^https?:\/\//, "")}
+                    </a>
+                  </span>
+                )}
+              </div>
+            )}
+          </div>
+        </DataState>
       </div>
-    </details>
+    </div>
   );
 }
 
@@ -314,7 +358,17 @@ function ComponentBar({
         </span>
         <span className={cn("num text-sm font-medium", band?.text)}>{value ?? "-"}</span>
       </div>
-      <ScaleBar score={value} band={band} className="mt-1.5" />
+      <div className="mt-1 flex gap-[3px]" aria-hidden>
+        {Array.from({ length: 20 }, (_, i) => (
+          <span
+            key={i}
+            className={cn(
+              "h-1 flex-1",
+              i < Math.round(((value ?? 0) / 100) * 20) ? band?.bar ?? "bg-line" : "bg-line",
+            )}
+          />
+        ))}
+      </div>
     </div>
   );
 }

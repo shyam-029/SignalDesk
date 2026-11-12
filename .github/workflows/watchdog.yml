@@ -1,0 +1,103 @@
+name: watchdog
+
+# Daily dead-man's switch (items 8 and 9 of docs/ops/worklist.md).
+#
+# The per-run alerts only fire when a run happens. This catches the runs that
+# never happen or never succeed:
+#   1. no successful `ingest` run in the last 30 hours (a stuck queue, a
+#      disabled schedule, or failures before any alert could fire);
+#   2. any workflow GitHub has disabled (e.g. `disabled_inactivity`, which
+#      silently stopped db-probe before 2026-11-10).
+# Each condition opens one issue (ops/ci/alert.sh) and closes it once clear.
+# Read-only: uses the GitHub API only, never the database.
+#
+# Limitation: GitHub can also disable THIS workflow after 60 days without
+# repository activity; any commit re-arms it.
+
+on:
+  schedule:
+    - cron: "0 8 * * *" # 08:00 UTC daily; the nightly (10:45 UTC start) has finished by then
+  workflow_dispatch: {}
+
+concurrency:
+  group: watchdog
+  cancel-in-progress: false
+
+permissions:
+  actions: read
+  issues: write
+  contents: read
+
+jobs:
+  watchdog:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      MAX_INGEST_AGE_HOURS: "30"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: ops/ci
+
+      - name: Nightly ingest succeeded recently?
+        run: |
+          set -euo pipefail
+          last=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow ingest.yml \
+            --status success --limit 1 --json updatedAt --jq '.[0].updatedAt // empty')
+          now=$(date -u +%s)
+          if [ -z "$last" ]; then
+            age_h=9999
+          else
+            age_h=$(( (now - $(date -u -d "$last" +%s)) / 3600 ))
+          fi
+          echo "Last successful ingest: ${last:-never} (${age_h}h ago)"
+          if [ "$age_h" -gt "$MAX_INGEST_AGE_HOURS" ]; then
+            bash ops/ci/alert.sh "Nightly ingest stale" fail \
+              "No successful ingest run for ${age_h} hours (limit ${MAX_INGEST_AGE_HOURS}h). Last success: ${last:-never}. Check the ingest workflow's recent runs and whether its schedule is still enabled."
+          else
+            bash ops/ci/alert.sh "Nightly ingest stale" ok \
+              "Last successful ingest ${age_h}h ago."
+          fi
+
+      - name: Any workflow disabled?
+        run: |
+          set -euo pipefail
+          disabled=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows" \
+            --jq '[.workflows[] | select(.state != "active") | "\(.name) (\(.state))"] | join(", ")')
+          echo "Disabled workflows: ${disabled:-none}"
+          if [ -n "$disabled" ]; then
+            bash ops/ci/alert.sh "Workflow disabled" fail \
+              "These workflows are not active: ${disabled}. Re-enable with: gh workflow enable <name>"
+          else
+            bash ops/ci/alert.sh "Workflow disabled" ok "All workflows are active."
+          fi
+
+      - name: Upstox token still accepted?
+        # The Upstox price fallback (providers/fallback.py) silently degrades
+        # to Yahoo-only if the token is rejected, so check it daily. One small
+        # read-only request; only the HTTP status is printed, never the token.
+        # The token was issued ~2026-11 and expires ~2027-08.
+        env:
+          UPSTOX_ANALYTICS_TOKEN: ${{ secrets.UPSTOX_ANALYTICS_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${UPSTOX_ANALYTICS_TOKEN:-}" ]; then
+            echo "No UPSTOX_ANALYTICS_TOKEN secret: fallback disabled, nothing to check."
+            exit 0
+          fi
+          to=$(date -u +%F); from=$(date -u -d '7 days ago' +%F)
+          code=$(curl -sS -o /dev/null -w "%{http_code}" --max-time 30 \
+            -H "Accept: application/json" \
+            -H "Authorization: Bearer $UPSTOX_ANALYTICS_TOKEN" \
+            "https://api.upstox.com/v2/historical-candle/NSE_INDEX%7CNifty%2050/day/$to/$from" || echo "000")
+          echo "Upstox check: HTTP $code"
+          if [ "$code" = "401" ] || [ "$code" = "403" ]; then
+            bash ops/ci/alert.sh "Upstox token rejected" fail \
+              "Upstox returned HTTP $code for a read-only request: the token has expired or been revoked, so the nightly's Upstox price fallback is off. Generate a new token in the Upstox developer dashboard and update the UPSTOX_ANALYTICS_TOKEN secret."
+          elif [ "$code" = "200" ]; then
+            bash ops/ci/alert.sh "Upstox token rejected" ok "Upstox accepted the token (HTTP 200)."
+          else
+            echo "Upstox check inconclusive (HTTP $code); not alerting on a possible outage."
+          fi
