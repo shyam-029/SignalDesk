@@ -20,7 +20,7 @@ ETF_SYMBOLS: frozenset[str] = frozenset(
         "SILVERBEES",
         "LIQUIDBEES",
         "HDFCNIFTY",
-        "ICICINIFTY",
+        "NIFTYIETF",  # was ICICINIFTY on NSE (renamed; old symbol 404s on Yahoo)
         "ITBEES",
         "PSUBNKBEES",
         "MOM100",
@@ -45,13 +45,24 @@ NOT_ORDINARY_EQUITY: dict[str, str] = {
 }
 
 
+# Retired instruments: no usable data from any source. Never ranked, never
+# repaired, hidden from lists; their rows and history are kept (owner,
+# 2026-11-12).
+RETIRED_SYMBOLS: dict[str, str] = {
+    "POWERIETF": "no price data on Yahoo or Upstox since 2026-10",
+    "ICICINIFTY": "renamed NIFTYIETF on NSE",
+}
+
+
 def curated_exclusion(bare_symbol: str) -> tuple[str, str] | None:
     """Return (reason, detail) for a curated exclusion, or None.
 
-    reason is "etf" (E2) or "not_ordinary_equity" (E4). E3 (mutual funds)
+    reason is "retired", "etf" (E2) or "not_ordinary_equity" (E4). E3 (mutual funds)
     needs no curated list: MF units never appear in the ordinary-equity
     series, so the series filter (E1) already covers them.
     """
+    if bare_symbol in RETIRED_SYMBOLS:
+        return ("retired", RETIRED_SYMBOLS[bare_symbol])
     if bare_symbol in ETF_SYMBOLS:
         return ("etf", "ETF")
     klass = NOT_ORDINARY_EQUITY.get(bare_symbol)
