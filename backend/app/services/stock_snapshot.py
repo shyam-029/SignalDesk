@@ -54,6 +54,17 @@ CONCURRENCY = 24
 # trips and lets repeated lookups (the stock row) come from the session's
 # identity map; more stocks in parallel overlaps the remaining waits.
 _stock_session: ContextVar[AsyncSession | None] = ContextVar("_stock_session", default=None)
+# The batch engine's session factory (set by main()/install_shared_sessions).
+_batch_factory: async_sessionmaker[AsyncSession] | None = None
+
+
+def install_shared_sessions(app, factory: async_sessionmaker[AsyncSession]) -> None:
+    """Point the app's get_session at the batch sessions (main() and tests)."""
+    global _batch_factory
+    from app.db import get_session
+
+    _batch_factory = factory
+    app.dependency_overrides[get_session] = shared_session
 
 
 def stock_queries(symbol: str) -> list[tuple[list[Any], str]]:
@@ -97,9 +108,14 @@ async def shared_session() -> AsyncIterator[AsyncSession]:
     Installed only by main(); tests and the live API never use it.
     """
     session = _stock_session.get()
-    if session is None:  # pragma: no cover - main() always sets one
-        raise RuntimeError("stock snapshot: no session for this request")
-    yield session
+    if session is not None:
+        yield session
+        return
+    # Outside a stock (listing the universe): a short-lived session of its own.
+    if _batch_factory is None:
+        raise RuntimeError("stock snapshot: shared_session used without a batch factory")
+    async with _batch_factory() as own:
+        yield own
 
 
 async def build_one(
@@ -197,7 +213,7 @@ def main(argv: list[str]) -> int:
     from sqlalchemy.ext.asyncio import create_async_engine
 
     from app.config import settings
-    from app.db import asyncpg_ready_url, get_session
+    from app.db import asyncpg_ready_url
     from app.main import app
 
     # In-process calls all come from one "client"; lift the per-IP limits
@@ -216,7 +232,7 @@ def main(argv: list[str]) -> int:
             max_overflow=0,
         )
         factory = async_sessionmaker(bind=engine, expire_on_commit=False)
-        app.dependency_overrides[get_session] = shared_session
+        install_shared_sessions(app, factory)
         try:
             return await build_all(app, Path(argv[1]), factory)
         finally:
