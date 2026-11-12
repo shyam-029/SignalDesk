@@ -273,8 +273,8 @@ function PeerRow({ peer }: { peer: PeerSummary }) {
 
 const TONE_CLASS: Record<string, string> = {
   neutral: "text-foreground",
-  positive: "text-band-positive",
-  weak: "text-band-weak",
+  positive: "text-up",
+  weak: "text-down",
   cobalt: "text-cobalt dark:text-cobalt-strong",
   jade: "text-accent-jade",
   teal: "text-accent-teal",

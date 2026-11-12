@@ -4,7 +4,7 @@ import { ChevronDown } from "lucide-react";
 
 import { useAlpha, useAlphaExplanation, useCompanyProfile } from "@/lib/hooks";
 import { DataState } from "@/components/data/DataState";
-import { ScoreBlock } from "@/components/data/ScoreBlock";
+import { ScaleBar, ScoreBlock } from "@/components/data/ScoreBlock";
 import { SectionHeader } from "@/components/data/SectionHeader";
 import { InfoDot } from "@/components/data/InfoDot";
 import { ExplainAction } from "@/components/explain/ExplainAction";
@@ -358,17 +358,7 @@ function ComponentBar({
         </span>
         <span className={cn("num text-sm font-medium", band?.text)}>{value ?? "-"}</span>
       </div>
-      <div className="mt-1 flex gap-[3px]" aria-hidden>
-        {Array.from({ length: 20 }, (_, i) => (
-          <span
-            key={i}
-            className={cn(
-              "h-1 flex-1",
-              i < Math.round(((value ?? 0) / 100) * 20) ? band?.bar ?? "bg-line" : "bg-line",
-            )}
-          />
-        ))}
-      </div>
+      <ScaleBar score={value} band={band} className="mt-1.5" />
     </div>
   );
 }

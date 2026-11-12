@@ -91,7 +91,7 @@ export function TimeSeriesChart({
         textColor: css("--muted"),
         // Only weights 500+ of IBM Plex Mono are loaded, so the canvas's
         // implicit 400 request resolves to the 500 face per CSS matching.
-        fontFamily: "'IBM Plex Mono', monospace",
+        fontFamily: "'IBM Plex Sans', sans-serif",
         fontSize: 12,
       },
       grid: {
@@ -116,6 +116,9 @@ export function TimeSeriesChart({
         horzLine: { visible: false, labelVisible: false },
       },
       rightPriceScale: { borderColor: css("--line") },
+      // The axis uses the same formatter as the readout, so a 0-100 score
+      // axis reads "60", not "60.00".
+      ...(valueFormatter ? { localization: { priceFormatter: valueFormatter } } : {}),
       timeScale: { borderColor: css("--line"), rightOffset: 3 },
       // Fixed viewport: exactly the data the backend provides, no drag
       // panning or pinch/wheel scaling (a stray drag could shrink or blank

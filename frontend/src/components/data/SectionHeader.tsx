@@ -1,15 +1,16 @@
 import * as React from "react";
-import { motion } from "framer-motion";
 
 import { cn } from "@/lib/utils";
 
 /**
- * SectionHeader: editorial section opener: optional index ("02"), a serif
- * title, an optional kicker, and a hairline rule. Sections are separated by
- * rules and whitespace, not by wrapping everything in cards.
+ * SectionHeader: a plain section opener. A small caps kicker, a serif title,
+ * an optional right-hand control, and one hairline rule. It does not animate:
+ * headings that fade in on scroll read as decoration, not as research.
+ *
+ * `index` is accepted for backwards compatibility and intentionally not
+ * rendered (the hanging "02" numerals pushed titles off the content edge).
  */
 export function SectionHeader({
-  index,
   title,
   kicker,
   aside,
@@ -22,25 +23,16 @@ export function SectionHeader({
   className?: string;
 }) {
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 12 }}
-      whileInView={{ opacity: 1, y: 0 }}
-      viewport={{ once: true, margin: "-60px" }}
-      transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
-      className={cn("mb-6 border-b border-line pb-4", className)}
-    >
-      <div className="flex items-baseline justify-between gap-4">
-        <div className="flex items-baseline gap-4">
-          {index && <span className="num text-xs text-faint">{index}</span>}
-          <div>
-            {kicker && <p className="label-caps mb-1">{kicker}</p>}
-            <h2 className="font-display text-2xl font-semibold tracking-[-0.01em] md:text-[28px]">
-              {title}
-            </h2>
-          </div>
+    <div className={cn("mb-6 border-b border-line pb-4", className)}>
+      <div className="flex flex-wrap items-end justify-between gap-x-4 gap-y-3">
+        <div>
+          {kicker && <p className="label-caps mb-1.5">{kicker}</p>}
+          <h2 className="font-display text-2xl font-semibold tracking-[-0.01em] md:text-[26px]">
+            {title}
+          </h2>
         </div>
         {aside && <div className="shrink-0">{aside}</div>}
       </div>
-    </motion.div>
+    </div>
   );
 }
