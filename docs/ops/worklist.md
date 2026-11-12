@@ -58,15 +58,17 @@ Legend: `[x]` merged to main · `[~]` in progress · `[ ]` not started ·
 - [x] **9** All 8 workflows checked active on 2026-11-10 (db-probe was
       re-enabled earlier); `watchdog.yml` now alerts daily on any disabled
       workflow (PR #9)
-- [ ] **10** Private off-GitHub backup copy (repo is public; artifacts last
+- [x] **10** Private off-GitHub backup copy (repo is public; artifacts last
       30 days). The monthly restore test is covered by item 7. Decided
       2026-11-12: Cloudflare R2 (10 GB free, already on Cloudflare, S3
       API, no egress fees). Bucket, bucket-scoped token and the four
       `R2_*` Actions secrets set up by the owner 2026-11-12. The weekly
       `backup.yml` (owner chose weekly: a nightly dump would use about a
       third of Neon's 5 GB/month transfer) copies each verified dump to R2,
-      checks the stored size and keeps the newest 12. Done once a run
-      shows the file in the bucket.
+      checks the stored size and keeps the newest 12 (PRs #34, #36; the
+      artifact uploads first so an R2 failure cannot cost the GitHub copy).
+      Verified 2026-11-12: run 43197245738 copied a 58.7 MB dump and read
+      its size back.
 - [x] **11** Private progress trackers updated 2026-11-12
       (`SEMESTER2_PROGRESS.md` section 17; local, gitignored)
 
