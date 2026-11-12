@@ -1,12 +1,45 @@
 # News repository — read queries for the /news and /sentiment endpoints.
 
+import time
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import case, func, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.models import NewsArticle, NewsSentiment
+from app.models import NewsArticle, NewsSentiment, Stock
+from app.services.news_relevance import generic_tokens_from_names, is_relevant_article
+
+# Read-time relevance (2026-11-11): articles stored under the old, looser
+# rule stay in the table (no deletion) but are filtered by the current rule
+# wherever they are shown or aggregated. The catalog's generic name words
+# are cached per process and refreshed hourly.
+_GENERIC_TTL_S = 3600
+_generic_cache: tuple[float, frozenset[str]] | None = None
+
+
+def reset_cache() -> None:
+    """Test hook."""
+    global _generic_cache
+    _generic_cache = None
+
+
+async def _generic_tokens(session: AsyncSession) -> frozenset[str]:
+    global _generic_cache
+    now = time.monotonic()
+    if _generic_cache and now - _generic_cache[0] < _GENERIC_TTL_S:
+        return _generic_cache[1]
+    names = (await session.execute(select(Stock.name).where(Stock.active.is_(True)))).scalars()
+    tokens = generic_tokens_from_names(n for n in names if n)
+    _generic_cache = (now, tokens)
+    return tokens
+
+
+async def _relevance_check(session: AsyncSession, symbol: str):
+    """A title -> bool filter for this symbol under the current rule."""
+    name = await session.scalar(select(Stock.name).where(Stock.symbol == symbol))
+    generic = await _generic_tokens(session)
+    return lambda title: is_relevant_article(title, symbol, name, generic)
 
 
 async def get_articles(
@@ -32,11 +65,13 @@ async def get_articles(
         q = q.where(
             (NewsArticle.published_at.is_(None)) | (NewsArticle.published_at >= cutoff)
         )
+    # Over-fetch, then drop articles the current relevance rule rejects.
     q = q.order_by(
         NewsArticle.published_at.desc().nulls_last(), NewsArticle.id.desc()
-    ).limit(limit)
+    ).limit(limit * 4)
+    relevant = await _relevance_check(session, symbol)
     result = await session.execute(q)
-    return list(result.scalars())
+    return [a for a in result.scalars() if relevant(a.title)][:limit]
 
 
 async def get_sentiment_summary(
@@ -48,26 +83,22 @@ async def get_sentiment_summary(
     score is the mean confidence weighted by label sign: positive=+1,
     negative=-1, neutral=0, mapped to a -1..+1 range.
     """
-    q = (
-        select(
-            func.count(NewsSentiment.id).label("count"),
-            func.sum(
-                case(
-                    (NewsSentiment.label == "positive", NewsSentiment.score),
-                    (NewsSentiment.label == "negative", -NewsSentiment.score),
-                    else_=0,
-                )
-            ).label("net"),
+    rows = (
+        await session.execute(
+            select(NewsArticle.title, NewsSentiment.label, NewsSentiment.score)
+            .select_from(NewsSentiment)
+            .join(NewsArticle, NewsArticle.id == NewsSentiment.article_id)
+            .where(NewsArticle.symbol == symbol)
         )
-        .join(NewsArticle, NewsArticle.id == NewsSentiment.article_id)
-        .where(NewsArticle.symbol == symbol)
-    )
-    row = (await session.execute(q)).one()
-    count = row.count
+    ).all()
+    relevant = await _relevance_check(session, symbol)
+    signed = {"positive": 1.0, "negative": -1.0}
+    kept = [r for r in rows if relevant(r.title)]
+    count = len(kept)
     if not count:
         return None
+    net = sum(signed.get(r.label, 0.0) * float(r.score or 0.0) for r in kept)
 
-    net = float(row.net or 0.0)
     score = round(net / count, 4)  # -1..+1
 
     if score > 0.1:

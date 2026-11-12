@@ -139,6 +139,14 @@ export function useValuation(symbol: string, metric: string = "PE") {
       if (code === "NO_PEERS" || code === "INSUFFICIENT_DATA") return false;
       return failureCount < 2;
     },
+    // A multiple the stock lacks (a bank's EV/EBITDA) is a settled answer.
+    // Without this, the selected-metric query and the multiples grid fed a
+    // loop: a refetch on mount sets the errored query back to pending, the
+    // section shows its skeleton and unmounts the grid, the error remounts
+    // the grid, which refetches again: a blank section and ~100 requests a
+    // minute that exhausted the API's per-IP rate limit. The Retry button
+    // still refetches on demand.
+    retryOnMount: false,
   });
 }
 

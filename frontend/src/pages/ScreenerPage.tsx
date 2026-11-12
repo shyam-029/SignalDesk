@@ -1,6 +1,6 @@
 import * as React from "react";
-import { Link } from "react-router-dom";
-import { ArrowDown, ArrowUp, ChevronDown, RotateCcw, Search } from "lucide-react";
+import { Link, useSearchParams } from "react-router-dom";
+import { ArrowDown, ArrowUp, ChevronDown, RotateCcw, Search, X } from "lucide-react";
 
 import { useScreener, useStockList } from "@/lib/hooks";
 import type { ScreenResult } from "@/lib/types";
@@ -38,8 +38,12 @@ function nextSort(current: SortState, key: SortKey): SortState {
  * are clamped client-side and validated by the API.
  */
 export default function ScreenerPage() {
+  // A stock page's sector or industry link opens the screener pre-filtered
+  // (/screener?sector=...&industry=...).
+  const [searchParams] = useSearchParams();
   const [status, setStatus] = React.useState<string>("");
-  const [sector, setSector] = React.useState<string>("");
+  const [sector, setSector] = React.useState<string>(searchParams.get("sector") ?? "");
+  const [industry, setIndustry] = React.useState<string>(searchParams.get("industry") ?? "");
   const [minProfitability, setMinProfitability] = React.useState<string>("");
   const [minSolvency, setMinSolvency] = React.useState<string>("");
   const [sort, setSort] = React.useState<SortState>(null);
@@ -58,18 +62,20 @@ export default function ScreenerPage() {
   const minP = clamp100(minProfitability);
   const minS = clamp100(minSolvency);
 
-  const anyFilter = minP != null || minS != null || status !== "" || sector !== "";
+  const anyFilter =
+    minP != null || minS != null || status !== "" || sector !== "" || industry !== "";
 
   // Server-side paging: the API filters and sorts the whole universe, then
   // returns one page. Any filter or sort change starts again at page 1.
   const [page, setPage] = React.useState(1);
   React.useEffect(() => {
     setPage(1);
-  }, [status, sector, minP, minS, sort?.key, sort?.direction]);
+  }, [status, sector, industry, minP, minS, sort?.key, sort?.direction]);
 
   const query = useScreener({
     status: status || null,
     sector: sector || null,
+    industry: industry || null,
     minProfitability: minP,
     minSolvency: minS,
     sort: sort?.key,
@@ -198,7 +204,10 @@ export default function ScreenerPage() {
           Sector
           <Select
             value={sector}
-            onChange={(e) => setSector(e.target.value)}
+            onChange={(e) => {
+              setSector(e.target.value);
+              setIndustry("");
+            }}
             className="w-44"
             aria-label="Filter by sector"
           >
@@ -210,6 +219,19 @@ export default function ScreenerPage() {
             ))}
           </Select>
         </label>
+        {industry && (
+          <span className="flex items-center gap-1.5 border border-line px-2 py-1 text-xs text-muted">
+            Industry <span className="text-foreground">{industry}</span>
+            <button
+              type="button"
+              onClick={() => setIndustry("")}
+              aria-label={`Clear the ${industry} industry filter`}
+              className="text-faint hover:text-foreground"
+            >
+              <X className="size-3.5" />
+            </button>
+          </span>
+        )}
         <label className="flex items-center gap-2 text-xs text-muted">
           Min profitability
           <Input
@@ -243,6 +265,7 @@ export default function ScreenerPage() {
             onClick={() => {
               setStatus("");
               setSector("");
+              setIndustry("");
               setMinProfitability("");
               setMinSolvency("");
             }}
