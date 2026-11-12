@@ -44,7 +44,10 @@ jobs:
         run: |
           PGURL=$(echo "$DATABASE_URL" | sed -e 's/^postgresql+asyncpg:/postgresql:/' -e 's/ssl=require/sslmode=require/')
           PSQL=/usr/lib/postgresql/17/bin/psql
-          $PSQL "$PGURL" -v ON_ERROR_STOP=1 -c "SELECT pg_size_pretty(pg_database_size(current_database())) AS db_size, current_database() AS db;"
+          $PSQL "$PGURL" -v ON_ERROR_STOP=1 -c "SELECT pg_size_pretty(pg_database_size(current_database())) AS db_size;"
+          # Which migration the database is at (compare with `alembic heads`);
+          # the ingest/rank schema checks only print pass/fail.
+          $PSQL "$PGURL" -v ON_ERROR_STOP=1 -c "SELECT version_num AS alembic_revision FROM alembic_version;"
           $PSQL "$PGURL" -v ON_ERROR_STOP=1 -c "
             SELECT relname AS table,
                    pg_size_pretty(pg_total_relation_size(relid)) AS total_size,
