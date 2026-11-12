@@ -1,7 +1,7 @@
 """Item 6: reclaim index bloat online
 
 Revision ID: 9a8b7c6d5e4f
-Revises: b2c3d4e5f6a7
+Revises: c3d4e5f6a7b8
 Create Date: 2026-11-12 00:00:00.000000
 
 Measured 2026-11-10 (storage forensics): alpha_scores_pkey 93.8 MB with 0
@@ -21,7 +21,7 @@ from alembic import op
 
 
 revision: str = '9a8b7c6d5e4f'
-down_revision: Union[str, Sequence[str], None] = 'b2c3d4e5f6a7'
+down_revision: Union[str, Sequence[str], None] = 'c3d4e5f6a7b8'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
