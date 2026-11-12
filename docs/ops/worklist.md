@@ -42,10 +42,12 @@ Legend: `[x]` merged to main · `[~]` in progress · `[ ]` not started ·
 - [x] **4** Migrations only via `migrate.yml`; ingest/rank fail fast if the
       schema is behind (PR #6)
 - [x] **5** Remove host/user/db diagnostics from `rank.yml` (PR #6)
-- [ ] **6** Reclaim index bloat online: `REINDEX CONCURRENTLY
+- [~] **6** Reclaim index bloat online: `REINDEX CONCURRENTLY
       alpha_scores_pkey` (93.8 MB, 0 scans), drop redundant
       `ix_daily_prices_stock_id` (17.2 MB) and `ix_alpha_scores_symbol`
-      (9.0 MB); check Neon headroom first; prod DDL needs approval
+      (9.0 MB). Owner approved 2026-11-12; headroom checked (543 MB of
+      1,024 MB). Migration `9a8b7c6d5e4f` (PR pending), then `migrate.yml`
+      outside the nightly window
 - [x] **7** Restore test: `restore-test.yml` restores the newest backup
       artifact into a throwaway Postgres on the runner (no secret, never
       touches production), checks every core table has rows; monthly on the
