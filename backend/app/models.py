@@ -113,7 +113,9 @@ class DailyPrice(Base):
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    stock_id: Mapped[int] = mapped_column(ForeignKey("stocks.id"), index=True)
+    # No separate index: uq_daily_prices_stock_date (stock_id, date) already
+    # serves stock_id lookups (item 6 dropped the redundant ix_daily_prices_stock_id).
+    stock_id: Mapped[int] = mapped_column(ForeignKey("stocks.id"))
     date: Mapped[date]
     # Prices as Numeric (fixed-precision decimal) — no float rounding errors.
     open: Mapped[Numeric] = mapped_column(Numeric(16, 4))
@@ -317,7 +319,9 @@ class AlphaScore(Base):
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    symbol: Mapped[str] = mapped_column(index=True)
+    # No separate index: uq_alpha_scores_symbol_date (symbol, date) covers it
+    # (item 6 dropped the redundant ix_alpha_scores_symbol).
+    symbol: Mapped[str] = mapped_column()
     date: Mapped[date]
 
     # Sub-scores 0-100 (nullable when a dimension has no data).
