@@ -138,8 +138,15 @@ Legend: `[x]` merged to main · `[~]` in progress · `[ ]` not started ·
       through Cloudflare, so there is no shared edge cache yet; proxying
       `/api` through the Worker with edge caching is a separate, larger
       change (PR #10)
-- [ ] **13** Nightly static JSON snapshot for the landing page (benchmarks,
-      top-50 ticker, a 6-month chart, market news)
+- [x] **13** Landing snapshot, both halves (owner, 2026-11-11):
+      `GET /api/v1/landing` returns all seven landing queries in one cached
+      response (rebuilt when a job finishes), and `landing-snapshot.yml`
+      commits it after each successful ingest as
+      `frontend/public/snapshot/landing.json`, which Cloudflare serves
+      statically; the landing page seeds its query cache from it and then
+      refreshes from the API. Market news is not on the landing page, so it
+      is not included (PR #20). After merge: dispatch the workflow once
+      to create the first file
 - [x] **14** Screener: the analysed universe is cached in memory and rebuilt
       only when a job finishes (or after 1 h), instead of ~4,000 database
       round trips per request; filter/sort/paging unchanged and identical
@@ -198,19 +205,40 @@ baseline). Each item touches `ingest.yml` / `jobs.py`, so one branch each.
 
 ## Product
 
-- [ ] Quick UI fixes: About as a dropdown; remove internal descriptions
-      ("543 bars", weights text); industry link goes to the screener, not
-      markets; even, ordered market cards; valuation section shows dashes
-      instead of going blank when P/B or EBITDA is missing; Ask panel too
-      transparent
-- [ ] Alpha chart: remove the fundamental/sentiment lines; investigate the
-      large technical-score swings
-- [ ] News relevance: articles are attached to the wrong stock whenever a
-      ticker or company name is also an ordinary word, acronym or another
-      organisation's name. This is systemic, not a few cases (owner,
-      2026-11-10); examples: ACC (cricket body vs ACC Ltd), "eternal" (the
-      word vs ETERNAL.NS). Needs a general matching rule plus a measured
-      false-match rate over stored articles, not a per-ticker blocklist
+- [x] Quick UI fixes (PR #21): "About the company" is a dropdown,
+      closed by default; bar counts and the weights text removed; sector and
+      industry link to the screener (new `industry` filter); market index
+      cards in a fixed order, four per row; the blank valuation section was
+      a request loop on a missing multiple (a bank's EV/EBITDA: about 100
+      requests a minute, enough to hit the per-IP rate limit), fixed with
+      `retryOnMount: false`. Ask panel done in PR #16
+- [x] Alpha chart: fundamental/sentiment lines removed (they existed only
+      on the few live snapshots) (PR #22). Technical swings
+      investigated 2026-11-11: no bug and no day-to-day noise (median daily
+      step 1-2 points); the v1.5 calibration (2026-09-08: trend scale 600,
+      momentum 4000, EMA span 5) is simply sensitive, so a few percent of
+      price trend moves the score 20-36 points within 20 trading days
+      (INFY 30 -> 86 in October). Measured on 1y of INFY / HDFCBANK / ITC
+      closes, median 20-day range: current 36 / 21 / 20; EMA 10 with the
+      same scales 29 / 16 / 16; EMA 10 with half scales (300 / 2000)
+      15 / 7 / 7; EMA 20 with half scales 10 / 5 / 5. Halving the scales
+      partly undoes v1.5's goal (scores stuck at 40-60). [?] Owner decision:
+      keep, EMA 10 only, or EMA 10 + half scales (fold into alpha v2)
+- [x] News relevance (PR #24): new general rule (no per-ticker list).
+      Strong: the name's distinctive words together in order, or a
+      multi-word name's non-generic brand word. Ambiguous (needs a market
+      word such as shares, Q2, crore, NSE, results): a one-word name, the
+      ticker, the name's initials. Words on 3+ catalog names (bank, india,
+      hdfc, tata) never count alone. Applied at ingest and at read time
+      (news list and the sentiment that feeds Alpha); stored rows are not
+      deleted. Measured 2026-11-11 on 1,173 stored headlines for 30
+      ambiguous-name stocks: the rule rejects 360; reading all rejects,
+      about 90% were wrong-company (ACC: 47 of 50 were US college sports,
+      Bangladesh's Anti-Corruption Commission or the Asian Cricket Council;
+      Trent: 46 of 50). In a random 60 of the kept, about 5 are still wrong
+      (~8%), against an estimated ~28% under the old rule. Known misses: a
+      company headline with no market word ("Eternal founder Deepinder
+      Goyal ...")
 - [ ] Alpha v2 with flexible, lower sentiment weighting
 - [ ] Redesign ETF and fund pages (needs holdings data first)
 

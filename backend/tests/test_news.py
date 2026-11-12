@@ -1,4 +1,4 @@
-﻿# Phase 3 tests â€” news + sentiment. All network-free:
+# Phase 3 tests â€” news + sentiment. All network-free:
 #  - FakeNewsProvider (no RSS) + FakeScorer (no FinBERT) are used everywhere.
 #  - DB writes go to signaldesk_test via session_factory / monkeypatched SessionLocal.
 
@@ -142,9 +142,9 @@ async def _seed_news(session_factory) -> None:
     # Recent, timezone-aware dates so the freshness window never ages out.
     now = datetime.now(timezone.utc)
     async with session_factory() as session:
-        a1 = NewsArticle(symbol="RELIANCE.NS", source="Test", title="Profits up",
+        a1 = NewsArticle(symbol="RELIANCE.NS", source="Test", title="Reliance profits up",
                          url="https://e.com/1", published_at=now - timedelta(days=1))
-        a2 = NewsArticle(symbol="RELIANCE.NS", source="Test", title="Stock drops",
+        a2 = NewsArticle(symbol="RELIANCE.NS", source="Test", title="Reliance stock drops",
                          url="https://e.com/2", published_at=now - timedelta(days=2))
         session.add_all([a1, a2])
         await session.flush()
@@ -163,7 +163,7 @@ async def test_news_endpoint(client, session_factory):
     body = r.json()
     assert len(body["items"]) == 2
     # Newest first (Profits up published 08-18)
-    assert body["items"][0]["title"] == "Profits up"
+    assert body["items"][0]["title"] == "Reliance profits up"
     assert body["items"][0]["sentiment"] == "positive"
     assert body["items"][1]["sentiment"] == "negative"
 

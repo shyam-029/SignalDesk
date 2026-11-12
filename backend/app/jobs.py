@@ -52,6 +52,7 @@ from app.providers.funds_data import (
 from app.providers.news_base import Article, NewsProvider
 from app.providers.nse_master import NseMasterRow, fetch_master_with_retry
 from app.providers.rss_provider import GoogleNewsRSSProvider, NewsProviderError
+from app.services.news_relevance import generic_tokens_from_names
 from app.providers.sentiment import FinBERTScorer, Sentiment
 from app.providers.upstox_provider import SYMBOL_ALIASES
 from app.providers.yfinance_provider import MarketDataError, YFinanceProvider
@@ -769,6 +770,11 @@ async def ingest_news(
     if not universe:
         logger.warning("No symbols found for universe '%s'.", UNIVERSE_NAME)
         return {"fetched": 0, "inserted": 0, "scored": 0, "errors": 0}
+
+    # Words shared by many company names in the universe ("bank", "hdfc",
+    # "tata") never attach an article to one company on their own.
+    if hasattr(provider, "generic_tokens"):
+        provider.generic_tokens = generic_tokens_from_names(n for _, n in universe if n)
 
     total_inserted = 0
     total_scored = 0

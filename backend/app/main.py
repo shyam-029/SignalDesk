@@ -63,7 +63,7 @@ from app.jobs import start_scheduler
 from app.logging_utils import configure_logging, request_id_middleware
 from app.nan_guard import nan_guard_middleware
 from app.repositories import job_runs as job_runs_repo
-from app.routers import alpha, altman, ask, debug, etfs, explain, fundamentals, funds, history, market, news, scores, screener, stocks, technicals, valuation
+from app.routers import alpha, altman, ask, debug, etfs, explain, fundamentals, funds, history, landing, market, news, scores, screener, stocks, technicals, valuation
 from app.services.valuation import InsufficientDataError, NoPeersError
 
 logger = logging.getLogger(__name__)
@@ -264,6 +264,7 @@ app.include_router(technicals.router, prefix="/api/v1")
 app.include_router(history.router, prefix="/api/v1")
 app.include_router(ask.router, prefix="/api/v1")
 app.include_router(explain.router, prefix="/api/v1")
+app.include_router(landing.router, prefix="/api/v1")
 # Operational endpoint: intentionally not under /api/v1 (not a public
 # product API). Phase 8: requires OPS_API_KEY (the debug router declares the
 # dependency; unauthenticated callers get a 404 with no oracle).

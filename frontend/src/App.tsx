@@ -11,6 +11,7 @@ import { PageLoader } from "@/components/data/PageLoader";
 import { SkipLink } from "@/components/layout/SkipLink";
 import LegalPage from "@/pages/LegalPage";
 import { persistQueryCache } from "@/lib/queryPersist";
+import { loadLandingSnapshot } from "@/lib/landingSnapshot";
 
 const LandingPage = lazy(() => import("@/pages/LandingPage"));
 const MarketsPage = lazy(() => import("@/pages/MarketsPage"));
@@ -33,6 +34,12 @@ const queryClient = new QueryClient({
 
 // Repeat visits render the last-seen data instantly while fresh data loads.
 persistQueryCache(queryClient);
+
+// The landing page's data is also published as a static file after each
+// nightly (item 13), so a first visit renders without waiting for the API.
+if (typeof window !== "undefined" && window.location.pathname === "/") {
+  void loadLandingSnapshot(queryClient);
+}
 
 function ScrollToTop() {
   const { pathname } = useLocation();
