@@ -76,13 +76,23 @@ jobs:
             echo "- sha256: \`$(sha256sum "$DUMP" | cut -d' ' -f1)\`"
           } >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Upload dump artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: signaldesk-db-dump
+          path: ${{ env.DUMP }}
+          if-no-files-found: error
+          retention-days: 30
+
       - name: Copy the dump to Cloudflare R2 (private, off-GitHub)
         # Item 10: the repo is public and workflow artifacts expire after 30
         # days, so each verified dump is also kept in a private R2 bucket.
         # Weekly run, newest 12 kept (~3 months, well under 1 GB of the
         # 10 GB free tier). The key can only touch this one bucket. GitHub
         # masks the secret values in the log. The checksum settings are
-        # Cloudflare's recommendation for the AWS CLI against R2.
+        # Cloudflare's recommendation for the AWS CLI against R2. It runs
+        # after the artifact upload so an R2 problem can never cost the
+        # GitHub copy (observed 2026-11-12: a DNS failure skipped it).
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
@@ -94,7 +104,22 @@ jobs:
           KEEP: "12"
         run: |
           set -euo pipefail
-          EP="https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
+          # Accept the secrets as pasted: the account id is the 32-hex part
+          # (also when the whole S3 API URL was stored), the bucket is the
+          # last path segment of a URL or the plain name.
+          ACCT=$(printf '%s' "$R2_ACCOUNT_ID" | grep -oiE '[0-9a-f]{32}' | head -n1 || true)
+          R2_BUCKET=$(printf '%s' "$R2_BUCKET" | tr -d '[:space:]' | sed -e 's#/*$##' -e 's#.*/##')
+          if [ -z "$ACCT" ]; then
+            echo "::error::R2_ACCOUNT_ID has no 32-character account id; paste the part of the S3 API URL before .r2.cloudflarestorage.com"; exit 1
+          fi
+          if [ -z "$R2_BUCKET" ]; then
+            echo "::error::R2_BUCKET is empty"; exit 1
+          fi
+          # GitHub masks a secret only as stored; mask the extracted parts too.
+          echo "::add-mask::$ACCT"
+          echo "::add-mask::$R2_BUCKET"
+          echo "secrets look well-formed (account id 32 hex, bucket name ${#R2_BUCKET} chars)"
+          EP="https://${ACCT}.r2.cloudflarestorage.com"
           aws s3 cp "$DUMP" "s3://${R2_BUCKET}/db/$DUMP" --endpoint-url "$EP" --only-show-errors
           # Read it back: the stored size must match the local file.
           REMOTE=$(aws s3api head-object --bucket "$R2_BUCKET" --key "db/$DUMP" \
@@ -114,13 +139,6 @@ jobs:
               done
           echo "- R2: copied and verified, newest $KEEP kept" >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Upload dump artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: signaldesk-db-dump
-          path: ${{ env.DUMP }}
-          if-no-files-found: error
-          retention-days: 30
 
   storage-canary:
     # Runs after the backup job whatever its outcome (sequenced only to avoid
