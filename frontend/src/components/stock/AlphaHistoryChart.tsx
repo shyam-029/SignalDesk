@@ -8,9 +8,8 @@ import { fmtDate } from "@/lib/format";
 /**
  * AlphaHistoryChart: stored Alpha Score snapshots over time (Part D), read
  * from the backend's /alpha/history endpoint. The composite is the primary
- * line; the three component scores render only where the snapshots actually
- * carry them, and gaps in the history break the line rather than being
- * interpolated. Sparse history (fewer than two points) is an honest
+ * line, with the technical component beside it. Gaps in the history break
+ * the line rather than being interpolated. Sparse history (fewer than two points) is an honest
  * insufficient state: history builds up as scores are computed per day.
  */
 export function AlphaHistoryChart({ symbol }: { symbol: string }) {
@@ -32,15 +31,12 @@ export function AlphaHistoryChart({ symbol }: { symbol: string }) {
     });
     return [
       series("composite", "Alpha", "--cobalt", (i) => i.composite),
-      // Component lines appear only when the stored snapshots support them.
-      ...(items.some((i) => i.fundamental != null)
-        ? [series("fundamental", "Fundamental", "--accent-jade", (i) => i.fundamental)]
-        : []),
+      // Only the technical component is charted beside the composite. The
+      // fundamental and sentiment scores exist only on the few live
+      // snapshots (backfilled history is technical-only), so their lines
+      // were a few dots at the right edge and read as noise.
       ...(items.some((i) => i.technical != null)
         ? [series("technical", "Technical", "--accent-coral", (i) => i.technical)]
-        : []),
-      ...(items.some((i) => i.sentiment != null)
-        ? [series("sentiment", "Sentiment", "--accent-teal", (i) => i.sentiment)]
         : []),
     ];
   }, [items]);
@@ -74,11 +70,7 @@ export function AlphaHistoryChart({ symbol }: { symbol: string }) {
               height={220}
               valueFormatter={(v) => String(Math.round(v))}
             />
-            <p className="num mt-2 text-xs text-faint">
-              {items.length} snapshots · scale 0 to 100 · fundamental/sentiment lines appear
-              only as real daily snapshots accumulate (history is not carried back) · valuation
-              is kept separate and is not charted here
-            </p>
+            <p className="num mt-2 text-xs text-faint">Scale 0 to 100</p>
           </>
         )}
       </DataState>
