@@ -1,0 +1,77 @@
+name: landing-snapshot
+
+# Work list item 13. After each successful nightly ingest, fetch the landing
+# page's data in one call (GET /api/v1/landing, see
+# backend/app/services/landing_snapshot.py) and commit it as
+# frontend/public/snapshot/landing.json. Cloudflare Workers Builds redeploys
+# main, so the file is served statically next to the site: the landing page
+# seeds its query cache from it and renders without waiting for Render.
+#
+# Pushes made with GITHUB_TOKEN do not start other workflows (no CI run per
+# snapshot commit); Cloudflare's GitHub app still sees the push and deploys.
+# Nothing is committed when the data is unchanged.
+
+on:
+  workflow_run:
+    workflows: [ingest]
+    types: [completed]
+  workflow_dispatch: {}
+
+concurrency:
+  group: landing-snapshot
+  cancel-in-progress: false
+
+permissions: {}
+
+jobs:
+  snapshot:
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Fetch the landing snapshot
+        run: |
+          API=https://signaldesk-31gt.onrender.com
+          # Wake the instance first (it sleeps outside IST daytime).
+          curl -sS -o /dev/null -w "health %{http_code} in %{time_total}s\n" \
+            --max-time 120 --retry 3 --retry-delay 15 --retry-all-errors "$API/health"
+          curl -sS --fail --max-time 180 --retry 2 --retry-delay 20 --retry-all-errors \
+            "$API/api/v1/landing" -o landing.raw.json
+          # Refuse to publish anything malformed or nearly empty.
+          jq -e '.version == 1 and (.generated_at | type == "string") and (.queries | length >= 4)' \
+            landing.raw.json > /dev/null
+          jq -r '.queries[].key | tostring' landing.raw.json
+          mkdir -p frontend/public/snapshot
+          jq -c . landing.raw.json > frontend/public/snapshot/landing.json
+          ls -l frontend/public/snapshot/landing.json
+
+      - name: Commit if the data changed
+        run: |
+          git add frontend/public/snapshot/landing.json
+          # generated_at always changes; compare the data only.
+          if git diff --cached --quiet -- frontend/public/snapshot/landing.json; then
+            echo "No change."; exit 0
+          fi
+          if git show HEAD:frontend/public/snapshot/landing.json > old.json 2>/dev/null \
+            && [ "$(jq -S '.queries' old.json)" = "$(jq -S '.queries' frontend/public/snapshot/landing.json)" ]; then
+            echo "Only the timestamp changed; not committing."; exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "chore(snapshot): landing data $(jq -r .generated_at frontend/public/snapshot/landing.json)"
+          git push origin HEAD:main
+
+  alert:
+    needs: snapshot
+    if: always()
+    permissions: { issues: write, contents: read }
+    uses: ./.github/workflows/run-alert.yml
+    with:
+      title: "Landing snapshot failing"
+      outcome: ${{ needs.snapshot.result }}

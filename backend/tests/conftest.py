@@ -41,16 +41,18 @@ def _reset_phase8_global_state():
     """
     from app import llm_semaphore, rate_limit
     from app.repositories import news as news_repo
-    from app.services import screener_cache
+    from app.services import landing_snapshot, screener_cache
 
     rate_limit.reset_state()
     llm_semaphore.reset_state()
     screener_cache.reset_cache()  # each test seeds its own data
+    landing_snapshot.reset_cache()
     news_repo.reset_cache()
     yield
     rate_limit.reset_state()
     llm_semaphore.reset_state()
     screener_cache.reset_cache()
+    landing_snapshot.reset_cache()
     news_repo.reset_cache()
 
 # Dedicated test database (separate from production `signaldesk`).
