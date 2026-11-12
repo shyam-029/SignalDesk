@@ -122,7 +122,8 @@ class DailyPrice(Base):
     high: Mapped[Numeric] = mapped_column(Numeric(16, 4))
     low: Mapped[Numeric] = mapped_column(Numeric(16, 4))
     close: Mapped[Numeric] = mapped_column(Numeric(16, 4))
-    volume: Mapped[int]
+    # BIGINT: a day above 2.1 billion shares would overflow INTEGER.
+    volume: Mapped[int] = mapped_column(BigInteger)
 
     # Back-reference to the owning stock.
     stock: Mapped["Stock"] = relationship()

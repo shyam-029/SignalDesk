@@ -71,8 +71,13 @@ Legend: `[x]` merged to main · `[~]` in progress · `[ ]` not started ·
       weekend-dated rows are left in place (removing them is a data deletion
       and needs owner approval). Not yet seen in production: it only shows
       on a run whose UTC date has no bar (a weekend or post-midnight run)
-- [ ] **18** `daily_prices.volume` is a 4-byte integer; widen to BIGINT
-      before a >2.1B-share day fails a symbol's upsert (migration)
+- [~] **18** `daily_prices.volume` is a 4-byte integer; widen to BIGINT
+      before a >2.1B-share day fails a symbol's upsert. Migration
+      `c3d4e5f6a7b8` and the model change are on
+      `ops/item18-volume-bigint` (PR pending). Running it on production
+      goes through `migrate.yml`, outside the nightly window, after a Neon
+      headroom check (the type change rewrites the table), and needs the
+      owner's approval
 - [x] **19** Drift test: builds a throwaway database from the migrations
       alone and fails CI on any difference from the models (PR #11). Its
       first run found and fixed one mismatch: the `ranking_audit.stock_id`
