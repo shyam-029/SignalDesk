@@ -208,7 +208,7 @@ Legend: `[x]` merged to main · `[~]` in progress · `[ ]` not started ·
       repeat visits render instantly (PR #10). 2026-11-12: GitHub ran it
       only ~every 8-14 h, so the primary pinger is now a Cloudflare Cron
       Trigger on the frontend Worker (PR #37)
-- [ ] **36** Stock-page snapshots (owner, 2026-11-12): after each nightly,
+- [x] **36** Stock-page snapshots (owner, 2026-11-12): after each nightly,
       `stock-snapshots.yml` writes one JSON file per listed stock to the
       private R2 bucket `signaldesk-cache`; the Worker serves
       `/snapshot/stock/<SYMBOL>.json` and the stock page seeds its cache
@@ -216,7 +216,9 @@ Legend: `[x]` merged to main · `[~]` in progress · `[ ]` not started ·
       Render sleeps. Budget (free long term): ~25 MB R2, ~31k writes/month
       of 1M, ~0.7 GB/month of Neon's 5 GB transfer. The alpha-history and
       technicals-series charts (75% of the bytes) and the LLM explanation
-      stay live. Done once a nightly run has filled the bucket
+      stay live. PRs #39, #40, #42. Verified 2026-11-12: 1,000 files
+      (33 MB) built in ~8-11 min after each nightly; a first visit to a
+      stock page with Render asleep showed the page in ~0.9 s
 
 ## Ingest speed
 
