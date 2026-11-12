@@ -27,8 +27,47 @@ async function ping(path, timeoutMs) {
   }
 }
 
+// /snapshot/stock/<SYMBOL>.json: the stock page's data, built nightly by
+// .github/workflows/stock-snapshots.yml into the private R2 bucket bound as
+// SNAPSHOTS. Only this exact shape is served, so no other object in the
+// bucket can be reached. Static assets (including /snapshot/landing.json)
+// are matched before this script runs.
+const STOCK_SNAPSHOT = /^\/snapshot\/stock\/([^/]+)\.json$/;
+const SYMBOL = /^[A-Z0-9&_-][A-Z0-9&._-]{0,39}$/;
+
+function notFound() {
+  return new Response("Not found", {
+    status: 404,
+    headers: { "content-type": "text/plain", "cache-control": "public, max-age=60" },
+  });
+}
+
+async function stockSnapshot(request, env, match) {
+  let symbol;
+  try {
+    symbol = decodeURIComponent(match[1]);
+  } catch {
+    return notFound();
+  }
+  if (!SYMBOL.test(symbol) || symbol.includes("..") || !env.SNAPSHOTS) return notFound();
+  const obj = await env.SNAPSHOTS.get(`stock/${symbol}.json`);
+  if (!obj) return notFound();
+  const headers = new Headers({
+    "content-type": "application/json",
+    "cache-control": "public, max-age=300",
+    etag: obj.httpEtag,
+  });
+  if (request.headers.get("if-none-match") === obj.httpEtag) {
+    return new Response(null, { status: 304, headers });
+  }
+  return new Response(obj.body, { headers });
+}
+
 export default {
   async fetch(request, env) {
+    const url = new URL(request.url);
+    const match = request.method === "GET" ? STOCK_SNAPSHOT.exec(url.pathname) : null;
+    if (match) return stockSnapshot(request, env, match);
     return env.ASSETS.fetch(request);
   },
 
