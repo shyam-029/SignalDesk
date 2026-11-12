@@ -38,7 +38,11 @@
     { "binding": "SNAPSHOTS", "bucket_name": "signaldesk-cache" }
   ],
   "triggers": {
-    "crons": ["*/10 2-18 * * *"]
+    // keep-warm pings; then the nightly ingest trigger at 16:15 IST and its
+    // retry at 18:15 IST (worker/index.js, ensureNightly). The trigger needs
+    // the GITHUB_DISPATCH_TOKEN secret (Worker > Settings > Variables and
+    // Secrets); Workers Builds deploys keep secrets.
+    "crons": ["*/10 2-18 * * *", "45 10 * * *", "45 12 * * *"]
   },
   "observability": { "enabled": true }
 }

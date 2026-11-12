@@ -1,19 +1,24 @@
 name: ingest
 
-# M1-T5: production nightly ingestion (Plan 21.2, 28). GitHub Actions is the
-# ONLY scheduler (D79; the in-process APScheduler registers no jobs in
-# production since f43776c). Nominal 10:45 UTC = 16:15 IST, 45 minutes
-# after NSE closes (owner decision 2026-11-12, was 13:30 UTC = 19:00 IST), so
-# the day's data is on the site the same evening. Each run refetches 2 years
-# of bars, so a close Yahoo revises after 16:15 is corrected the next day.
-# GitHub cron can start late (the 13:30 slot often began hours later), which
-# idempotent upserts tolerate. Measured runtime 1.5-2 h vs the 6 h job cap (Plan 22);
+# M1-T5: production nightly ingestion (Plan 21.2, 28). Runs in GitHub
+# Actions (the in-process APScheduler registers no jobs in production since
+# f43776c). Daily at 10:45 UTC = 16:15 IST, 45 minutes after NSE closes
+# (owner decision 2026-11-12, was 13:30 UTC = 19:00 IST), so the day's data
+# is on the site the same evening. Each run refetches 2 years of bars, so a
+# close Yahoo revises after 16:15 is corrected the next day.
+#
+# Started by the Cloudflare Worker (frontend/worker/index.js, ensureNightly),
+# not by a GitHub schedule: GitHub's cron started the 16:15 slot up to 8 h
+# late. The Worker dispatches this workflow at 16:15 IST and again at
+# 18:15 IST only if today's run failed or never started. There is no GitHub
+# schedule as well, so the two can never run the nightly twice; if the
+# Worker cannot dispatch (e.g. its GitHub token expired), watchdog.yml alerts
+# after 30 h without a successful ingest. Idempotent upserts tolerate reruns. Measured runtime 1.5-2 h vs the 6 h job cap (Plan 22);
 # timeout-minutes fails fast at 5.5 h with a clear signal instead of an
 # opaque runner wall.
 
 on:
-  schedule:
-    - cron: "45 10 * * *" # 16:15 IST daily
+  # Dispatched by the Cloudflare Worker daily (see above) or by hand.
   workflow_dispatch: {}
 
 concurrency:

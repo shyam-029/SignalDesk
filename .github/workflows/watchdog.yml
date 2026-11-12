@@ -16,7 +16,7 @@ name: watchdog
 
 on:
   schedule:
-    - cron: "0 8 * * *" # 08:00 UTC daily; the nightly (10:45 UTC start) has finished by then
+    - cron: "0 8 * * *" # 08:00 UTC daily; the nightly (10:45 UTC, started by Cloudflare) has finished by then
   workflow_dispatch: {}
 
 concurrency:
@@ -55,7 +55,7 @@ jobs:
           echo "Last successful ingest: ${last:-never} (${age_h}h ago)"
           if [ "$age_h" -gt "$MAX_INGEST_AGE_HOURS" ]; then
             bash ops/ci/alert.sh "Nightly ingest stale" fail \
-              "No successful ingest run for ${age_h} hours (limit ${MAX_INGEST_AGE_HOURS}h). Last success: ${last:-never}. Check the ingest workflow's recent runs and whether its schedule is still enabled."
+              "No successful ingest run for ${age_h} hours (limit ${MAX_INGEST_AGE_HOURS}h). Last success: ${last:-never}. Check the ingest workflow's recent runs, and the Cloudflare Worker's logs: it starts the nightly, and its GITHUB_DISPATCH_TOKEN secret may have expired."
           else
             bash ops/ci/alert.sh "Nightly ingest stale" ok \
               "Last successful ingest ${age_h}h ago."

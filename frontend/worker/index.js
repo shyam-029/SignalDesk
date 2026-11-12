@@ -10,6 +10,7 @@
 //            sleeping API. Cloudflare Cron Triggers run on time. The cron
 //            window lives in wrangler.jsonc (Indian daytime/evening only, to
 //            stay inside Render's 750 free instance-hours a month).
+//            Two more crons start the nightly ingest (see ensureNightly).
 
 const API = "https://signaldesk-31gt.onrender.com";
 
@@ -25,6 +26,73 @@ async function ping(path, timeoutMs) {
     // A missed ping is not an incident; the next one runs in 10 minutes.
     console.log(`${path} failed after ${Date.now() - started} ms: ${err}`);
   }
+}
+
+// --- Nightly ingest trigger ---------------------------------------------------
+// GitHub's own schedule started the 16:15 IST nightly up to 8 hours late
+// (2026-11-12: due 10:45 UTC, began 18:36 UTC). These crons ask GitHub to run
+// ingest.yml now (workflow_dispatch), which starts within seconds:
+//   NIGHTLY_CRON  10:45 UTC = 16:15 IST, the nightly's slot
+//   RETRY_CRON    12:45 UTC = 18:15 IST, starts it again only if today's run
+//                 failed or never started (e.g. the 2026-11-11 run whose
+//                 GitHub machine died)
+// Both first check today's runs, so a run already going or done (including
+// one started by hand) is never duplicated. GITHUB_DISPATCH_TOKEN is a Worker
+// secret: a fine-grained GitHub token limited to this repository with
+// "Actions: read and write". Without it nothing is dispatched and the
+// watchdog workflow alerts after 30 h with no successful ingest.
+export const NIGHTLY_CRON = "45 10 * * *";
+export const RETRY_CRON = "45 12 * * *";
+const REPO = "shyam-029/SignalDesk";
+const WORKFLOW = "ingest.yml";
+const ACTIVE = new Set(["queued", "in_progress", "waiting", "requested", "pending"]);
+
+function github(env, path, init = {}) {
+  return fetch(`https://api.github.com/repos/${REPO}${path}`, {
+    ...init,
+    headers: {
+      accept: "application/vnd.github+json",
+      authorization: `Bearer ${env.GITHUB_DISPATCH_TOKEN}`,
+      "user-agent": "signaldesk-nightly-trigger",
+      "x-github-api-version": "2022-11-28",
+      ...(init.body ? { "content-type": "application/json" } : {}),
+    },
+    signal: AbortSignal.timeout(20_000),
+  });
+}
+
+/** Start today's ingest unless one is running or has succeeded. Returns what it did. */
+export async function ensureNightly(env, now = new Date()) {
+  if (!env.GITHUB_DISPATCH_TOKEN) {
+    console.log("nightly: GITHUB_DISPATCH_TOKEN is not set; nothing dispatched");
+    return "no-token";
+  }
+  const today = now.toISOString().slice(0, 10);
+  const res = await github(
+    env,
+    `/actions/workflows/${WORKFLOW}/runs?created=${encodeURIComponent(">=" + today)}&per_page=30`,
+  );
+  if (!res.ok) {
+    console.log(`nightly: could not list today's runs (HTTP ${res.status}); nothing dispatched`);
+    return "list-failed";
+  }
+  const runs = (await res.json()).workflow_runs ?? [];
+  const busy = runs.find((r) => ACTIVE.has(r.status));
+  if (busy) {
+    console.log(`nightly: run ${busy.id} is ${busy.status}; not starting another`);
+    return "running";
+  }
+  const done = runs.find((r) => r.conclusion === "success");
+  if (done) {
+    console.log(`nightly: run ${done.id} already succeeded today`);
+    return "done";
+  }
+  const d = await github(env, `/actions/workflows/${WORKFLOW}/dispatches`, {
+    method: "POST",
+    body: JSON.stringify({ ref: "main" }),
+  });
+  console.log(`nightly: dispatch ${WORKFLOW} -> HTTP ${d.status} (${runs.length} earlier run(s) today)`);
+  return d.status === 204 ? "dispatched" : "dispatch-failed";
 }
 
 // /snapshot/stock/<SYMBOL>.json: the stock page's data, built nightly by
@@ -71,7 +139,13 @@ export default {
     return env.ASSETS.fetch(request);
   },
 
-  async scheduled(_event, _env, ctx) {
+  async scheduled(event, env, ctx) {
+    if (event.cron === NIGHTLY_CRON || event.cron === RETRY_CRON) {
+      ctx.waitUntil(
+        ensureNightly(env).catch((err) => console.log(`nightly: error ${err}`)),
+      );
+      return;
+    }
     ctx.waitUntil(
       (async () => {
         await ping("/health", 90_000);
