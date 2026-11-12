@@ -1,7 +1,7 @@
 """Widen daily_prices.volume to BIGINT (work list item 18)
 
 Revision ID: c3d4e5f6a7b8
-Revises: b2c3d4e5f6a7
+Revises: 9a8b7c6d5e4f
 Create Date: 2026-11-11 00:00:00.000000
 
 daily_prices.volume was a 4-byte INTEGER (max 2,147,483,647). A single day
@@ -23,7 +23,7 @@ from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = 'c3d4e5f6a7b8'
-down_revision: Union[str, Sequence[str], None] = 'b2c3d4e5f6a7'
+down_revision: Union[str, Sequence[str], None] = '9a8b7c6d5e4f'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
