@@ -38,11 +38,13 @@ describe("valuation with a metric the stock lacks", () => {
     await new Promise((r) => setTimeout(r, 300));
     expect(calls.EV_EBITDA).toBe(1);
 
-    // Selecting the missing multiple must show the "not computable" note,
-    // not a skeleton that re-requests it forever.
-    fireEvent.click(screen.getByRole("button", { name: /^EV\/EBITDA/ }));
+    // The missing multiple is shown as "-" and is inert: there is no button
+    // to select it, so nothing can re-request it. The computable ones stay
+    // selectable, and selecting one never re-asks for the missing multiple.
+    expect(screen.queryByRole("button", { name: /^EV\/EBITDA/ })).toBeNull();
+    expect(await screen.findByText(/Not computable/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /^P\/S/ }));
     await new Promise((r) => setTimeout(r, 1500));
-    expect(calls.EV_EBITDA).toBeLessThanOrEqual(2);
-    expect(await screen.findByText(/lacks the inputs for this multiple/)).toBeTruthy();
+    expect(calls.EV_EBITDA).toBe(1);
   });
 });

@@ -8,15 +8,6 @@ import { Reveal } from "@/components/motion/Reveal";
 export function ExplainerSection() {
   return (
     <section className="section-alt relative border-b border-line">
-      {/* Depth wash: a faint teal pool behind the conclusion card. */}
-      <div
-        aria-hidden
-        className="pointer-events-none absolute inset-0"
-        style={{
-          background:
-            "radial-gradient(560px 300px at 72% 40%, color-mix(in srgb, var(--accent-teal) 6%, transparent), transparent 72%)",
-        }}
-      />
       <div className="relative mx-auto max-w-6xl px-4 py-20 md:px-6 md:py-28">
         <div className="grid gap-12 lg:grid-cols-12">
           <Reveal className="lg:col-span-5">

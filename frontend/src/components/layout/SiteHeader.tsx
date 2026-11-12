@@ -19,7 +19,7 @@ export function SiteHeader() {
   const { theme, toggle } = useTheme();
   return (
     <header className="sticky top-0 z-40 border-b border-line bg-background">
-      <div className="mx-auto flex h-14 max-w-6xl items-center gap-3 px-4 md:gap-6 md:px-6">
+      <div className="mx-auto flex h-14 max-w-[1500px] items-center gap-3 px-4 md:gap-6 md:px-6">
         <Link to="/" className="flex shrink-0 items-center gap-2">
           <SignalWave className="h-4 w-7 text-cobalt dark:text-cobalt-strong" />
           <span className="font-display text-lg font-bold tracking-[-0.01em]">SignalDesk</span>
@@ -28,14 +28,14 @@ export function SiteHeader() {
 
         <StockSearch className="w-full max-w-xs md:max-w-sm" />
 
-        <nav className="ml-auto flex shrink-0 items-center gap-1 md:gap-2">
+        <nav className="ml-auto flex min-w-0 items-center gap-1 overflow-x-auto [scrollbar-width:none] md:gap-2">
           {NAV.map((item) => (
             <NavLink
               key={item.to}
               to={item.to}
               className={({ isActive }) =>
                 cn(
-                  "px-2.5 py-1.5 text-sm font-medium text-muted transition-colors hover:text-foreground",
+                  "shrink-0 px-2.5 py-1.5 text-sm font-medium text-muted transition-colors hover:text-foreground",
                   isActive && "text-foreground",
                 )
               }

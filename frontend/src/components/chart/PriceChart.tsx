@@ -63,7 +63,7 @@ export function PriceChart({
         textColor: css("--muted"),
         // Only weights 500+ of IBM Plex Mono are loaded, so the canvas's
         // implicit 400 request resolves to the 500 face per CSS font matching.
-        fontFamily: "'IBM Plex Mono', monospace",
+        fontFamily: "'IBM Plex Sans', sans-serif",
         fontSize: 12,
       },
       grid: {

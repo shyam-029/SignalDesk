@@ -42,7 +42,7 @@ export function TickerTape() {
             tabIndex={i >= items.length ? -1 : undefined}
             className="num flex shrink-0 items-baseline gap-2 text-xs text-muted transition-colors hover:text-foreground"
           >
-            <span className="font-semibold text-foreground">{s.symbol.replace(".NS", "")}</span>
+            <span className="tkr text-foreground">{s.symbol.replace(".NS", "")}</span>
             <span>{fmtPrice(s.last_price)}</span>
             <span className={cn("font-medium", (s.change_pct ?? 0) >= 0 ? "text-up" : "text-down")}>
               {fmtSignedPct(s.change_pct)}

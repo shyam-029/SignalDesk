@@ -54,7 +54,7 @@ export function ScoreBlock({
           <span className="ml-1 text-[max(0.3em,12px)] font-medium text-faint">{suffix}</span>
         </p>
         {showBand && (
-          <span className={cn("mb-1 text-xs font-semibold uppercase tracking-[0.1em]", band.text)}>
+          <span className={cn("mb-1 text-xs font-semibold", band.text)}>
             {band.label}
           </span>
         )}

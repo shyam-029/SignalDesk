@@ -4,8 +4,6 @@ Running record of the 2026-11 audit remediation: what changed, why, how it was
 verified, and what risk remains open. Newest entries first. Production numbers
 come from workflow logs; nothing here contains credentials or hostnames.
 
-<<<<<<< HEAD
-=======
 ## Nightly of 2026-11-10 — first run with PRs #10-#17 (recorded 2026-11-11)
 
 Run 42896037285 (scheduled), 20:30-21:39 UTC, success. Code at 13db529,
@@ -168,7 +166,6 @@ Verified on GitHub after merging (PR #9, 2026-11-10):
 without repository activity. A `partial` nightly (some symbols failed)
 exits 0 and does not alert.
 
->>>>>>> origin/main
 ## Phases 4 and 5 — Migrations only by hand; no connection details in public logs (2026-11-10)
 
 **Problem.**
@@ -281,8 +278,6 @@ are now in place (same ids, often HOT) instead of delete+insert, which is
 what stops the index bloat, but the row-version count for alpha may stay
 high. The first nightly log after deploy gives the real split.
 
-<<<<<<< HEAD
-=======
 **Result (item 2a)** — run 42852962417, 2026-11-10 16:17-18:22 UTC (an NSE
 holiday; code at 4ad7afb, i.e. Phase 2 included, PRs #10-#15 not yet):
 
@@ -303,7 +298,6 @@ holiday; code at 4ad7afb, i.e. Phase 2 included, PRs #10-#15 not yet):
   new catalog rows.
 - The schema-at-head check (Phase 4) passed on its first real run.
 
->>>>>>> origin/main
 **Not changed.** No schema change, no migration, no data deleted beyond
 what the old backfill already deleted. Existing bloat is not reclaimed by
 this phase (that is Phase 6: online index rebuild).
@@ -418,17 +412,9 @@ a TOC read is not a restore.
 | Risk | Status |
 |---|---|
 | `prune-alpha` gate is armed (uses `pg_database_size`, which includes bloat) | fixed (Phase 3): needs an explicit confirmation phrase, no size gate |
-<<<<<<< HEAD
-| Migrations auto-apply to production via `ingest.yml` / `rank.yml` | fixed in workflows (Phase 4); Render's own start/release command unverified |
-| Alpha backfill delete+insert churns ~493k rows/run and is non-atomic | fixed (Phase 2, PR #5); awaiting first nightly numbers |
-| Price upsert rewrites ~462k unchanged rows/run | fixed (Phase 2, PR #5); awaiting first nightly numbers |
-| Adjusted-price seam at the 2y fetch-window edge | open — needs owner decision |
-| `rank.yml` logs DB host/user/db name to public Actions logs | steps removed (Phase 5); old logs and password rotation are owner decisions |
-=======
 | Migrations auto-apply to production via `ingest.yml` / `rank.yml` | fixed (Phase 4); Render's start command is plain `uvicorn` (owner confirmed 2026-11-10), so no deploy path migrates |
 | Alpha backfill delete+insert churns ~493k rows/run and is non-atomic | fixed (Phase 2, PR #5); awaiting first nightly numbers |
 | Price upsert rewrites ~462k unchanged rows/run | fixed (Phase 2, PR #5); awaiting first nightly numbers |
 | Adjusted-price seam at the 2y fetch-window edge | open — needs owner decision |
 | `rank.yml` logs DB host/user/db name to public Actions logs | steps removed (Phase 5); the 12 runs whose logs showed host/user deleted 2026-11-10 (11 rank, 1 restore); password rotation still open (owner) |
 | Orphan `prune-alpha-recovery` / `db-probe-recovery` workflows registered on GitHub | removed 2026-11-10 (runs deleted; no workflow file on any branch) |
->>>>>>> origin/main

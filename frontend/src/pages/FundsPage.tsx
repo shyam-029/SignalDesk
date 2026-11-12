@@ -3,15 +3,20 @@ import { Link } from "react-router-dom";
 import { ArrowDown, ArrowUp, ArrowUpDown } from "lucide-react";
 
 import { useFunds } from "@/lib/hooks";
+import type { FundSummary } from "@/lib/types";
 import { DataState } from "@/components/data/DataState";
+import { HeatCell, heatScale } from "@/components/data/HeatCell";
 import { SectionHeader } from "@/components/data/SectionHeader";
-import { fmtPrice, fmtSignedPct } from "@/lib/format";
+import { fmtDate, fmtPrice } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 /**
- * FundsPage: the curated mutual-fund catalog (Plan 8 slice). Official AMFI
- * daily NAVs; every return column and the category sort server-side, in
- * both directions. 1y/3y are annualised (CAGR); a "-" window means the
+ * FundsPage: the curated mutual-fund catalog, laid out as a returns board.
+ * Funds are grouped by category (a fund is only comparable with its own
+ * kind), and each return is a heat tile whose tint is scaled within its
+ * column, so the strong and weak windows of every scheme are visible at a
+ * glance. Official AMFI daily NAVs; sorting is server-side and applies
+ * inside each category. 1Y/3Y are annualised (CAGR); a "-" window means the
  * stored history does not cover it yet and is never estimated.
  */
 
@@ -25,43 +30,100 @@ type SortKey =
   | "return_1y"
   | "return_3y";
 
-const COLUMNS: Array<{ key: SortKey; label: string; numeric?: boolean }> = [
-  { key: "name", label: "Scheme" },
-  { key: "category", label: "Category" },
-  { key: "latest_nav", label: "NAV", numeric: true },
-  { key: "return_1m", label: "1M", numeric: true },
-  { key: "return_3m", label: "3M", numeric: true },
-  { key: "return_6m", label: "6M", numeric: true },
-  { key: "return_1y", label: "1Y", numeric: true },
-  { key: "return_3y", label: "3Y", numeric: true },
-];
+const WINDOWS = [
+  { key: "return_1m", label: "1M", pick: (f: FundSummary) => f.return_1m_pct },
+  { key: "return_3m", label: "3M", pick: (f: FundSummary) => f.return_3m_pct },
+  { key: "return_6m", label: "6M", pick: (f: FundSummary) => f.return_6m_pct },
+  { key: "return_1y", label: "1Y", pick: (f: FundSummary) => f.return_1y_pct },
+  { key: "return_3y", label: "3Y", pick: (f: FundSummary) => f.return_3y_pct },
+] as const;
+
+function median(values: number[]): number | null {
+  if (values.length === 0) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+}
 
 export default function FundsPage() {
-  const [sort, setSort] = React.useState<SortKey>("name");
-  const [direction, setDirection] = React.useState<"asc" | "desc">("asc");
+  const [sort, setSort] = React.useState<SortKey>("return_1y");
+  const [direction, setDirection] = React.useState<"asc" | "desc">("desc");
   const query = useFunds(sort, direction);
   const funds = query.data;
+  const items = funds?.items ?? [];
 
   const onSort = (key: SortKey) => {
     if (key === sort) {
       setDirection((d) => (d === "asc" ? "desc" : "asc"));
     } else {
       setSort(key);
-      setDirection("asc");
+      setDirection(key === "name" ? "asc" : "desc");
     }
   };
 
+  // Group by category, keeping the server's order inside each group.
+  const groups = React.useMemo(() => {
+    const map = new Map<string, FundSummary[]>();
+    for (const f of items) {
+      const key = f.category ?? "Uncategorised";
+      const list = map.get(key);
+      if (list) list.push(f);
+      else map.set(key, [f]);
+    }
+    return [...map.entries()].sort(([a], [b]) => a.localeCompare(b));
+  }, [items]);
+
+  // One tint scale per column, across the whole board.
+  const scales = WINDOWS.map((w) => heatScale(items.map(w.pick)));
+  const navDate = items.find((f) => f.nav_date)?.nav_date ?? null;
+
+  const sortButton = (key: SortKey, label: string) => {
+    const active = sort === key;
+    return (
+      <button
+        type="button"
+        onClick={() => onSort(key)}
+        title={`Sort by ${label}`}
+        className={cn(
+          "label-caps inline-flex cursor-pointer items-center gap-1 transition-colors hover:text-foreground",
+          active && "text-foreground",
+        )}
+      >
+        {label}
+        {active ? (
+          direction === "asc" ? (
+            <ArrowUp className="size-3" aria-hidden />
+          ) : (
+            <ArrowDown className="size-3" aria-hidden />
+          )
+        ) : (
+          <ArrowUpDown className="size-3 opacity-40" aria-hidden />
+        )}
+      </button>
+    );
+  };
+
   return (
-    <div className="mx-auto max-w-6xl px-4 py-12 md:px-6">
-      <SectionHeader index="03" kicker="Discovery" title="Mutual funds" />
-      <p className="mt-3 max-w-2xl text-sm leading-relaxed text-muted">
-        A curated set of major schemes across categories, priced from the
-        official AMFI daily NAV file. Every column sorts both directions; 1Y
-        and 3Y are annualised. A window the stored history does not cover yet
-        shows "-" and is never estimated.
+    <div className="mx-auto max-w-6xl px-4 py-10 md:px-6">
+      <SectionHeader
+        kicker="Mutual funds"
+        title="Returns board"
+        aside={
+          funds ? (
+            <p className="num text-xs text-muted">
+              {funds.total} schemes · {groups.length} categories
+              {navDate ? ` · NAV ${fmtDate(navDate)}` : ""}
+            </p>
+          ) : undefined
+        }
+      />
+      <p className="max-w-2xl text-sm leading-relaxed text-muted">
+        Major schemes grouped by category, priced from the official AMFI daily NAV file.
+        The deeper the tint, the larger the move within that column. 1Y and 3Y are
+        annualised.
       </p>
 
-      <div className="mt-8">
+      <div className="mt-6">
         <DataState
           loading={query.isLoading}
           error={query.error}
@@ -70,124 +132,87 @@ export default function FundsPage() {
           emptyTitle="No funds catalogued yet"
           emptyMessage="The fund catalog fills in when ingestion runs. Nothing is invented in the meantime."
         >
-          {funds && funds.total > 0 && (
-            <div className="border border-line bg-surface">
-              <div className="flex items-baseline justify-between border-b border-line px-5 py-3">
-                <p className="label-caps">Curated funds</p>
-                <p className="num text-xs text-faint">{funds.total} schemes</p>
-              </div>
-              <div className="overflow-x-auto">
-                <table className="w-full min-w-[880px] border-collapse text-left">
-                  <thead>
-                    <tr className="border-b border-line">
-                      {COLUMNS.map((col) => {
-                        const active = sort === col.key;
+          {items.length > 0 && (
+            <div className="overflow-x-auto border border-line bg-surface">
+              <table className="w-full min-w-[860px] border-collapse text-left">
+                <thead>
+                  <tr className="border-b border-line">
+                    <th scope="col" className="px-5 py-3">{sortButton("name", "Scheme")}</th>
+                    <th scope="col" className="px-3 py-3 text-right">{sortButton("latest_nav", "NAV")}</th>
+                    {WINDOWS.map((w) => (
+                      <th
+                        key={w.key}
+                        scope="col"
+                        aria-sort={
+                          sort === w.key ? (direction === "asc" ? "ascending" : "descending") : "none"
+                        }
+                        className="w-24 px-1 py-3 text-right"
+                      >
+                        <span className="pr-2">{sortButton(w.key, w.label)}</span>
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                {groups.map(([category, list]) => (
+                  <tbody key={category}>
+                    <tr className="border-b border-line bg-surface-2">
+                      <th scope="colgroup" colSpan={2} className="px-5 py-2 text-left">
+                        <span className="text-xs font-semibold text-foreground">{category}</span>
+                        <span className="num ml-2 text-xs font-normal text-faint">
+                          {list.length} {list.length === 1 ? "scheme" : "schemes"}
+                        </span>
+                      </th>
+                      {WINDOWS.map((w) => {
+                        const med = median(
+                          list.map(w.pick).filter((v): v is number => v != null),
+                        );
                         return (
-                          <th
-                            key={col.key}
-                            scope="col"
-                            aria-sort={
-                              active
-                                ? direction === "asc"
-                                  ? "ascending"
-                                  : "descending"
-                                : "none"
-                            }
-                            className={cn(
-                              "px-3 py-3",
-                              col.key === "name" && "pl-5",
-                              col.numeric ? "text-right" : "text-left",
-                            )}
+                          <td
+                            key={w.key}
+                            className="num px-3 py-2 text-right text-xs text-muted"
+                            title={`Category median, ${w.label}`}
                           >
-                            <button
-                              type="button"
-                              onClick={() => onSort(col.key)}
-                              className={cn(
-                                "label-caps inline-flex cursor-pointer items-center gap-1 transition-colors hover:text-foreground",
-                                active && "text-foreground",
-                              )}
-                              title={`Sort by ${col.label}`}
-                            >
-                              {col.label}
-                              {active ? (
-                                direction === "asc" ? (
-                                  <ArrowUp className="size-3" aria-hidden />
-                                ) : (
-                                  <ArrowDown className="size-3" aria-hidden />
-                                )
-                              ) : (
-                                <ArrowUpDown className="size-3 opacity-40" aria-hidden />
-                              )}
-                            </button>
-                          </th>
+                            {med == null ? "" : `med ${med >= 0 ? "+" : ""}${med.toFixed(1)}%`}
+                          </td>
                         );
                       })}
                     </tr>
-                  </thead>
-                  <tbody>
-                    {funds.items.map((fund) => (
+                    {list.map((fund) => (
                       <tr key={fund.id} className="border-b border-line last:border-b-0">
-                        <td className="px-5 py-3">
-                          <Link to={`/funds/${fund.id}`} className="group">
-                            <span className="block max-w-80 truncate text-sm font-semibold group-hover:text-cobalt group-hover:underline dark:group-hover:text-cobalt-strong">
+                        <td className="px-5 py-2">
+                          <Link to={`/funds/${fund.id}`} className="group block">
+                            <span className="block max-w-96 truncate text-sm font-medium group-hover:text-cobalt group-hover:underline dark:group-hover:text-cobalt-strong">
                               {fund.name}
                             </span>
-                            <span className="num block text-xs text-faint">
+                            <span className="block text-xs text-faint">
                               {fund.plan}
                               {fund.option ? ` · ${fund.option}` : ""}
                             </span>
                           </Link>
                         </td>
-                        <td className="px-3 py-3 text-xs text-muted">{fund.category ?? "-"}</td>
-                        <td className="num px-3 py-3 text-right text-sm">
-                          {fund.latest_nav != null ? (
-                            <>
-                              {fmtPrice(fund.latest_nav)}
-                              <span className="ml-1 block text-xs text-faint">
-                                {fund.nav_date ?? ""}
-                              </span>
-                            </>
-                          ) : (
-                            "-"
-                          )}
+                        <td className="num px-3 py-2 text-right text-sm">
+                          {fund.latest_nav != null ? fmtPrice(fund.latest_nav) : "-"}
                         </td>
-                        {(["1m", "3m", "6m", "1y", "3y"] as const).map((w) => {
-                          const value =
-                            w === "1m"
-                              ? fund.return_1m_pct
-                              : w === "3m"
-                                ? fund.return_3m_pct
-                                : w === "6m"
-                                  ? fund.return_6m_pct
-                                  : w === "1y"
-                                    ? fund.return_1y_pct
-                                    : fund.return_3y_pct;
-                          return (
-                            <td
-                              key={w}
-                              className={cn(
-                                "num px-3 py-3 text-right text-sm font-medium",
-                                value == null ? "text-faint" : value >= 0 ? "text-up" : "text-down",
-                              )}
-                            >
-                              {fmtSignedPct(value)}
-                            </td>
-                          );
-                        })}
+                        {WINDOWS.map((w, i) => (
+                          <td key={w.key} className="p-0.5">
+                            <HeatCell value={w.pick(fund)} scale={scales[i]} />
+                          </td>
+                        ))}
                       </tr>
                     ))}
                   </tbody>
-                </table>
-              </div>
-              <p className="border-t border-line px-5 py-3 text-xs text-faint">
-                NAVs are from AMFI (official, T-1); history also carries a
-                documented fallback backfill. Past performance is not
-                indicative of future results. Not investment advice.
-              </p>
+                ))}
+              </table>
             </div>
           )}
         </DataState>
       </div>
+
+      <p className="mt-4 max-w-3xl text-xs leading-relaxed text-faint">
+        NAVs are from AMFI (official, previous business day). "-" means the stored history
+        does not cover that window yet. Past performance is not indicative of future
+        results. Not investment advice.
+      </p>
     </div>
   );
 }

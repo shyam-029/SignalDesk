@@ -35,8 +35,8 @@
   --color-band-weak: var(--band-weak);
   --color-band-veryweak: var(--band-veryweak);
 
-  --font-display: "Libre Caslon Text", Georgia, "Times New Roman", serif;
-  --font-sans: "Instrument Sans", system-ui, -apple-system, sans-serif;
+  --font-display: "Newsreader", Georgia, "Times New Roman", serif;
+  --font-sans: "IBM Plex Sans", system-ui, -apple-system, sans-serif;
   --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
 
   /* Section-dimension accents: jade=fundamentals, amber=valuation,
@@ -73,11 +73,13 @@
   --up: #0f7a4c;
   --down: #c0352b;
 
-  --band-strong: #17724a;
-  --band-positive: #267657;
-  --band-moderate: #8a5f0d;
-  --band-weak: #a84b22;
-  --band-veryweak: #a02b21;
+  /* Scores read in three steps: green (60+), neutral ink (40-59), red
+     (below 40). The five band names remain; they map onto three colors. */
+  --band-strong: #0f7a4c;
+  --band-positive: #0f7a4c;
+  --band-moderate: #465366;
+  --band-weak: #c0352b;
+  --band-veryweak: #c0352b;
 
   --shadow-pop: 0 18px 44px -18px rgb(13 23 38 / 0.28);
 }
@@ -104,14 +106,14 @@
   --accent-coral: #e58163;
   --accent-teal: #4bbcc4;
 
-  --up: #35c08a;
-  --down: #f0625a;
+  --up: #3fb27f;
+  --down: #e5645a;
 
-  --band-strong: #2fbe8f;
-  --band-positive: #45ab89;
-  --band-moderate: #d2a04a;
-  --band-weak: #e2814f;
-  --band-veryweak: #e25a50;
+  --band-strong: #3fb27f;
+  --band-positive: #3fb27f;
+  --band-moderate: #a4acb8;
+  --band-weak: #e5645a;
+  --band-veryweak: #e5645a;
 
   --shadow-pop: 0 22px 50px -16px rgb(0 0 0 / 0.75);
 }
@@ -193,18 +195,25 @@
     background: color-mix(in srgb, var(--cobalt) 22%, transparent);
   }
 
-  /* Financial numerals: tabular so columns of figures align, weight 500
-     floor so data never renders thin. */
+  /* Numbers: set in the text font with fixed-width lining figures, so
+     columns align without looking like code. */
   .num {
-    font-family: var(--font-mono);
+    font-family: var(--font-sans);
     font-weight: 500;
-    font-variant-numeric: tabular-nums;
-    letter-spacing: -0.01em;
+    font-variant-numeric: tabular-nums lining-nums;
   }
 
-  /* Editorial caps label used for section eyebrows and data labels. */
+  /* Ticker symbols: the one place the monospace face is used. */
+  .tkr {
+    font-family: var(--font-mono);
+    font-weight: 600;
+    letter-spacing: 0;
+  }
+
+  /* Small label for section kickers and data labels. Sentence case as
+     written (the class keeps its old name for existing markup). */
   .label-caps {
-    @apply text-xs font-semibold uppercase tracking-[0.14em];
+    @apply text-xs font-medium;
     color: var(--faint);
   }
 
@@ -234,6 +243,26 @@
 
 @media (prefers-reduced-motion: reduce) {
   .wave-draw path {
+    animation: none;
+  }
+}
+
+/* Market map: each dot appears where it belongs, growing from a point, in a
+   left-to-right sweep (the delay is set per dot from its x position). Nothing
+   moves across the plot. */
+@keyframes dot-in {
+  from { transform: scale(0.1); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+
+.dot-fall {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: dot-in 420ms ease-out both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dot-fall {
     animation: none;
   }
 }

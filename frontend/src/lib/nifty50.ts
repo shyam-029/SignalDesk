@@ -24,15 +24,30 @@ export function isNifty50(symbol: string): boolean {
 }
 
 /**
- * The Nifty 50 with today's stored close and move, largest first. One shared
- * request (same query key everywhere it is used): the 150 largest ranked
- * companies comfortably contain every constituent. Stocks without a stored
- * move are left out rather than shown as zero.
+ * The Nifty 50 with today's stored close and move, largest first.
+ *
+ * Two requests, both shared by query key with the rest of the app:
+ *   - the 50 largest companies: this is the list the landing snapshot
+ *     pre-loads, so most constituents paint immediately;
+ *   - the 150 largest: comfortably contains every constituent, and replaces
+ *     the first list when it arrives.
+ * Stocks without a stored move are left out rather than shown as zero.
  */
 export function useNifty50() {
-  const list = useStockList(1, 150, undefined, "market_cap", "desc");
-  const items = (list.data?.items ?? []).filter(
+  const quick = useStockList(1, 50, undefined, "market_cap", "desc");
+  const full = useStockList(1, 150, undefined, "market_cap", "desc");
+  const source = full.data ?? quick.data;
+  const items = (source?.items ?? []).filter(
     (s) => isNifty50(s.symbol) && s.change_pct != null,
   );
-  return { ...list, items };
+  return {
+    items,
+    data: source,
+    isLoading: !source && (quick.isLoading || full.isLoading),
+    error: source ? null : (full.error ?? quick.error),
+    refetch: () => {
+      void quick.refetch();
+      void full.refetch();
+    },
+  };
 }

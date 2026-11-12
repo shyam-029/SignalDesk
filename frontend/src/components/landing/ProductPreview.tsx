@@ -159,7 +159,7 @@ function technicalVerdictWord(score: number | null): string {
 function MiniCell({ k, v }: { k: string; v: string }) {
   return (
     <div className="bg-surface px-2 py-2 text-center">
-      <p className="text-xs font-medium uppercase tracking-wide text-faint">{k}</p>
+      <p className="text-xs font-medium text-faint">{k}</p>
       <p className="num mt-0.5 font-medium">{v}</p>
     </div>
   );

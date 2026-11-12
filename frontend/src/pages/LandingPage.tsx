@@ -1,5 +1,3 @@
-import { usePrices } from "@/lib/hooks";
-
 import { Hero } from "@/components/landing/Hero";
 import { Framework } from "@/components/landing/Framework";
 import { ProductPreview } from "@/components/landing/ProductPreview";
@@ -10,27 +8,26 @@ import { MarketPulse } from "@/components/landing/MarketPulse";
 import { TickerTape } from "@/components/landing/TickerTape";
 import { CandleField } from "@/components/landing/CandleField";
 import { ScrollPulse } from "@/components/landing/ScrollPulse";
+import { Movers } from "@/components/landing/Movers";
+import { SectorBoard } from "@/components/landing/SectorBoard";
+import { LatestNews } from "@/components/landing/LatestNews";
+import { ExplainerSection } from "@/components/landing/ExplainerSection";
 
 /**
- * Landing: a short argument on real data. The Nifty 50 ticker and index
- * row, the claim, today's market in one chart, the framework, the real
- * research screen, coverage, methodology. The sine scroll rail rides the
- * right edge. Everything on the page is stored market data or plain copy.
+ * Landing: a long read built from stored market data. In order: the Nifty 50
+ * ticker and index row; the claim beside the live market map; today's Nifty
+ * 50 in one chart; the day's movers; the universe folded by sector; the
+ * framework; the real research screen; how conclusions are explained; the
+ * latest scored headlines; coverage; methodology. The sine scroll rail rides
+ * the right edge.
  */
 export default function LandingPage() {
-  // The hero sparkline reuses the SAME prices query as the product preview
-  // (identical query key), so no extra network request.
-  const prices = usePrices("RELIANCE", "6mo");
-  const sparkline = prices.data
-    ? prices.data.items.map((b) => b.close).slice(-120)
-    : null;
-
   return (
     <div>
       <ScrollPulse />
       <TickerTape />
       <MarketPulse />
-      <Hero sparkline={sparkline} />
+      <Hero />
 
       {/* Today's market in one picture: the Nifty 50, one bar per company. */}
       <section className="section-alt border-b border-line">
@@ -53,8 +50,12 @@ export default function LandingPage() {
         </div>
       </section>
 
+      <Movers />
+      <SectorBoard />
       <Framework />
       <ProductPreview />
+      <ExplainerSection />
+      <LatestNews />
       <Coverage />
       <MethodologyTeaser />
       <FinalCTA />

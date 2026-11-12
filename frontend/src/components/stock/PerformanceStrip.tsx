@@ -62,7 +62,7 @@ export function PerformanceStrip({ symbol }: { symbol: string }) {
                       <p
                         className={cn(
                           "num text-sm font-medium",
-                          pct == null ? "text-faint" : pct > 0 ? "text-band-positive" : pct < 0 ? "text-band-weak" : "text-muted",
+                          pct == null ? "text-faint" : pct > 0 ? "text-up" : pct < 0 ? "text-down" : "text-muted",
                         )}
                         title={pct == null ? "Not enough history for this window" : undefined}
                       >
