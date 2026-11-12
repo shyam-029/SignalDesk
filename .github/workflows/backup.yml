@@ -1,7 +1,8 @@
 name: backup
 
 # M1-T5 weekly backup (Plan 28): pg_dump of the Neon database uploaded as a
-# workflow artifact (30-day retention), plus the Plan 22 storage canary.
+# workflow artifact (30-day retention) and copied to a private Cloudflare R2
+# bucket (newest 12 kept), plus the Plan 22 storage canary.
 #
 # Two INDEPENDENT jobs (Phase 0 remediation, 2026-11-10):
 #   backup          dump -> verify the archive -> upload. Its result answers
@@ -74,6 +75,44 @@ jobs:
             echo "- size: $(du -h "$DUMP" | cut -f1)"
             echo "- sha256: \`$(sha256sum "$DUMP" | cut -d' ' -f1)\`"
           } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Copy the dump to Cloudflare R2 (private, off-GitHub)
+        # Item 10: the repo is public and workflow artifacts expire after 30
+        # days, so each verified dump is also kept in a private R2 bucket.
+        # Weekly run, newest 12 kept (~3 months, well under 1 GB of the
+        # 10 GB free tier). The key can only touch this one bucket. GitHub
+        # masks the secret values in the log. The checksum settings are
+        # Cloudflare's recommendation for the AWS CLI against R2.
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          AWS_REQUEST_CHECKSUM_CALCULATION: when_required
+          AWS_RESPONSE_CHECKSUM_VALIDATION: when_required
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          KEEP: "12"
+        run: |
+          set -euo pipefail
+          EP="https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
+          aws s3 cp "$DUMP" "s3://${R2_BUCKET}/db/$DUMP" --endpoint-url "$EP" --only-show-errors
+          # Read it back: the stored size must match the local file.
+          REMOTE=$(aws s3api head-object --bucket "$R2_BUCKET" --key "db/$DUMP" \
+            --endpoint-url "$EP" --query ContentLength --output text)
+          LOCAL=$(stat -c %s "$DUMP")
+          if [ "$REMOTE" != "$LOCAL" ]; then
+            echo "::error::R2 copy size $REMOTE != local $LOCAL"; exit 1
+          fi
+          echo "R2 copy verified ($LOCAL bytes)"
+          # Retention: names sort by date, so delete all but the newest $KEEP.
+          aws s3api list-objects-v2 --bucket "$R2_BUCKET" --prefix db/ \
+            --endpoint-url "$EP" --query 'Contents[].Key' --output text \
+            | tr '\t' '\n' | grep -E '^db/signaldesk-[0-9]{8}-[0-9]{4}\.dump$' \
+            | sort | head -n -"$KEEP" | while read -r old; do
+                aws s3 rm "s3://${R2_BUCKET}/$old" --endpoint-url "$EP" --only-show-errors
+                echo "pruned $old"
+              done
+          echo "- R2: copied and verified, newest $KEEP kept" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload dump artifact
         uses: actions/upload-artifact@v4
