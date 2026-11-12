@@ -206,12 +206,21 @@ baseline). Each item touches `ingest.yml` / `jobs.py`, so one branch each.
       15 / 7 / 7; EMA 20 with half scales 10 / 5 / 5. Halving the scales
       partly undoes v1.5's goal (scores stuck at 40-60). [?] Owner decision:
       keep, EMA 10 only, or EMA 10 + half scales (fold into alpha v2)
-- [ ] News relevance: articles are attached to the wrong stock whenever a
-      ticker or company name is also an ordinary word, acronym or another
-      organisation's name. This is systemic, not a few cases (owner,
-      2026-11-10); examples: ACC (cricket body vs ACC Ltd), "eternal" (the
-      word vs ETERNAL.NS). Needs a general matching rule plus a measured
-      false-match rate over stored articles, not a per-ticker blocklist
+- [x] News relevance (PR #24): new general rule (no per-ticker list).
+      Strong: the name's distinctive words together in order, or a
+      multi-word name's non-generic brand word. Ambiguous (needs a market
+      word such as shares, Q2, crore, NSE, results): a one-word name, the
+      ticker, the name's initials. Words on 3+ catalog names (bank, india,
+      hdfc, tata) never count alone. Applied at ingest and at read time
+      (news list and the sentiment that feeds Alpha); stored rows are not
+      deleted. Measured 2026-11-11 on 1,173 stored headlines for 30
+      ambiguous-name stocks: the rule rejects 360; reading all rejects,
+      about 90% were wrong-company (ACC: 47 of 50 were US college sports,
+      Bangladesh's Anti-Corruption Commission or the Asian Cricket Council;
+      Trent: 46 of 50). In a random 60 of the kept, about 5 are still wrong
+      (~8%), against an estimated ~28% under the old rule. Known misses: a
+      company headline with no market word ("Eternal founder Deepinder
+      Goyal ...")
 - [ ] Alpha v2 with flexible, lower sentiment weighting
 - [ ] Redesign ETF and fund pages (needs holdings data first)
 

@@ -21,6 +21,7 @@ import feedparser
 
 from app.providers.news_base import Article, NewsProvider
 from app.services.news_relevance import (
+    GENERIC_NAME_TOKENS,
     MIN_ARTICLES,
     is_fresh,
     is_relevant_article,
@@ -33,6 +34,10 @@ class NewsProviderError(Exception):
 
 class GoogleNewsRSSProvider(NewsProvider):
     """News source backed by Google News RSS feeds."""
+
+    # Name words too common to identify one company. ingest_news replaces
+    # this with the catalog-derived set (news_relevance.generic_tokens_from_names).
+    generic_tokens: frozenset[str] = GENERIC_NAME_TOKENS
 
     _BASE_URL = (
         "https://news.google.com/rss/search"
@@ -90,7 +95,9 @@ class GoogleNewsRSSProvider(NewsProvider):
             article = self._to_article(entry, symbol)
             if article is None:
                 continue
-            if not is_relevant_article(article.title, symbol, company_name):
+            if not is_relevant_article(
+                article.title, symbol, company_name, self.generic_tokens
+            ):
                 continue
             if not is_fresh(article.published_at):
                 continue

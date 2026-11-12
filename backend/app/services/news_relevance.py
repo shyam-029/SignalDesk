@@ -1,16 +1,34 @@
-# News relevance + freshness rules (Phase 6.5 Part G, widened 2026-09-06) —
-# pure functions, no I/O.
+# News relevance + freshness rules (Phase 6.5 Part G, widened 2026-09-06,
+# rewritten 2026-11-11) — pure functions, no I/O.
 #
-# Why this exists: the ingestion used to search Google News by the bare
-# trading symbol ("RELIANCE NSE"), which drags in articles about other
-# companies and generic matches. Ingestion now searches by the company's
-# full name first, falls back to (and then merges with) the symbol query
-# until enough usable articles exist, and post-filters every result through
-# these rules. The bias is still toward precision over a bare symbol search,
-# but the rules are deliberately looser than the original all-tokens rule so
-# the research page reliably shows at least a handful of articles.
+# Why the 2026-11-11 rewrite: the 2026-09-06 rule accepted a headline when it
+# contained ANY single word of the company name. That attached articles to
+# the wrong stock whenever a name word is also an ordinary word, a person, a
+# place or another organisation. Measured on stored headlines: ACC (US
+# college sports, Bangladesh's Anti-Corruption Commission, the Asian Cricket
+# Council), Trent (the TV show "Will Trent", Gary Trent Jr., Stoke-on-Trent),
+# Eternal ("eternal life", a video game), State Bank of India (any "bank"
+# headline), HDFC Bank (any "bank").
+#
+# The rule now weighs the signal:
+#   STRONG (relevant on its own)
+#     - the name's distinctive words appear together, in order
+#       ("HDFC Bank", "State Bank of India", "Vodafone Idea");
+#     - for a multi-word name, one of its non-generic words appears
+#       ("InterGlobe", "Polycab", "Pidilite"): a brand word of a multi-word
+#       name is rarely an ordinary word.
+#   AMBIGUOUS (relevant only next to a market word: shares, stock, Q2,
+#   crore, results, NSE, ...)
+#     - the single word of a one-word name ("ACC", "Trent", "Eternal");
+#     - the trading symbol ("INDIGO", "SBIN") or the name's initials ("SBI").
+#   NEVER ON THEIR OWN
+#     - generic words shared by many company names ("bank", "india",
+#       "industries", group names like "tata" or "adani"). Callers can pass
+#       the catalog's own generic words (generic_tokens_from_names).
 
 import re
+from collections import Counter
+from collections.abc import Iterable
 from datetime import datetime, timedelta, timezone
 
 # The freshness window (product decision 2026-09-06, widened from ~30 days so
@@ -27,6 +45,56 @@ _CORPORATE_STOPWORDS = {
     "inc", "incorporated", "the", "and", "of",
 }
 
+# Words common to many Indian listed-company names, plus business-group
+# names shared by several listed companies. They never identify one company
+# alone; a phrase containing them still can ("HDFC Bank", "Tata Motors").
+GENERIC_NAME_TOKENS = frozenset({
+    "bank", "india", "indian", "industries", "industry", "finance",
+    "financial", "services", "service", "power", "energy", "steel", "motors",
+    "motor", "capital", "housing", "holdings", "holding", "enterprises",
+    "enterprise", "infra", "infrastructure", "global", "international",
+    "national", "technologies", "technology", "tech", "systems", "solutions",
+    "products", "chemicals", "chemical", "pharma", "pharmaceuticals", "life",
+    "insurance", "general", "state", "new", "united", "hindustan", "bharat",
+    "investment", "investments", "securities", "realty", "developers",
+    "engineering", "electricals", "electric", "foods", "food", "textiles",
+    "cement", "cements", "paper", "oil", "gas", "petroleum", "ports",
+    "logistics", "media", "communications", "entertainment", "healthcare",
+    "hospitals", "labs", "laboratories", "aviation", "airlines", "metals",
+    "minerals", "mining", "agro", "sugar", "tea", "auto", "tyres", "cables",
+    "wires", "consumer", "retail", "fashion", "home", "homes", "estates",
+    "projects", "constructions", "construction", "green", "solar",
+    "renewable", "renewables", "digital", "software", "networks", "telecom",
+    "railway", "railways", "rail", "catering", "tourism", "travel", "hotels",
+    "mutual", "fund", "asset", "management", "credit", "loans", "money",
+    "first", "one", "great", "eastern", "western", "southern", "northern",
+    "tata", "adani", "bajaj", "birla", "aditya", "mahindra", "godrej", "jsw",
+    "jindal", "reliance", "hinduja", "murugappa", "torrent", "piramal",
+    "shriram", "muthoot", "lodha", "essar", "vedanta",
+})
+
+# Words that put a headline in a market/company-news context.
+MARKET_CONTEXT_WORDS = frozenset({
+    "share", "shares", "stock", "stocks", "nse", "bse", "nifty", "sensex",
+    "q1", "q2", "q3", "q4", "fy25", "fy26", "fy27", "quarter", "quarterly",
+    "results", "result", "earnings", "profit", "profits", "loss", "revenue",
+    "revenues", "ebitda", "margin", "margins", "crore", "cr", "lakh", "rs",
+    "inr", "dividend", "bonus", "split", "buyback", "ipo", "listing",
+    "target", "targets", "brokerage", "brokerages", "rating", "upgrade",
+    "downgrade", "buy", "sell", "rally", "rallies", "surges", "slumps",
+    "jumps", "falls", "gains", "valuation", "investors", "stake", "acquisition",
+    "acquires", "merger", "demerger", "order", "orders", "contract", "board",
+    "ceo", "md", "chairman", "founder", "ltd", "limited", "shareholders",
+    "outlook", "guidance", "sales", "volumes", "capex", "plant", "growth",
+    "demand", "analyst", "analysts", "investor", "acquisitions", "expansion",
+    "fmcg", "cfo", "director", "appoints", "f&o",
+})
+_RUPEE = "₹"
+
+
+def _tokens(text: str) -> list[str]:
+    return re.findall(r"[a-z0-9]+", (text or "").lower())
+
 
 def distinctive_tokens(company_name: str) -> list[str]:
     """Meaningful, lowercase tokens of a company name.
@@ -34,11 +102,19 @@ def distinctive_tokens(company_name: str) -> list[str]:
     Corporate suffixes ("Limited", "Corp") are dropped; single characters
     are dropped ("L" in "L&T"). Returns [] when nothing distinctive remains.
     """
-    tokens = re.findall(r"[a-z0-9]+", (company_name or "").lower())
     return [
-        t for t in tokens
+        t for t in _tokens(company_name)
         if t not in _CORPORATE_STOPWORDS and len(t) >= 2
     ]
+
+
+def generic_tokens_from_names(names: Iterable[str], min_names: int = 3) -> frozenset[str]:
+    """Name words shared by at least `min_names` catalog companies, plus the
+    built-in generic list. A word on many company names cannot identify one."""
+    df: Counter[str] = Counter()
+    for name in names:
+        df.update(set(distinctive_tokens(name)))
+    return GENERIC_NAME_TOKENS | {t for t, n in df.items() if n >= min_names}
 
 
 def _contains_token(haystack: str, token: str) -> bool:
@@ -47,35 +123,57 @@ def _contains_token(haystack: str, token: str) -> bool:
     return re.search(pattern, haystack) is not None
 
 
-def is_relevant_article(title: str, symbol: str, company_name: str | None) -> bool:
-    """Decide whether a headline is about the given company.
+def _contains_sequence(tokens: list[str], seq: list[str]) -> bool:
+    n = len(seq)
+    return n > 0 and any(tokens[i : i + n] == seq for i in range(len(tokens) - n + 1))
 
-    Rules (an article is relevant when ANY holds):
-      1. It contains the bare trading symbol as a standalone token, and the
-         symbol is long enough to be discriminative (>= 4 chars).
-      2. It contains ANY distinctive company-name token, word-bounded. The
-         filter was loosened from "all tokens" to "any token" (product
-         decision 2026-09-06) after the strict rule starved the research
-         page down to 1-2 articles; the multi-token names still disambiguate
-         far better than a bare generic noun, and the source queries already
-         bias results toward the company.
-    """
+
+def has_market_context(title: str) -> bool:
+    if _RUPEE in (title or ""):
+        return True
+    return any(t in MARKET_CONTEXT_WORDS for t in _tokens(title))
+
+
+def is_relevant_article(
+    title: str,
+    symbol: str,
+    company_name: str | None,
+    generic_tokens: frozenset[str] = GENERIC_NAME_TOKENS,
+) -> bool:
+    """Decide whether a headline is about the given company (see module notes)."""
     title_l = (title or "").lower()
     if not title_l:
         return False
+    title_toks = [t for t in _tokens(title_l) if t not in _CORPORATE_STOPWORDS]
+    name_toks = distinctive_tokens(company_name or "")
 
-    bare_symbol = (symbol or "").split(".")[0].lower()
-    if bare_symbol and len(bare_symbol) >= 4 and _contains_token(title_l, bare_symbol):
+    # STRONG 1: the whole distinctive name, in order (stopwords ignored on
+    # both sides, so "State Bank of India" matches "State Bank Of India").
+    if len(name_toks) >= 2 and _contains_sequence(title_toks, name_toks):
         return True
 
-    if not company_name:
-        return False
+    specific = [t for t in name_toks if t not in generic_tokens]
 
-    tokens = distinctive_tokens(company_name)
-    if not tokens:
-        return False
+    # STRONG 2: a multi-word name's own brand word.
+    if len(name_toks) >= 2 and any(
+        len(t) >= 4 and _contains_token(title_l, t) for t in specific
+    ):
+        return True
 
-    return any(_contains_token(title_l, token) for token in tokens)
+    # AMBIGUOUS signals: need a market word next to them.
+    ambiguous: set[str] = set()
+    if len(name_toks) == 1 and specific:
+        ambiguous.add(specific[0])
+    bare_symbol = (symbol or "").split(".")[0].lower()
+    if len(bare_symbol) >= 3:  # the stock's own ticker, even if a common word
+        ambiguous.add(bare_symbol)
+    if len(name_toks) >= 2:
+        initials = "".join(t[0] for t in name_toks)
+        if len(initials) >= 3:
+            ambiguous.add(initials)
+    if any(_contains_token(title_l, t) for t in ambiguous):
+        return has_market_context(title)
+    return False
 
 
 def is_fresh(
