@@ -82,7 +82,7 @@ export function StockHeader({ symbol }: { symbol: string }) {
                 <p className="mt-1.5 text-sm text-muted">
                   {detail.sector ? (
                     <Link
-                      to={`/markets?sector=${encodeURIComponent(detail.sector)}`}
+                      to={`/screener?sector=${encodeURIComponent(detail.sector)}`}
                       className="underline decoration-line underline-offset-4 transition-colors hover:text-cobalt hover:decoration-cobalt dark:hover:text-cobalt-strong"
                     >
                       {detail.sector}
@@ -90,7 +90,20 @@ export function StockHeader({ symbol }: { symbol: string }) {
                   ) : (
                     "-"
                   )}
-                  {detail.industry ? <span className="text-faint"> · {detail.industry}</span> : null}
+                  {detail.industry ? (
+                    <>
+                      <span className="text-faint"> · </span>
+                      <Link
+                        to={`/screener?${new URLSearchParams({
+                          ...(detail.sector ? { sector: detail.sector } : {}),
+                          industry: detail.industry,
+                        }).toString()}`}
+                        className="text-faint underline decoration-line underline-offset-4 transition-colors hover:text-cobalt hover:decoration-cobalt dark:hover:text-cobalt-strong"
+                      >
+                        {detail.industry}
+                      </Link>
+                    </>
+                  ) : null}
                 </p>
               </div>
 

@@ -187,13 +187,15 @@ baseline). Each item touches `ingest.yml` / `jobs.py`, so one branch each.
 
 ## Product
 
-- [ ] Quick UI fixes: About as a dropdown; remove internal descriptions
-      ("543 bars", weights text); industry link goes to the screener, not
-      markets; even, ordered market cards; valuation section shows dashes
-      instead of going blank when P/B or EBITDA is missing; Ask panel too
-      transparent
-- [~] Alpha chart: fundamental/sentiment lines removed (they existed only
-      on the few live snapshots) (PR pending). Technical swings
+- [x] Quick UI fixes (PR #21): "About the company" is a dropdown,
+      closed by default; bar counts and the weights text removed; sector and
+      industry link to the screener (new `industry` filter); market index
+      cards in a fixed order, four per row; the blank valuation section was
+      a request loop on a missing multiple (a bank's EV/EBITDA: about 100
+      requests a minute, enough to hit the per-IP rate limit), fixed with
+      `retryOnMount: false`. Ask panel done in PR #16
+- [x] Alpha chart: fundamental/sentiment lines removed (they existed only
+      on the few live snapshots) (PR #22). Technical swings
       investigated 2026-11-11: no bug and no day-to-day noise (median daily
       step 1-2 points); the v1.5 calibration (2026-09-08: trend scale 600,
       momentum 4000, EMA span 5) is simply sensitive, so a few percent of
