@@ -91,7 +91,7 @@ Legend: `[x]` merged to main · `[~]` in progress · `[ ]` not started ·
       Cause: the 2026-09-09 rank runs were throttled by Yahoo (no_mcap);
       outside the universe the nightly stops fetching a stock, so its stored
       bars aged past 30 trading days and E9 marked it inactive and
-      deactivated it at every later cycle. Fix (PR pending): E9 checks the
+      deactivated it at every later cycle. Fix (PR #23): E9 checks the
       provider's latest bar before calling a stale stock inactive. Then
       needs owner approval: run `rank.yml` once so the trapped stocks
       re-enter (the nightly's 2y refetch fills their gap); count the
