@@ -14,6 +14,7 @@
 import asyncio
 import calendar
 import logging
+import os
 import random
 import time
 from collections.abc import Awaitable, Callable
@@ -994,15 +995,63 @@ async def record_live_alpha_snapshots(batch_size: int = BATCH_SIZE) -> dict:
     return {"stored": stored, "errors": len(errors)}
 
 
-async def backfill_alpha_history(batch_size: int = BATCH_SIZE) -> dict:
-    """Retroactively backfill alpha snapshots for the whole active universe.
+# Weekly full recompute (owner decision 2026-11-13, to keep Neon network
+# transfer inside the free 5 GB a month). The full pass re-reads every
+# stock's ~2 years of closes (~15-25 MB a night). Today's snapshot is still
+# written nightly by record_live_alpha_snapshots; what moves to weekly is
+# the refresh of PAST technical-only points (their composite uses the
+# latest fundamental and sentiment scores, and a revised old close changes
+# the technical series). Stocks with little or no history are still filled
+# every night, so a newly added stock gets its chart at once.
+ALPHA_FULL_BACKFILL_WEEKDAY = 6  # Sunday (UTC date of the run)
+ALPHA_MIN_HISTORY_ROWS = 100  # fewer stored snapshots = backfill tonight
 
+
+def _alpha_full_backfill_due(today: date | None = None) -> bool:
+    if os.environ.get("ALPHA_BACKFILL_FULL", "").strip() in ("1", "true", "yes"):
+        return True
+    today = today or datetime.now(timezone.utc).date()
+    return today.weekday() == ALPHA_FULL_BACKFILL_WEEKDAY
+
+
+async def _symbols_missing_alpha_history(session, symbols: list[str]) -> list[str]:
+    """Universe symbols with fewer than ALPHA_MIN_HISTORY_ROWS snapshots.
+
+    One aggregate query returning a count per symbol: almost no bytes.
+    """
+    if not symbols:
+        return []
+    rows = await session.execute(
+        select(AlphaScore.symbol, func.count())
+        .where(AlphaScore.symbol.in_(symbols))
+        .group_by(AlphaScore.symbol)
+    )
+    counts = dict(rows.all())
+    return [s for s in symbols if counts.get(s, 0) < ALPHA_MIN_HISTORY_ROWS]
+
+
+async def backfill_alpha_history(
+    batch_size: int = BATCH_SIZE, full: bool | None = None
+) -> dict:
+    """Retroactively backfill alpha snapshots for the active universe.
+
+    full=True recomputes every symbol (Sundays, ALPHA_BACKFILL_FULL=1, or
+    the standalone `backfill` command); otherwise only symbols with little
+    or no stored history are done (see ALPHA_FULL_BACKFILL_WEEKDAY).
     Idempotent: existing technical-only rows are recomputed; full live
     snapshots (with a fundamental score) are preserved. Failures are
     isolated per symbol (D19).
     """
+    if full is None:
+        full = _alpha_full_backfill_due()
     async with SessionLocal() as session:
         symbols = await _get_universe_symbols(session)
+        if not full:
+            symbols = await _symbols_missing_alpha_history(session, symbols)
+    logger.info(
+        "Alpha history backfill: %s, %d symbols",
+        "full weekly recompute" if full else "missing-history only", len(symbols),
+    )
 
     total = 0
     errors: list[str] = []
@@ -1028,7 +1077,7 @@ async def backfill_alpha_history(batch_size: int = BATCH_SIZE) -> dict:
         written["inserted"], written["updated"],
         written["unchanged"], written["deleted"],
     )
-    return {"snapshots": total, "errors": len(errors), **written}
+    return {"snapshots": total, "errors": len(errors), "full": full, "symbols": len(symbols), **written}
 
 
 # --- Company profile ingestion (provider-sourced background) -----------------
@@ -2378,7 +2427,9 @@ if __name__ == "__main__":
         # current formula (replaces stored technical-only snapshots per
         # symbol; live snapshots carrying a fundamental score are kept).
         # Recorded like the scheduled passes so /debug/jobs reflects it.
-        status = asyncio.run(_record_pass("backfill_alpha_history", backfill_alpha_history))
+        status = asyncio.run(
+            _record_pass("backfill_alpha_history", backfill_alpha_history, full=True)
+        )
     elif command == "ingest":
         status = run_daily_ingestion()
     elif command == "rank":
