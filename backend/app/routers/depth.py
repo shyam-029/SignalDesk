@@ -215,7 +215,7 @@ async def get_valuation_history(
     Days where the figure is missing or negative are left out, not filled.
     """
     stock = await resolve_stock(session, symbol)
-    bars = [(b.date, float(b.close)) for b in await price_repo.get_bars(session, stock.id)]
+    bars = await price_repo.get_closes(session, stock.id)
     periods = await fp_repo.get_periods(session, stock.id, period_type="annual")
     sheets = await bs_repo.get_periods(session, stock.id)
 
@@ -276,8 +276,8 @@ async def get_valuation_history(
 async def get_risk(symbol: str, session: SessionDep) -> RiskResponse:
     """Volatility, deepest fall and beta against the NIFTY 50, from stored bars."""
     stock = await resolve_stock(session, symbol)
-    bars = [(b.date, float(b.close)) for b in await price_repo.get_bars(session, stock.id)]
-    bench = await bench_repo.get_closes(session, RISK_BENCHMARK)
+    bars = await price_repo.get_closes(session, stock.id)
+    bench = await bench_repo.get_closes_cached(session, RISK_BENCHMARK)
     # Compare like with like: the benchmark over the stock's own date range.
     if bars:
         bench = [(d, c) for d, c in bench if bars[0][0] <= d <= bars[-1][0]]
