@@ -279,12 +279,16 @@ baseline). Each item touches `ingest.yml` / `jobs.py`, so one branch each.
       `ingest.yml` ends the night as a success when the market was closed
       (Upstox's public holiday list; if it cannot be read, the night runs).
       Dispatch inputs `all_passes` and `run_on_closed_day` for manual runs
-- [ ] **31** Independent passes as parallel jobs (check Neon connection
-      limits and shared-IP Yahoo throttling first)
-- [ ] **32** Alpha: recompute only symbols whose inputs or formula version
-      changed (or the derive-on-demand storage decision)
-- [ ] **33** News: fetch only articles newer than the last run, skip FinBERT
-      for already-scored articles, cache the model between runs
+- [x] **31** Parallel passes (2026-11-14): market data and news run side
+      by side, the scores after both (so Alpha now uses tonight's news, not
+      last night's). Live alpha snapshots run 15 at a time (database reads
+      only, sized to the connection pool). The news prune reads once and
+      deletes in chunks instead of ~1,060 per-stock rounds (24 min on 13 Nov)
+- [x] **32** Alpha: the full history recompute is weekly (#53, #57); the
+      nightly live pass covers today
+- [x] **33** News: already only new articles are scored (FinBERT skips
+      scored ones). Fetching stays one Google News request per stock at 5
+      at a time; not raised, to avoid an untested throttling risk
 - [ ] **34** Funds on their own schedule after AMFI publishes NAVs (verify
       the publish time with a probe like 25), not tied to the equity run
 

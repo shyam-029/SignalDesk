@@ -968,7 +968,14 @@ async def record_live_alpha_snapshot(symbol: str) -> bool:
         return True
 
 
-async def record_live_alpha_snapshots(batch_size: int = BATCH_SIZE) -> dict:
+# Database reads only (no provider calls), so the batch is sized to the
+# connection pool (SQLAlchemy's default 5 + 10 overflow), not to a provider's
+# rate limit. Each stock costs about ten round trips, so the night's length
+# is set by how many run at once (9.5 min at 5 on 2026-11-13).
+LIVE_ALPHA_CONCURRENCY = 15
+
+
+async def record_live_alpha_snapshots(batch_size: int = LIVE_ALPHA_CONCURRENCY) -> dict:
     """Persist today's snapshot for every catalog symbol (ingestion pass).
 
     Wired into the nightly sweep after the backfill so history stays current
@@ -2365,41 +2372,54 @@ def news_ids_to_delete(
     return delete
 
 
+NEWS_PRUNE_CHUNK = 2000  # ids per delete statement
+
+
 async def prune_news(keep: int = NEWS_KEEP_PER_STOCK) -> dict:
     """Keep each stock's `keep` newest relevant articles; delete the rest
-    (their sentiment rows first). Runs after ingest_news."""
+    (their sentiment rows first). Runs after ingest_news.
+
+    One read of every article's (symbol, id, title, date), then deletes in
+    chunks. It used to read and delete stock by stock: about 1,060 rounds of
+    five database round trips each, 24 minutes on 2026-11-13. The bytes read
+    are the same; only the number of round trips changes.
+    """
     async with SessionLocal() as session:
         names = dict(
             (await session.execute(select(Stock.symbol, Stock.name))).all()
         )
         generic = generic_tokens_from_names(n for n in names.values() if n)
-        symbols = (
-            await session.execute(select(NewsArticle.symbol).distinct())
-        ).scalars().all()
+        rows = (
+            await session.execute(
+                select(
+                    NewsArticle.symbol,
+                    NewsArticle.id,
+                    NewsArticle.title,
+                    NewsArticle.published_at,
+                )
+            )
+        ).all()
+
+    by_symbol: dict[str, list[tuple]] = {}
+    for r in rows:
+        by_symbol.setdefault(r.symbol, []).append((r.id, r.title, r.published_at))
+    ids: list[int] = []
+    for symbol, items in by_symbol.items():
+        ids.extend(news_ids_to_delete(items, symbol, names.get(symbol), generic, keep))
 
     deleted = 0
-    for symbol in symbols:
+    for start in range(0, len(ids), NEWS_PRUNE_CHUNK):
+        chunk = ids[start : start + NEWS_PRUNE_CHUNK]
         async with SessionLocal() as session:
-            rows = (
-                await session.execute(
-                    select(NewsArticle.id, NewsArticle.title, NewsArticle.published_at)
-                    .where(NewsArticle.symbol == symbol)
-                )
-            ).all()
-            ids = news_ids_to_delete(
-                [tuple(r) for r in rows], symbol, names.get(symbol), generic, keep
-            )
-            if not ids:
-                continue
             await session.execute(
-                delete(NewsSentiment).where(NewsSentiment.article_id.in_(ids))
+                delete(NewsSentiment).where(NewsSentiment.article_id.in_(chunk))
             )
-            await session.execute(delete(NewsArticle).where(NewsArticle.id.in_(ids)))
+            await session.execute(delete(NewsArticle).where(NewsArticle.id.in_(chunk)))
             await session.commit()
-            deleted += len(ids)
+        deleted += len(chunk)
     logger.info("News retention: %d symbols, %d articles deleted (keep %d)",
-                len(symbols), deleted, keep)
-    return {"fetched": len(symbols), "deleted": deleted, "errors": 0}
+                len(by_symbol), deleted, keep)
+    return {"fetched": len(by_symbol), "deleted": deleted, "errors": 0}
 
 
 async def _ingest_passes() -> dict:
@@ -2435,7 +2455,7 @@ async def _ingest_passes() -> dict:
         else ("backfill_alpha_history", functools.partial(backfill_alpha_history, full=False))
     )
 
-    passes = (
+    market = (
         ("ingest_prices", ingest_universe),
         ("ingest_financials", ingest_financials),
         *slow,
@@ -2450,6 +2470,15 @@ async def _ingest_passes() -> dict:
         ("ingest_funds", ingest_funds),
         # Catch catalog stocks the universe passes dropped (renames/demergers).
         ("repair_catalog_gaps", repair_catalog_gaps),
+    )
+    news = (
+        # Plan 18: no nightly LLM pre-warm — explanations are on-demand with
+        # the rule-based default; the pre-warm helper remains for manual use.
+        ("ingest_news", ingest_news),
+        # Owner decision 2026-11-12: up to 20 relevant articles per stock.
+        ("prune_news", prune_news),
+    )
+    scores = (
         alpha_pass,
         # Today's live snapshot per symbol (Phase 8: GET /alpha is pure read,
         # so ingestion owns the write that keeps per-component history current).
@@ -2457,15 +2486,19 @@ async def _ingest_passes() -> dict:
         # One-year price strength, ranked across the list in one pass and
         # merged into the rows the pass above just wrote. Must follow it.
         ("record_strength_scores", record_strength_scores),
-        # Plan 18: no nightly LLM pre-warm — explanations are on-demand with
-        # the rule-based default; the pre-warm helper remains for manual use.
-        ("ingest_news", ingest_news),
-        # Owner decision 2026-11-12: up to 20 relevant articles per stock.
-        ("prune_news", prune_news),
     )
-    statuses = []
-    for name, run in passes:
-        statuses.append(await _record_pass(name, run))
+
+    async def in_order(group) -> list[str]:
+        return [await _record_pass(name, run) for name, run in group]
+
+    # Work list item 31 (2026-11-14). Market data (Yahoo, Upstox, AMFI) and
+    # news (Google News, FinBERT in a worker thread) share nothing, so they
+    # run side by side; each pass is still recorded and isolated. The scores
+    # run after both: they read tonight's prices and statements and, since
+    # this change, tonight's news sentiment too (it used to be the night
+    # before's, because news ran last).
+    market_statuses, news_statuses = await asyncio.gather(in_order(market), in_order(news))
+    statuses = [*market_statuses, *news_statuses, *await in_order(scores)]
     failed = statuses.count("failed")
     partial = statuses.count("partial")
     if failed == len(statuses):
