@@ -12,7 +12,7 @@
 # produced by calling the app's own routes in-process, so the shapes can
 # never drift from the real endpoints.
 #
-# The same JSON is fetched nightly by .github/workflows/landing-snapshot.yml
+# The same JSON is fetched nightly by .github/workflows/ingest.yml (landing-snapshot job)
 # and committed as frontend/public/snapshot/landing.json, so Cloudflare
 # serves it as a static file with no Render call at all. The frontend seeds
 # its query cache from that file and then refreshes from the API as usual.

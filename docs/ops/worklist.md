@@ -53,7 +53,7 @@ Legend: `[x]` merged to main · `[~]` in progress · `[ ]` not started ·
       2nd and on demand (PR #9)
 - [x] **8** Failure alerting: a failed ingest, rank, backup or restore-test
       run opens or updates a GitHub issue (label `ops-alert`) and the next
-      success closes it (`ops/ci/alert.sh`, `run-alert.yml`); a daily
+      success closes it (`ops/ci/alert.sh`, now `.github/actions/alert`); a daily
       `watchdog.yml` alerts if no ingest succeeded in 30 h (PR #9)
 - [x] **9** All 8 workflows checked active on 2026-11-10 (db-probe was
       re-enabled earlier); `watchdog.yml` now alerts daily on any disabled
@@ -88,7 +88,7 @@ Legend: `[x]` merged to main · `[~]` in progress · `[ ]` not started ·
       alone and fails CI on any difference from the models (PR #11). Its
       first run found and fixed one mismatch: the `ranking_audit.stock_id`
       index name in the model
-- [x] **20** `restore.yml`: typed `RESTORE-PRODUCTION` confirmation, shares
+- [x] **20** `restore.yml` (removed 2026-11-13, item 37): typed `RESTORE-PRODUCTION` confirmation, shares
       the nightly-ingestion concurrency group, no longer prints the database
       user (PR #9)
 - [x] **21** Dispatch inputs reach scripts through env, never interpolated:
@@ -113,6 +113,23 @@ Legend: `[x]` merged to main · `[~]` in progress · `[ ]` not started ·
       `signaldesk-ops3`, `signaldesk-ops45`, `signaldesk-ask`; local
       branches `docs/verify-ops-runs`, `ops/m2-t1-storage-reclaim` and the
       three worktree branches; remote `backup/pre-attribution-rewrite`
+- [x] **37** Fewer workflows (owner, 2026-11-13): 17 down to 8 (`ci`,
+      `ingest`, `backup`, `restore-test`, `migrate`, `rank`, `logos`,
+      `watchdog`).
+      - Folded in: `stock-snapshots` and `landing-snapshot` are now jobs of
+        `ingest.yml`, after the ingest job. A snapshot failure opens its own
+        alert but does not fail the nightly, so the Worker's 18:15 IST retry
+        and the watchdog are not set off by it. `db-probe` is now the
+        `storage` job of `backup.yml` (weekly with the backup; dispatch with
+        `skip_dump` for the report alone, `forensics` for the full scripts).
+      - The reusable `run-alert.yml` is now the action
+        `.github/actions/alert` (not listed as a workflow).
+      - Removed: `client-ip-probe` and `db-forensics` (one-off measurements,
+        done); `keep-warm` (the Worker's cron is the only pinger);
+        `bar-publish-probe` (item 25); `restore`, which restored production
+        from the old `neon_seed` release asset rather than the weekly
+        backups. A production restore from the R2 backups is to be added to
+        `restore-test.yml` when needed; until then it is a manual job
 
 ## Render configuration (owner action, found 2026-11-10)
 
@@ -207,9 +224,10 @@ Legend: `[x]` merged to main · `[~]` in progress · `[ ]` not started ·
       frontend persists successful queries to `localStorage` for 12 h so
       repeat visits render instantly (PR #10). 2026-11-12: GitHub ran it
       only ~every 8-14 h, so the primary pinger is now a Cloudflare Cron
-      Trigger on the frontend Worker (PR #37)
+      Trigger on the frontend Worker (PR #37); the workflow was removed
+      2026-11-13 (item 37)
 - [ ] **36** Stock-page snapshots (owner, 2026-11-12): after each nightly,
-      `stock-snapshots.yml` writes one JSON file per listed stock to the
+      the `stock-snapshots` job of `ingest.yml` (item 37) writes one JSON file per listed stock to the
       private R2 bucket `signaldesk-cache`; the Worker serves
       `/snapshot/stock/<SYMBOL>.json` and the stock page seeds its cache
       from it, so a first-time visitor sees the page at once even while
@@ -232,7 +250,14 @@ baseline). Each item touches `ingest.yml` / `jobs.py`, so one branch each.
       Yahoo and its values, for RELIANCE, TCS, HDFCBANK and ^NSEI. Read-only
       (no database). Collecting since 2026-11-10 (PR #12). Upstox is not
       probed; the `UPSTOX_ANALYTICS_TOKEN` Actions secret now exists, so it
-      could be added
+      could be added. Closed 2026-11-13 (item 37) with too little data:
+      GitHub's scheduler ran it only 5 times in 4 days. Those runs saw all
+      four of the day's bars present at 22:29 and 22:58 IST. Twice, after
+      midnight IST, Yahoo's answer for ^NSEI lacked the previous session's
+      bar (and once the stocks' too), so a fetch after midnight can miss a
+      day the evening fetch had. The nightly instead starts at 16:15 IST from
+      the Worker and refetches 2 years, so a late revision is corrected the
+      next night. A future probe would need the Worker's cron, not GitHub's
 - [ ] **26** Event-driven start from 25's results: an earlier cron (about
       16:30 IST = 11:00 UTC, final time from the data) plus a first step that
       polls the sentinels until today's bar exists and is unchanged across

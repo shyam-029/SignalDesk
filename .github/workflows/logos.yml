@@ -61,7 +61,15 @@ jobs:
     needs: logos
     if: always()
     permissions: { issues: write, contents: read }
-    uses: ./.github/workflows/run-alert.yml
-    with:
-      title: "Logo refresh failing"
-      outcome: ${{ needs.logos.result }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            ops/ci
+            .github/actions
+      - uses: ./.github/actions/alert
+        with:
+          title: "Logo refresh failing"
+          outcome: ${{ needs.logos.result }}

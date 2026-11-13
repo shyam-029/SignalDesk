@@ -1,0 +1,51 @@
+name: alert
+description: >
+  Turn a watched job's result into a GitHub issue (item 8 of
+  docs/ops/worklist.md). Failure or cancel opens or updates the issue named
+  `title`; success closes it. See ops/ci/alert.sh.
+
+# An action, not a reusable workflow, so it does not appear as a workflow in
+# GitHub's Actions list (it was run-alert.yml until 2026-11-13).
+#
+# Caller pattern (the job needs `issues: write`):
+#   alert:
+#     needs: <job>
+#     if: always() && needs.<job>.result != 'skipped'
+#     runs-on: ubuntu-latest
+#     timeout-minutes: 5
+#     permissions: { issues: write, contents: read }
+#     steps:
+#       - uses: actions/checkout@v4
+#         with: { sparse-checkout: "ops/ci\n.github/actions" }
+#       - uses: ./.github/actions/alert
+#         with:
+#           title: "Nightly ingest failing"
+#           outcome: ${{ needs.<job>.result }}
+
+inputs:
+  title:
+    description: The alert issue's title.
+    required: true
+  outcome:
+    description: "The watched job's result: success | failure | cancelled | skipped"
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Open, update or close the alert issue
+      # A skipped job (e.g. a guard ended the run early) is not news.
+      if: inputs.outcome != 'skipped'
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        TITLE: ${{ inputs.title }}
+        OUTCOME: ${{ inputs.outcome }}
+        WORKFLOW: ${{ github.workflow }}
+      run: |
+        if [ "$OUTCOME" = "success" ]; then
+          bash ops/ci/alert.sh "$TITLE" ok "The workflow '$WORKFLOW' succeeded."
+        else
+          bash ops/ci/alert.sh "$TITLE" fail "The workflow '$WORKFLOW' ended with: $OUTCOME. Open the run, read the failed step, then re-run it."
+        fi

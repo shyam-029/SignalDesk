@@ -7,7 +7,8 @@
 //            and takes ~40 s to wake. GitHub's scheduled keep-warm workflow
 //            was meant to ping every 10 minutes but ran about once every
 //            8-14 hours (observed 2026-11-10..12), so visitors kept meeting a
-//            sleeping API. Cloudflare Cron Triggers run on time. The cron
+//            sleeping API. Cloudflare Cron Triggers run on time, so that
+//            workflow was removed on 2026-11-13 and this is the only pinger. The cron
 //            window lives in wrangler.jsonc (Indian daytime/evening only, to
 //            stay inside Render's 750 free instance-hours a month).
 //            Two more crons start the nightly ingest (see ensureNightly).
@@ -102,7 +103,7 @@ export async function ensureNightly(env, now = new Date()) {
 }
 
 // /snapshot/stock/<SYMBOL>.json: the stock page's data, built nightly by
-// .github/workflows/stock-snapshots.yml into the private R2 bucket bound as
+// .github/workflows/ingest.yml (stock-snapshots job) into the private R2 bucket bound as
 // SNAPSHOTS. Only this exact shape is served, so no other object in the
 // bucket can be reached. Static assets (including /snapshot/landing.json)
 // are matched before this script runs.

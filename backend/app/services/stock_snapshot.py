@@ -1,7 +1,7 @@
 # Per-stock page snapshots (owner request 2026-11-12: "make stock pages fast
 # for a first-time visitor, free now and in the long term").
 #
-# After each nightly ingest, .github/workflows/stock-snapshots.yml runs
+# After each nightly ingest, .github/workflows/ingest.yml (stock-snapshots job) runs
 #   python -m app.services.stock_snapshot <out_dir>
 # which writes <out_dir>/stock/<SYMBOL>.json for every listed stock and
 # uploads them to a private Cloudflare R2 bucket. The frontend Worker serves

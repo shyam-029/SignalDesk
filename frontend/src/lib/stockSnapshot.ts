@@ -1,6 +1,6 @@
 // Per-stock page snapshots (2026-11-12).
 //
-// After each nightly, .github/workflows/stock-snapshots.yml writes one file
+// After each nightly, .github/workflows/ingest.yml (stock-snapshots job) writes one file
 // per listed stock to a private R2 bucket, and the Cloudflare Worker serves
 // it at /snapshot/stock/<SYMBOL>.json (frontend/worker/index.js). The file
 // has the landing snapshot's format: each API response under the TanStack
