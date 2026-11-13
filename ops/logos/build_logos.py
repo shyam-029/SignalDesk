@@ -8,6 +8,15 @@ from its nightly snapshot (/snapshot/stock/<SYMBOL>.json, company-profile).
 Sources, best first (measured 2026-11-13 on the top 30: favicons alone left
 Reliance, HDFC Bank, SBI, L&T, Kotak, Axis, Maruti and ITC at a blurry 16 px):
 
+  0. the NSE logo set in github.com/dharunashokkumar/api.dharun.dev
+     (data/logos/nse/NSE_<SYMBOL>.svg, AGPL-3.0 repository), pinned to
+     REPO_SHA. Owner decision 2026-11-13: use it wherever it has the company,
+     since vector logos are sharper than any icon below. Provenance: that
+     repo's tools/scrape_logos.py downloads them from TradingView's logo
+     server; the marks are the companies' trademarks. The SVG is rendered to
+     a raster WebP here, so no third-party SVG (which could carry script) is
+     ever served from the site's origin. These are full-bleed square tiles,
+     so they fill the canvas without padding;
   1. the site's own app icon via Google's favicon service, if square-ish and
      at least 64 px (company sites often block other bots; Google's crawler
      already has the icon);
@@ -41,6 +50,7 @@ from PIL import Image
 ROOT = Path(__file__).resolve().parents[2]
 OUT_DIR = ROOT / "frontend" / "public" / "logos"
 INDEX = ROOT / "frontend" / "src" / "lib" / "logoIndex.ts"
+SOURCES = Path(__file__).with_name("sources.json")
 API = "https://signaldesk-31gt.onrender.com/api/v1"
 SITE = "https://signaldesk.shyamsundar2935.workers.dev"
 BROWSER_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/130 Safari/537.36"
@@ -48,6 +58,9 @@ BROWSER_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrom
 WIKI_UA = "signaldesk-logos/1.0 (student research project; github.com/shyam-029/SignalDesk)"
 SIZE = 96
 PAD = 6
+# api.dharun.dev commit whose NSE logo files are used (checked 2026-11-13).
+REPO_SHA = "6ccdff999869e0ba41db76d894f840515fca0b53"
+REPO_RAW = f"https://raw.githubusercontent.com/dharunashokkumar/api.dharun.dev/{REPO_SHA}/data/logos/nse/"
 
 
 def file_stem(symbol: str) -> str:
@@ -174,12 +187,48 @@ def _squareish(im: Image.Image) -> bool:
     return max(w, h) <= 1.35 * min(w, h)
 
 
-def normalise(im: Image.Image) -> Image.Image:
+def repo_name(symbol: str) -> str:
+    """Symbol -> that repo's file name ("BAJAJ-AUTO" is NSE_BAJAJ_AUTO.svg)."""
+    return "NSE_" + symbol.upper().replace("-", "_") + ".svg"
+
+
+def repo_logo(symbol: str) -> Image.Image | None:
+    """The repo's SVG for this symbol, rendered to a 192 px raster, or None."""
+    import resvg_py  # only needed here; the rest runs on Pillow alone
+
+    url = REPO_RAW + urllib.parse.quote(repo_name(symbol))
+    try:
+        svg = _get(url).decode("utf-8")
+    except Exception:
+        return None
+    try:
+        png = resvg_py.svg_to_bytes(svg_string=svg, width=2 * SIZE, height=2 * SIZE)
+        tile = _open(bytes(png))
+    except Exception:
+        return None
+    if tile is None or _flat(tile):
+        return None
+    return tile
+
+
+def _flat(tile: Image.Image) -> bool:
+    """A repo tile that is one colour is a placeholder, not a logo.
+
+    Every real tile in that set is a background plus a mark (two or more
+    colours); NSE_POWERINDIA.svg was a bare red square (2026-11-13). The
+    stock then falls through to the other sources.
+    """
+    small = tile.convert("RGB").resize((32, 32))
+    counts = sorted((c for c, _ in small.getcolors(32 * 32) or []), reverse=True)
+    return not counts or sum(counts[1:]) < 0.03 * sum(counts)
+
+
+def normalise(im: Image.Image, pad: int = PAD) -> Image.Image:
     """Trim transparent borders, fit inside SIZE x SIZE with padding."""
     bbox = im.getchannel("A").getbbox()
     if bbox:
         im = im.crop(bbox)
-    inner = SIZE - 2 * PAD
+    inner = SIZE - 2 * pad
     im.thumbnail((inner, inner), Image.LANCZOS)
     canvas = Image.new("RGBA", (SIZE, SIZE), (0, 0, 0, 0))
     canvas.paste(im, ((SIZE - im.width) // 2, (SIZE - im.height) // 2), im)
@@ -199,8 +248,8 @@ def pick(site: str | None, commons: str | None) -> tuple[Image.Image | None, str
     return None, "none"
 
 
-# Hand-checked: symbols whose fetched image is not their logo. They get the
-# initials badge. Automatic "blank" and "photo" filters were tried on
+# Hand-checked: symbols whose fetched image (from sources 1-3; the repo set
+# is used first) is not their logo. They get the initials badge. Automatic "blank" and "photo" filters were tried on
 # 2026-11-13 and rejected ~30 real logos (flat or JPEG-compressed marks), so
 # this list is curated by looking at the images instead:
 #   CYIENT      a plain grey disc
@@ -222,6 +271,10 @@ def main(argv: list[str]) -> int:
 
     def one(row):
         sym, site, name = row
+        tile = repo_logo(sym)
+        if tile is not None:
+            normalise(tile, pad=0).save(OUT_DIR / f"{file_stem(sym)}.webp", "WEBP", quality=90, method=6)
+            return sym, "repo"
         if sym in BLOCKED:
             return sym, "blocked"
         commons = None
@@ -257,6 +310,10 @@ def main(argv: list[str]) -> int:
         encoding="utf-8",
     )
 
+    # Where each logo came from, for provenance and later checks.
+    SOURCES.write_text(
+        json.dumps(dict(sorted(results)), indent=0, ensure_ascii=False) + "\n", encoding="utf-8"
+    )
     counts: dict[str, int] = {}
     for _, src in results:
         counts[src] = counts.get(src, 0) + 1
