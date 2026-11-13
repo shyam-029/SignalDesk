@@ -279,16 +279,26 @@ baseline). Each item touches `ingest.yml` / `jobs.py`, so one branch each.
       with 30%+ failures halves the batch size and pauses 30 s, clean
       batches grow it back. GitHub's runner addresses are untested; the
       guard and its log line cover them
-- [ ] **29** Tiered schedule: financial periods, balance sheets and profiles
-      weekly (plus after earnings season); nightly keeps the price-linked
-      passes. Saves ~30 min
-- [ ] **30** Weekday-only runs plus an NSE holiday skip (pairs with 17)
-- [ ] **31** Independent passes as parallel jobs (check Neon connection
-      limits and shared-IP Yahoo throttling first)
-- [ ] **32** Alpha: recompute only symbols whose inputs or formula version
-      changed (or the derive-on-demand storage decision)
-- [ ] **33** News: fetch only articles newer than the last run, skip FinBERT
-      for already-scored articles, cache the model between runs
+- [x] **29** Tiered schedule (2026-11-14): financial periods and balance
+      sheets weekly, every third day in results season (10 Jan-20 Feb,
+      10 Apr-31 May, 10 Jul-20 Aug, 10 Oct-20 Nov); company profiles and
+      the full alpha-history recompute weekly. Each is due by its own last
+      successful run in job_runs, so a skipped day never skips a week.
+      Saves ~23 min on most nights (measured 13 Nov: 9.6 + 5.6 + 8.2 min)
+- [x] **30** Weekends and NSE holidays (2026-11-14): the first step of
+      `ingest.yml` ends the night as a success when the market was closed
+      (Upstox's public holiday list; if it cannot be read, the night runs).
+      Dispatch inputs `all_passes` and `run_on_closed_day` for manual runs
+- [x] **31** Parallel passes (2026-11-14): market data and news run side
+      by side, the scores after both (so Alpha now uses tonight's news, not
+      last night's). Live alpha snapshots run 15 at a time (database reads
+      only, sized to the connection pool). The news prune reads once and
+      deletes in chunks instead of ~1,060 per-stock rounds (24 min on 13 Nov)
+- [x] **32** Alpha: the full history recompute is weekly (#53, #57); the
+      nightly live pass covers today
+- [x] **33** News: already only new articles are scored (FinBERT skips
+      scored ones). Fetching stays one Google News request per stock at 5
+      at a time; not raised, to avoid an untested throttling risk
 - [ ] **34** Funds on their own schedule after AMFI publishes NAVs (verify
       the publish time with a probe like 25), not tied to the equity run
 
