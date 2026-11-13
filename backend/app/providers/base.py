@@ -132,6 +132,33 @@ class BalanceSheetDraft:
     source: str = ""
 
 
+# Owner categories of a shareholding pattern, as the provider names them.
+SHAREHOLDING_CATEGORIES: tuple[str, ...] = (
+    "promoters",
+    "fii",
+    "other_dii",
+    "mutual_funds",
+    "retail_and_other",
+)
+
+
+@dataclass(frozen=True)
+class ShareholdingDraft:
+    """One quarter's shareholding pattern (percent of total shares, 0-100).
+
+    None means the provider did not supply that category for the quarter;
+    callers never derive it from the others.
+    """
+
+    period_end: date
+    promoters: float | None = None
+    fii: float | None = None
+    other_dii: float | None = None
+    mutual_funds: float | None = None
+    retail_and_other: float | None = None
+    source: str = ""
+
+
 # Catalog symbol -> current NSE trading symbol (bare forms). The catalog
 # keeps the symbol a stock was seeded with; demergers/renames change the NSE
 # trading symbol underneath it and data sources only know the NEW one.
@@ -189,6 +216,14 @@ class MarketDataProvider(ABC):
         reporting period, newest first.
         """
         raise NotImplementedError(f"{type(self).__name__} has no balance sheet")
+
+    async def get_shareholding(self, symbol: str) -> list["ShareholdingDraft"]:
+        """Return the quarterly shareholding pattern for a symbol.
+
+        Optional capability (same pattern as get_balance_sheet): providers
+        without it keep the default, which callers treat as "no data".
+        """
+        raise NotImplementedError(f"{type(self).__name__} has no shareholding")
 
     async def get_financial_history(
         self, symbol: str, period_type: str = "annual"

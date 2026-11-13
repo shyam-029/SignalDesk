@@ -573,3 +573,80 @@ def quarterly_trend(rows: list[QuarterFacts]) -> QuarterlyTrend:
                 "faster" if gap >= 2.0 else "slower" if gap <= -2.0 else "steady"
             )
     return trend
+
+
+# --- Shareholding pattern ----------------------------------------------------
+
+OWNER_CATEGORIES = ("promoters", "fii", "other_dii", "mutual_funds", "retail_and_other")
+# Categories that together make up "institutions".
+INSTITUTION_CATEGORIES = ("fii", "other_dii", "mutual_funds")
+# A change smaller than this (percentage points) is reported as "steady".
+OWNERSHIP_STEADY_PTS = 0.25
+
+
+@dataclass(frozen=True)
+class OwnershipQuarter:
+    """One stored quarter (percent of total shares; None = not supplied)."""
+
+    period_end: date
+    promoters: float | None = None
+    fii: float | None = None
+    other_dii: float | None = None
+    mutual_funds: float | None = None
+    retail_and_other: float | None = None
+
+    @property
+    def institutions(self) -> float | None:
+        """FII + other DII + mutual funds, only when all three are present."""
+        parts = [getattr(self, c) for c in INSTITUTION_CATEGORIES]
+        if any(not _finite(p) for p in parts):
+            return None
+        return sum(parts)
+
+
+@dataclass
+class OwnershipTrend:
+    insufficient_data: bool
+    quarters: list[OwnershipQuarter] = field(default_factory=list)
+    # Change in percentage points from the oldest to the newest stored
+    # quarter, per category (and for institutions as a group).
+    change_pts: dict[str, float | None] = field(default_factory=dict)
+    from_period: date | None = None
+    to_period: date | None = None
+    # "rising" | "falling" | "steady" | None (None = cannot be compared).
+    promoter_direction: str | None = None
+    institution_direction: str | None = None
+
+
+def _direction(change: float | None) -> str | None:
+    if change is None:
+        return None
+    if change >= OWNERSHIP_STEADY_PTS:
+        return "rising"
+    if change <= -OWNERSHIP_STEADY_PTS:
+        return "falling"
+    return "steady"
+
+
+def ownership_trend(rows: list[OwnershipQuarter]) -> OwnershipTrend:
+    """Who owns the company and how that moved across the stored quarters.
+
+    Rows are ascending by period end. A change needs the category in both
+    the oldest and the newest quarter; otherwise it stays None.
+    """
+    if not rows:
+        return OwnershipTrend(insufficient_data=True)
+    trend = OwnershipTrend(insufficient_data=False, quarters=rows)
+    if len(rows) < 2:
+        return trend
+
+    first, last = rows[0], rows[-1]
+    trend.from_period, trend.to_period = first.period_end, last.period_end
+    for name in (*OWNER_CATEGORIES, "institutions"):
+        old, new = getattr(first, name), getattr(last, name)
+        trend.change_pts[name] = (
+            _round(new - old) if _finite(old) and _finite(new) else None
+        )
+    trend.promoter_direction = _direction(trend.change_pts.get("promoters"))
+    trend.institution_direction = _direction(trend.change_pts.get("institutions"))
+    return trend

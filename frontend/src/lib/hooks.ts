@@ -106,6 +106,14 @@ export function useQuality(symbol: string) {
   });
 }
 
+export function useShareholding(symbol: string) {
+  return useQuery({
+    queryKey: ["shareholding", symbol],
+    queryFn: () => api.shareholding(symbol),
+    staleTime: 10 * 60_000,
+  });
+}
+
 export function useQuarterlyTrend(symbol: string) {
   return useQuery({
     queryKey: ["quarterly-trend", symbol],

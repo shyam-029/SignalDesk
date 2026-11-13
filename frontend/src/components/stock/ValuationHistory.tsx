@@ -144,8 +144,8 @@ export function ValuationHistory({ symbol }: { symbol: string }) {
           )}
 
           {band && band.status === "available" && (
-            <div className="grid gap-8 lg:grid-cols-12">
-              <div className="lg:col-span-5">
+            <div className="grid gap-8 @4xl:grid-cols-12">
+              <div className="@4xl:col-span-5">
                 <p
                   className={cn(
                     "font-display text-2xl font-semibold",
@@ -179,7 +179,7 @@ export function ValuationHistory({ symbol }: { symbol: string }) {
                 )}
               </div>
 
-              <div className="lg:col-span-7">
+              <div className="@4xl:col-span-7">
                 <TimeSeriesChart
                   lines={lines}
                   height={240}

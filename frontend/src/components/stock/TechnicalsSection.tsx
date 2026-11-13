@@ -67,9 +67,9 @@ export function TechnicalsSection({ symbol }: { symbol: string }) {
       title="Technical positioning"
       summary={summary}
     >
-      <div className="grid gap-8 lg:grid-cols-12">
+      <div className="grid gap-8 @4xl:grid-cols-12">
         {/* Indicator series: three stacked, equal-size charts. */}
-        <div className="space-y-6 lg:col-span-8">
+        <div className="space-y-6 @4xl:col-span-8">
           <div className="border border-line bg-surface p-5">
             <p className="label-caps mb-3">Price with SMA 20 / EMA 12</p>
             <DataState
@@ -122,7 +122,7 @@ export function TechnicalsSection({ symbol }: { symbol: string }) {
         </div>
 
         {/* Aggregate positioning panel */}
-        <div className="lg:col-span-4">
+        <div className="@4xl:col-span-4">
           <DataState
             loading={technicals.isLoading}
             error={technicals.error}

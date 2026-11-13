@@ -43,6 +43,8 @@ import httpx
 from app.providers.base import (
     SYMBOL_ALIASES,
     BalanceSheetDraft,
+    SHAREHOLDING_CATEGORIES,
+    ShareholdingDraft,
     FinancialPeriodDraft,
     Fundamentals,
     MarketDataError,
@@ -93,6 +95,45 @@ def parse_period_label(label: str) -> date | None:
         return None
     year = int(match.group(2))
     return date(year, month, calendar.monthrange(year, month)[1])
+
+
+def parse_shareholding(data) -> list[ShareholdingDraft]:
+    """Turn the share-holdings payload into one draft per quarter, newest first.
+
+    Payload: a list of {"category": <name>, "history": [{"period": "Mar 2026",
+    "value": 50.0}, ...]}. Unknown categories, unparseable period labels and
+    values outside 0-100 are skipped (never coerced); a quarter is emitted
+    when at least one known category has a value for it.
+    """
+    if not isinstance(data, list):
+        return []
+    by_period: dict[date, dict[str, float]] = {}
+    for entry in data:
+        if not isinstance(entry, dict):
+            continue
+        category = entry.get("category")
+        if category not in SHAREHOLDING_CATEGORIES:
+            continue
+        history = entry.get("history")
+        if not isinstance(history, list):
+            continue
+        for point in history:
+            if not isinstance(point, dict):
+                continue
+            period_end = parse_period_label(str(point.get("period") or ""))
+            value = point.get("value")
+            if period_end is None or isinstance(value, bool):
+                continue
+            if not isinstance(value, (int, float)):
+                continue
+            value = float(value)
+            if value != value or value < 0.0 or value > 100.0:
+                continue
+            by_period.setdefault(period_end, {})[category] = value
+    return [
+        ShareholdingDraft(period_end=period_end, source="upstox", **values)
+        for period_end, values in sorted(by_period.items(), reverse=True)
+    ]
 
 
 def parse_ratio_value(raw) -> float | None:
@@ -439,6 +480,12 @@ class UpstoxProvider(MarketDataProvider):
             current_ratio=current_ratio,
             debt_to_equity=debt_to_equity,
         )
+
+    async def get_shareholding(self, symbol: str) -> list[ShareholdingDraft]:
+        """Quarterly shareholding pattern (the latest few quarters per call)."""
+        _, isin = await self._get_instrument(symbol)
+        data = await self._get_data(f"/fundamentals/{isin}/share-holdings")
+        return parse_shareholding(data)
 
     async def get_financial_history(
         self, symbol: str, period_type: str = "annual"

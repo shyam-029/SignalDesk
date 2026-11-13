@@ -97,15 +97,20 @@ export function ValuationSection({ symbol }: { symbol: string }) {
         </Tabs>
       }
     >
+        {/* Two questions, two halves: cheap against peers, and cheap against
+            its own past. Side by side when the section is wide enough. Each
+            half is its own size container, so its inner layout stacks. */}
+        <div className="grid items-start gap-8 @[1300px]:grid-cols-2">
+        <div className="@container min-w-0">
         <DataState
           loading={!firstComputable && anyLoading}
           error={hardError}
           onRetry={() => VALUATION_METRICS.forEach((m) => queries[m].refetch())}
           skeleton={<VerdictSkeleton />}
         >
-          <div className="grid gap-8 lg:grid-cols-12">
+          <div className="grid gap-8 @4xl:grid-cols-12">
             {/* Verdict + relative position for the selected multiple. */}
-            <div className="lg:col-span-5">
+            <div className="@4xl:col-span-5">
               {valuation ? (
                 <div className="border border-line bg-surface p-5">
                   <p className="label-caps">Verdict · {valuation.metric}</p>
@@ -158,7 +163,7 @@ export function ValuationSection({ symbol }: { symbol: string }) {
 
             {/* The four multiples. Always rendered: a gap shows "-" and is
                 not selectable; the rest stay usable. */}
-            <div className="lg:col-span-7">
+            <div className="@4xl:col-span-7">
               <div className="border border-line bg-surface">
                 <div className="border-b border-line px-5 py-3">
                   <p className="label-caps">All multiples · stock vs peer median</p>
@@ -232,10 +237,12 @@ export function ValuationSection({ symbol }: { symbol: string }) {
             </div>
           </div>
         </DataState>
+        </div>
 
         {/* The same multiples against the stock's own past. */}
-        <div className="mt-8">
+        <div className="@container min-w-0">
           <ValuationHistory symbol={symbol} />
+        </div>
         </div>
 
         {/* Peer comparison table: the same peer set the multiples use. */}
@@ -253,13 +260,13 @@ function isSoft(error: unknown): boolean {
 
 function VerdictSkeleton() {
   return (
-    <div className="grid gap-8 lg:grid-cols-12">
-      <div className="lg:col-span-5 space-y-3">
+    <div className="grid gap-8 @4xl:grid-cols-12">
+      <div className="@4xl:col-span-5 space-y-3">
         <div className="h-4 w-28 animate-pulse bg-surface-2" />
         <div className="h-8 w-48 animate-pulse bg-surface-2" />
         <div className="h-4 w-64 animate-pulse bg-surface-2" />
       </div>
-      <div className="lg:col-span-7 grid grid-cols-2 gap-px border border-line bg-line">
+      <div className="@4xl:col-span-7 grid grid-cols-2 gap-px border border-line bg-line">
         {Array.from({ length: 4 }, (_, i) => (
           <div key={i} className="bg-surface px-5 py-4">
             <div className="h-3 w-16 animate-pulse bg-surface-2" />

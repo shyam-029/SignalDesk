@@ -5,6 +5,7 @@ import {
   useAlpha,
   usePerformance,
   useQuarterlyTrend,
+  useShareholding,
   useRisk,
   useScores,
   useStockDetail,
@@ -37,6 +38,7 @@ export function AtAGlance({
   const history = useValuationHistory(symbol).data;
   const risk = useRisk(symbol).data;
   const trend = useQuarterlyTrend(symbol).data;
+  const latestOwners = useShareholding(symbol).data?.quarters.at(-1);
 
   const pe = history?.multiples.find((m) => m.metric === "pe" && m.status === "available");
   const signal = alpha?.value_signal;
@@ -103,6 +105,19 @@ export function AtAGlance({
             latestQuarter?.net_income_yoy_pct != null
               ? `${latestQuarter.net_income_yoy_pct > 0 ? "+" : ""}${latestQuarter.net_income_yoy_pct.toFixed(1)}%`
               : "-"
+          }
+        />
+      </Group>
+
+      <Group href="#ownership" title="Ownership">
+        <Line
+          label="Promoters"
+          value={latestOwners?.promoters != null ? `${latestOwners.promoters.toFixed(1)}%` : "-"}
+        />
+        <Line
+          label="Institutions"
+          value={
+            latestOwners?.institutions != null ? `${latestOwners.institutions.toFixed(1)}%` : "-"
           }
         />
       </Group>
