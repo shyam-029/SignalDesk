@@ -24,7 +24,7 @@ export function FinalCTA() {
             Better research starts with better questions.
           </h2>
           <p className="mx-auto mt-5 max-w-lg text-muted">
-            Why is Alpha 59? Why is the technical score weak? Why is this stock cheaper than
+            Why is Alpha 59? Why is its price strength weak? Why is this stock cheaper than
             its peers? Start asking.
           </p>
           <div className="mt-9 flex flex-wrap items-center justify-center gap-3">

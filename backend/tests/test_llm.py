@@ -53,6 +53,7 @@ def _result(**overrides) -> AlphaResult:
         composite=59,
         fundamental=98,
         technical=27,
+        strength=64,
         sentiment=39,
         components={"trend": 31.4, "momentum": 3.8, "reversion": 50.0},
         weights={"fundamental": 0.4, "technical": 0.3, "sentiment": 0.3},
@@ -70,7 +71,7 @@ def _result(**overrides) -> AlphaResult:
 def test_alpha_facts_is_explicit_allowlist():
     facts = narr._alpha_facts(_result())
     allowed = {
-        "symbol", "composite", "fundamental", "technical", "sentiment",
+        "symbol", "composite", "fundamental", "technical", "strength", "sentiment",
         "components", "weights", "value_signal", "insufficient_data",
     }
     assert set(facts) == allowed  # nothing extra sneaks in

@@ -123,12 +123,16 @@ export interface AlphaResponse {
   date: string;
   composite: number | null;
   fundamental: number | null;
+  // Shown on its own; not part of the composite since methodology v2.0.
   technical: number | null;
+  // The composite's price pillar since v2.0: the one-year Strength rank.
+  strength?: number | null;
   sentiment: number | null;
   components: Record<string, number>;
   weights: Record<string, number>;
   value_signal: ValueSignal | null;
   insufficient_data: boolean;
+  methodology_version?: string;
 }
 
 // Lazy companion to /alpha: the written narrative (Part I split - the score
@@ -261,6 +265,8 @@ export interface AlphaHistoryItem {
   composite: number | null;
   fundamental: number | null;
   technical: number | null;
+  // The day's Strength rank (v2.0 price pillar), when rated.
+  strength?: number | null;
   sentiment: number | null;
   components: Record<string, number> | null;
 }

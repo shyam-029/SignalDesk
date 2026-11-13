@@ -77,10 +77,10 @@ export function AlphaSection({ symbol }: { symbol: string }) {
                         metric="fundamental_score"
                       />
                       <ComponentBar
-                        label="Technical"
-                        value={alpha.technical}
-                        weight={alpha.weights.technical}
-                        metric="technical_score"
+                        label="Strength"
+                        value={alpha.strength ?? null}
+                        weight={alpha.weights.strength}
+                        metric="strength_score"
                       />
                       <ComponentBar
                         label="Sentiment"
@@ -95,7 +95,12 @@ export function AlphaSection({ symbol }: { symbol: string }) {
                 {/* Technical sub-components (evidence, not conclusions). */}
                 {Object.keys(alpha.components).length > 0 && (
                   <div className="glass mt-4 rounded-sm p-4">
-                    <p className="label-caps mb-3">Technical evidence</p>
+                    <p className="label-caps mb-3">
+                      Short-term technicals {alpha.technical ?? ""}
+                      <span className="ml-2 normal-case tracking-normal text-faint">
+                        shown for context, not part of Alpha
+                      </span>
+                    </p>
                     <div className="grid grid-cols-3 gap-4">
                       {[
                         ["trend", "Trend"],
@@ -343,7 +348,7 @@ function ComponentBar({
   label: string;
   value: number | null;
   weight?: number;
-  metric: "fundamental_score" | "technical_score" | "sentiment_score";
+  metric: "fundamental_score" | "strength_score" | "sentiment_score";
 }) {
   const band = scoreBand(value);
   return (

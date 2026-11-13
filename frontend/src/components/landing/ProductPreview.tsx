@@ -100,7 +100,7 @@ export function ProductPreview() {
                     />
                     <div className="num grid grid-cols-3 gap-px bg-line text-xs">
                       <MiniCell k="Fund" v={String(alpha.data.fundamental ?? "-")} />
-                      <MiniCell k="Technical" v={String(alpha.data.technical ?? "-")} />
+                      <MiniCell k="Strength" v={String(alpha.data.strength ?? "-")} />
                       <MiniCell k="Sentiment" v={String(alpha.data.sentiment ?? "-")} />
                     </div>
                     <div>

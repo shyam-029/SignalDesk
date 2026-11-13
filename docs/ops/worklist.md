@@ -264,9 +264,12 @@ baseline). Each item touches `ingest.yml` / `jobs.py`, so one branch each.
       two reads, with a timeout fallback (run anyway, flag as late). Keep the
       stale-frame and NaN-row guards. The gate must not assume the start
       time (GitHub cron drifts). Item 8's alerting is already in place
-- [ ] **27** Incremental price fetch (last ~10 days; full 2y refetch only
-      after a detected split/dividend). Depends on the adjusted-price seam
-      decision. Biggest saving (~11-19 min to ~4)
+- [x] **27** Incremental price fetch (2026-11-14): the last month, checked
+      against the newest 10 stored closes; any shared close more than 0.1%
+      off (a split, bonus or dividend adjustment) refetches the full 2 years.
+      Stocks with under 400 stored bars or a newest bar over 20 days old
+      always get 2 years. Measured from Yahoo: 0.17 s a stock for a month
+      against 0.43 s for 2 years
 - [ ] **28** Batched multi-ticker Yahoo download and a gradual BATCH_SIZE
       increase while watching 429s (related: 22)
 - [x] **29** Tiered schedule (2026-11-14): financial periods and balance

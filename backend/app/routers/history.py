@@ -114,8 +114,15 @@ class AlphaHistoryItem(BaseModel):
     composite: float | None
     fundamental: float | None
     technical: float | None
+    # The day's Strength rank (methodology v2.0 price pillar), when rated.
+    strength: float | None = None
     sentiment: float | None
     components: dict[str, Any] | None
+
+
+def _strength_of(components: dict | None) -> float | None:
+    value = (components or {}).get("strength")
+    return float(value) if isinstance(value, (int, float)) else None
 
 
 class AlphaHistoryResponse(BaseModel):
@@ -351,6 +358,7 @@ async def get_alpha_history(symbol: str, session: SessionDep) -> AlphaHistoryRes
                 composite=float(r.composite) if r.composite is not None else None,
                 fundamental=float(r.fundamental) if r.fundamental is not None else None,
                 technical=float(r.technical) if r.technical is not None else None,
+                strength=_strength_of(r.components_json),
                 sentiment=float(r.sentiment) if r.sentiment is not None else None,
                 components=r.components_json,
             )
