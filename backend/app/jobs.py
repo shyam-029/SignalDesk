@@ -464,16 +464,45 @@ async def _fetch_one_symbol(
         return symbol, len(bars)
 
 
+# --- Price fetch concurrency with a throttle guard (work list item 28) --------
+# yfinance's multi-ticker download still sends one request per symbol (it
+# only runs them in more threads), so it does not cut the requests Yahoo
+# sees; what changes the night's length and the throttling risk is how many
+# run at once. Measured 2026-11-14 from a home connection: all 1,000 stocks
+# at 16+ at a time, one month each, in 48 s with nothing missing. GitHub's
+# shared runner addresses can be throttled harder, so the pass adapts on its
+# own instead of relying on that measurement: when a batch has
+# THROTTLE_FAILURE_SHARE or more failures (Yahoo answers a throttled client
+# with errors or empty frames), it halves the batch size (not below
+# PRICE_CONCURRENCY_MIN) and waits THROTTLE_PAUSE_S; each clean batch grows
+# it back by one toward the starting size.
+PRICE_CONCURRENCY = 8
+PRICE_CONCURRENCY_MIN = 2
+THROTTLE_FAILURE_SHARE = 0.3
+THROTTLE_PAUSE_S = 30.0
+
+
+def _next_concurrency(current: int, ceiling: int, batch: int, failed: int) -> tuple[int, bool]:
+    """(next batch size, throttled?) from one batch's failure count."""
+    if batch >= 3 and failed / batch >= THROTTLE_FAILURE_SHARE:
+        return max(PRICE_CONCURRENCY_MIN, current // 2), True
+    if failed == 0:
+        return min(ceiling, current + 1), False
+    return current, False
+
+
 async def ingest_universe(
     provider: MarketDataProvider | None = None,
-    batch_size: int = BATCH_SIZE,
+    batch_size: int = PRICE_CONCURRENCY,
     today: date | None = None,
 ) -> dict:
     """Fetch + upsert price history for every symbol in the active universe.
 
-    Processes symbols in bounded batches (asyncio.gather) for rate-limit safety.
-    A failure in one symbol is logged and isolated; the run continues.
-    today is forwarded to the freshness guard (None = real clock).
+    Processes symbols in bounded batches (asyncio.gather) of at most
+    `batch_size`, shrinking and pausing when a batch looks throttled
+    (_next_concurrency). A failure in one symbol is logged and isolated; the
+    run continues. today is forwarded to the freshness guard (None = real
+    clock).
     """
     provider = provider or build_default_market_provider()
 
@@ -490,9 +519,14 @@ async def ingest_universe(
     written = _new_write_stats()
     tails = await _stored_tails(symbols)
     modes: dict[str, int] = {}
+    concurrency = batch_size
+    throttle_pauses = 0
+    smallest = batch_size
 
-    for i in range(0, len(symbols), batch_size):
-        batch = symbols[i : i + batch_size]
+    i = 0
+    while i < len(symbols):
+        batch = symbols[i : i + concurrency]
+        i += len(batch)
         results = await asyncio.gather(
             *(
                 _fetch_one_symbol(provider, s, today, written, tails.get(s), modes)
@@ -500,15 +534,31 @@ async def ingest_universe(
             ),
             return_exceptions=True,
         )
+        failed = 0
         for symbol, res in zip(batch, results):
             if isinstance(res, Exception):
                 logger.error("Failed to ingest %s: %s", symbol, res)
                 errors.append(symbol)
+                failed += 1
             else:
                 _, bars = res
                 total_bars += bars
                 if bars == 0:
                     skipped += 1
+                    # Nothing for a stock that has recent stored bars is
+                    # what a throttled answer looks like.
+                    if _incremental_ok(tails.get(symbol), today or date.today()):
+                        failed += 1
+        concurrency, throttled = _next_concurrency(concurrency, batch_size, len(batch), failed)
+        if throttled and i < len(symbols):
+            throttle_pauses += 1
+            smallest = min(smallest, concurrency)
+            logger.warning(
+                "Price fetch looks throttled (%d of %d failed): %d at a time from now, "
+                "pausing %.0f s",
+                failed, len(batch), concurrency, THROTTLE_PAUSE_S,
+            )
+            await asyncio.sleep(THROTTLE_PAUSE_S)
 
     # `bars` stays the number offered (historical meaning); the write split
     # shows how many rows the no-op guard actually spared.
@@ -528,6 +578,11 @@ async def ingest_universe(
         "%d refetched in full (history adjusted)",
         modes.get("incremental", 0), modes.get("full", 0), modes.get("refetch", 0),
     )
+    if throttle_pauses:
+        logger.warning(
+            "Price fetch throttle guard: paused %d time(s), down to %d at a time",
+            throttle_pauses, smallest,
+        )
     # Upstox price fallback (providers/fallback.py): how often Yahoo's answer
     # was unusable and Upstox was asked instead, by reason.
     fallbacks = dict(getattr(provider, "fallbacks", {}) or {})
@@ -548,6 +603,7 @@ async def ingest_universe(
         "incremental": modes.get("incremental", 0),
         "full": modes.get("full", 0),
         "refetch": modes.get("refetch", 0),
+        "throttle_pauses": throttle_pauses,
     }
 
 

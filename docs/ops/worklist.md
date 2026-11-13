@@ -270,8 +270,15 @@ baseline). Each item touches `ingest.yml` / `jobs.py`, so one branch each.
       Stocks with under 400 stored bars or a newest bar over 20 days old
       always get 2 years. Measured from Yahoo: 0.17 s a stock for a month
       against 0.43 s for 2 years
-- [ ] **28** Batched multi-ticker Yahoo download and a gradual BATCH_SIZE
-      increase while watching 429s (related: 22)
+- [x] **28** Price fetch concurrency (2026-11-14). Finding: yfinance's
+      multi-ticker download still sends one request per stock, only in
+      more threads, so it does not reduce what Yahoo sees. Measured from a
+      home connection: all 1,000 stocks, one month each, 50 and 100 per
+      batch (16+ at a time), 48-66 s, nothing missing, no errors. The
+      nightly now runs 8 at a time (was 5) with a throttle guard: a batch
+      with 30%+ failures halves the batch size and pauses 30 s, clean
+      batches grow it back. GitHub's runner addresses are untested; the
+      guard and its log line cover them
 - [x] **29** Tiered schedule (2026-11-14): financial periods and balance
       sheets weekly, every third day in results season (10 Jan-20 Feb,
       10 Apr-31 May, 10 Jul-20 Aug, 10 Oct-20 Nov); company profiles and
