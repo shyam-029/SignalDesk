@@ -34,7 +34,7 @@ export function StockHeader({ symbol }: { symbol: string }) {
 
   return (
     <header className="border-b border-line bg-surface">
-      <div className="mx-auto max-w-6xl px-4 pb-7 pt-6 md:px-6">
+      <div className="mx-auto max-w-[1500px] px-4 pb-7 pt-6 md:px-6">
         <div className="mb-5 flex items-center justify-between">
           <Link
             to="/markets"

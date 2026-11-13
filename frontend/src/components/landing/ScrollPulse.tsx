@@ -95,7 +95,7 @@ export function ScrollPulse() {
   return (
     <div
       aria-hidden
-      className="pointer-events-none fixed right-5 top-1/2 z-30 hidden -translate-y-1/2 lg:block"
+      className="pointer-events-none fixed right-5 top-1/2 z-[35] hidden -translate-y-1/2 lg:block"
     >
       <svg width="56" height="248" viewBox="0 0 56 248">
         <defs>

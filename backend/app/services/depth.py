@@ -472,3 +472,104 @@ def dupont(rows: list[DupontInputs], is_financial: bool) -> DupontResult:
         result.from_period = first.period_end
         result.to_period = last.period_end
     return result
+
+
+# --- Quarterly results trend -------------------------------------------------
+
+# How many of the most recent quarters are returned.
+MAX_QUARTERS = 12
+
+
+@dataclass(frozen=True)
+class QuarterFacts:
+    """One stored fiscal quarter (rupees; margins as decimals)."""
+
+    period_end: date
+    revenue: float | None = None
+    net_income: float | None = None
+    operating_margin: float | None = None
+    net_margin: float | None = None
+
+
+@dataclass
+class QuarterRow:
+    period_end: date
+    revenue: float | None = None
+    net_income: float | None = None
+    operating_margin_pct: float | None = None
+    net_margin_pct: float | None = None
+    # Change against the same quarter one year earlier. None when that
+    # quarter is not stored or its figure is not a positive base.
+    revenue_yoy_pct: float | None = None
+    net_income_yoy_pct: float | None = None
+    net_margin_yoy_pts: float | None = None
+
+
+@dataclass
+class QuarterlyTrend:
+    insufficient_data: bool
+    quarters: list[QuarterRow] = field(default_factory=list)
+    # Sales growth in the latest quarter against the quarter before it,
+    # both measured year on year: "faster" | "slower" | "steady" | None.
+    momentum: str | None = None
+    # Consecutive latest quarters with sales above the same quarter last year.
+    revenue_growth_streak: int = 0
+
+
+def _growth_pct(current: float | None, base: float | None) -> float | None:
+    """Percent change on a positive base; None otherwise (never off a loss)."""
+    if not _finite(current) or not _finite(base) or base <= 0:
+        return None
+    return _round((current - base) / base * 100.0, 1)
+
+
+def quarterly_trend(rows: list[QuarterFacts]) -> QuarterlyTrend:
+    """Each stored quarter with its change on the same quarter a year earlier.
+
+    Rows are ascending by period end. The year-earlier quarter is matched by
+    calendar month and year exactly; a gap in the stored history leaves the
+    change None rather than comparing against a different quarter.
+    """
+    if not rows:
+        return QuarterlyTrend(insufficient_data=True)
+
+    by_key = {(r.period_end.year, r.period_end.month): r for r in rows}
+    out: list[QuarterRow] = []
+    for r in rows:
+        prior = by_key.get((r.period_end.year - 1, r.period_end.month))
+        row = QuarterRow(
+            period_end=r.period_end,
+            revenue=r.revenue if _finite(r.revenue) else None,
+            net_income=r.net_income if _finite(r.net_income) else None,
+            operating_margin_pct=_round(r.operating_margin * 100.0, 1)
+            if _finite(r.operating_margin)
+            else None,
+            net_margin_pct=_round(r.net_margin * 100.0, 1)
+            if _finite(r.net_margin)
+            else None,
+        )
+        if prior is not None:
+            row.revenue_yoy_pct = _growth_pct(r.revenue, prior.revenue)
+            row.net_income_yoy_pct = _growth_pct(r.net_income, prior.net_income)
+            if _finite(r.net_margin) and _finite(prior.net_margin):
+                row.net_margin_yoy_pts = _round(
+                    (r.net_margin - prior.net_margin) * 100.0, 1
+                )
+        out.append(row)
+
+    trend = QuarterlyTrend(insufficient_data=False, quarters=out[-MAX_QUARTERS:])
+
+    for row in reversed(out):
+        if row.revenue_yoy_pct is not None and row.revenue_yoy_pct > 0:
+            trend.revenue_growth_streak += 1
+        else:
+            break
+
+    if len(out) >= 2:
+        latest, previous = out[-1].revenue_yoy_pct, out[-2].revenue_yoy_pct
+        if latest is not None and previous is not None:
+            gap = latest - previous
+            trend.momentum = (
+                "faster" if gap >= 2.0 else "slower" if gap <= -2.0 else "steady"
+            )
+    return trend

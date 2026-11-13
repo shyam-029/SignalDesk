@@ -488,6 +488,27 @@ export interface RiskResponse {
   underwater: SeriesPoint[];
 }
 
+export interface QuarterRow {
+  period_end: string;
+  revenue: number | null;
+  net_income: number | null;
+  operating_margin_pct: number | null;
+  net_margin_pct: number | null;
+  /** Change against the same quarter one year earlier. */
+  revenue_yoy_pct: number | null;
+  net_income_yoy_pct: number | null;
+  net_margin_yoy_pts: number | null;
+}
+
+export interface QuarterlyTrendResponse {
+  symbol: string;
+  insufficient_data: boolean;
+  /** Oldest first. */
+  quarters: QuarterRow[];
+  momentum: "faster" | "slower" | "steady" | null;
+  revenue_growth_streak: number;
+}
+
 export interface DupontYear {
   period_end: string;
   roe_pct: number | null;

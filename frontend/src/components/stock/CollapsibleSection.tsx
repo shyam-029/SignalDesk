@@ -41,7 +41,7 @@ export function CollapsibleSection({
 
   return (
     <section id={id} className={cn("scroll-mt-28 border-b border-line", className)}>
-      <div className="mx-auto max-w-6xl px-4 py-10 md:px-6">
+      <div className="px-4 py-10 md:px-6">
         <div className={cn("border-b border-line pb-4", open && "mb-6")}>
           <div className="flex flex-wrap items-end justify-between gap-x-4 gap-y-3">
             <button

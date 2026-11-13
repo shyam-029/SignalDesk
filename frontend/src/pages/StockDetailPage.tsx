@@ -1,6 +1,7 @@
 import * as React from "react";
 import { useParams } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
+import { PanelRightClose, PanelRightOpen } from "lucide-react";
 
 import { StockHeader } from "@/components/stock/StockHeader";
 import { PerformanceStrip } from "@/components/stock/PerformanceStrip";
@@ -10,6 +11,7 @@ import { ValuationSection } from "@/components/stock/ValuationSection";
 import { FundamentalsSection } from "@/components/stock/FundamentalsSection";
 import { TechnicalsSection } from "@/components/stock/TechnicalsSection";
 import { RiskSection } from "@/components/stock/RiskSection";
+import { AtAGlance } from "@/components/stock/AtAGlance";
 import { NewsSection } from "@/components/stock/NewsSection";
 import { StockMethodology } from "@/components/stock/StockMethodology";
 import { ErrorBoundary } from "@/components/data/ErrorBoundary";
@@ -29,6 +31,9 @@ import { loadStockSnapshot } from "@/lib/stockSnapshot";
  * error boundary: one crashed section can never blank the whole page. Each
  * visit records the stock in the device-local "recently viewed" list.
  */
+
+/** Device-local memory of whether the summary rail is open. */
+const RAIL_KEY = "signaldesk.stock.rail";
 
 const SECTIONS = [
   { id: "alpha", label: "Alpha" },
@@ -61,14 +66,45 @@ export default function StockDetailPage() {
     }
   }, [detail.data]);
 
+  // Summary rail: open by default, remembered per device. Collapsed, the
+  // report takes the full width and its panels sit side by side instead.
+  const [railOpen, setRailOpen] = React.useState<boolean>(() => {
+    try {
+      return window.localStorage.getItem(RAIL_KEY) !== "closed";
+    } catch {
+      return true;
+    }
+  });
+  const toggleRail = React.useCallback(() => {
+    setRailOpen((open) => {
+      try {
+        window.localStorage.setItem(RAIL_KEY, open ? "closed" : "open");
+      } catch {
+        // Storage unavailable (private window): the choice lasts for this visit.
+      }
+      return !open;
+    });
+  }, []);
+
   return (
-    <div>
+    <div className="stock-page">
       <ScrollPulse />
       <StockHeader symbol={canonical} />
       <ErrorBoundary label="performance">
         <PerformanceStrip symbol={canonical} />
       </ErrorBoundary>
-      <SectionIndex />
+      <SectionIndex railOpen={railOpen} onToggleRail={toggleRail} />
+      {/* Wide screens: the report on the left, a sticky summary rail on the
+          right. Below xl the rail is hidden and the report takes the width.
+          The report column is a size container so its panels can pair up
+          when it is wide (rail collapsed). */}
+      <div
+        className={cn(
+          "mx-auto max-w-[1500px]",
+          railOpen && "xl:grid xl:grid-cols-[minmax(0,1fr)_340px]",
+        )}
+      >
+      <div className="@container min-w-0">
       <ErrorBoundary label="Alpha">
         <AlphaSection symbol={canonical} />
       </ErrorBoundary>
@@ -93,6 +129,17 @@ export default function StockDetailPage() {
       <ErrorBoundary label="methodology">
         <StockMethodology symbol={canonical} />
       </ErrorBoundary>
+      </div>
+      {railOpen && (
+        <aside aria-label="At a glance" className="hidden border-l border-line xl:block">
+          <div className="sticky top-[6.5rem] max-h-[calc(100vh-6.5rem)] overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            <ErrorBoundary label="summary">
+              <AtAGlance symbol={canonical} onCollapse={toggleRail} />
+            </ErrorBoundary>
+          </div>
+        </aside>
+      )}
+      </div>
     </div>
   );
 }
@@ -103,7 +150,13 @@ export default function StockDetailPage() {
  * tracked with an IntersectionObserver over the section elements; sections
  * that are not on the page (a crashed boundary) are simply skipped.
  */
-function SectionIndex() {
+function SectionIndex({
+  railOpen,
+  onToggleRail,
+}: {
+  railOpen: boolean;
+  onToggleRail: () => void;
+}) {
   const [active, setActive] = React.useState<string>(SECTIONS[0].id);
 
   React.useEffect(() => {
@@ -130,7 +183,9 @@ function SectionIndex() {
       aria-label="Report sections"
       className="sticky top-14 z-30 border-b border-line bg-background"
     >
-      <div className="mx-auto flex max-w-6xl gap-1 overflow-x-auto px-4 md:px-6">
+      {/* Sideways scroll on narrow screens only, with no visible scrollbar:
+          the bar itself must never grow a vertical scroller. */}
+      <div className="mx-auto flex max-w-[1500px] gap-1 overflow-x-auto overflow-y-hidden px-4 [scrollbar-width:none] md:px-6 [&::-webkit-scrollbar]:hidden">
         {SECTIONS.map((s) => (
           <a
             key={s.id}
@@ -146,6 +201,20 @@ function SectionIndex() {
             {s.label}
           </a>
         ))}
+        {/* Summary rail switch: only where the rail can show (xl and up). */}
+        <button
+          type="button"
+          onClick={onToggleRail}
+          aria-pressed={railOpen}
+          className="ml-auto hidden shrink-0 items-center gap-1.5 px-3 py-2.5 text-xs font-medium text-muted transition-colors hover:text-foreground xl:inline-flex"
+        >
+          {railOpen ? (
+            <PanelRightClose aria-hidden className="size-4" />
+          ) : (
+            <PanelRightOpen aria-hidden className="size-4" />
+          )}
+          {railOpen ? "Hide summary" : "Show summary"}
+        </button>
       </div>
     </nav>
   );

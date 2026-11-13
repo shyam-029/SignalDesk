@@ -36,7 +36,7 @@ export function AlphaSection({ symbol }: { symbol: string }) {
 
   return (
     <section id="alpha" className="border-b border-line">
-      <div className="mx-auto max-w-6xl px-4 py-12 md:px-6">
+      <div className="px-4 py-12 md:px-6">
         <SectionHeader
           index="02"
           kicker="Signal"

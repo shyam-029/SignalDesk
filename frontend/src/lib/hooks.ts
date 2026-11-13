@@ -106,6 +106,14 @@ export function useQuality(symbol: string) {
   });
 }
 
+export function useQuarterlyTrend(symbol: string) {
+  return useQuery({
+    queryKey: ["quarterly-trend", symbol],
+    queryFn: () => api.quarterlyTrend(symbol),
+    staleTime: 10 * 60_000,
+  });
+}
+
 // --- ETF + fund domains (Plan 8/9 slices) -------------------------------------
 
 export function useEtfs() {

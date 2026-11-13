@@ -23,7 +23,7 @@ export function PriceSection({ symbol }: { symbol: string }) {
 
   return (
     <section id="price" className="section-alt border-b border-line">
-      <div className="mx-auto max-w-6xl px-4 py-12 md:px-6">
+      <div className="px-4 py-12 md:px-6">
         <SectionHeader
           index="03"
           kicker="Price"

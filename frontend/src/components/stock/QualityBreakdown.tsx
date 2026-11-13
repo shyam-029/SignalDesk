@@ -1,5 +1,6 @@
 import { useQuality } from "@/lib/hooks";
 import { DataState } from "@/components/data/DataState";
+import { InfoDot } from "@/components/data/InfoDot";
 import type { QualityResponse } from "@/lib/types";
 
 /**
@@ -15,6 +16,31 @@ const DRIVER_LABEL: Record<string, string> = {
   turnover: "asset turnover",
   leverage: "leverage",
 };
+
+/** Plain-word help shown behind the "?" beside each column name. */
+const HELP = {
+  margin: { label: "Profit margin", short: "Profit kept from each rupee of sales." },
+  turnover: { label: "Asset turnover", short: "Sales made per rupee of assets." },
+  leverage: {
+    label: "Leverage",
+    short: "Assets per rupee of shareholder money. Higher means more borrowing.",
+  },
+  roe: {
+    label: "Return on equity",
+    short: "Profit earned per rupee of shareholder money. It is the other three multiplied together.",
+  },
+};
+
+function Head({ help }: { help: { label: string; short: string } }) {
+  return (
+    <th className="py-2 font-medium">
+      <span className="inline-flex items-center justify-end gap-1.5">
+        {help.label}
+        <InfoDot info={help} glyph="?" className="size-3.5" />
+      </span>
+    </th>
+  );
+}
 
 const REASONS: Record<string, string> = {
   non_applicable_financial:
@@ -77,10 +103,10 @@ export function QualityBreakdown({ symbol }: { symbol: string }) {
                   <thead>
                     <tr className="border-b border-line text-faint">
                       <th className="py-2 text-left font-medium">Year</th>
-                      <th className="py-2 font-medium">Profit margin</th>
-                      <th className="py-2 font-medium">Asset turnover</th>
-                      <th className="py-2 font-medium">Leverage</th>
-                      <th className="py-2 font-medium">Return on equity</th>
+                      <Head help={HELP.margin} />
+                      <Head help={HELP.turnover} />
+                      <Head help={HELP.leverage} />
+                      <Head help={HELP.roe} />
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-line">
@@ -104,20 +130,6 @@ export function QualityBreakdown({ symbol }: { symbol: string }) {
                   </tbody>
                 </table>
               </div>
-              <dl className="mt-4 grid gap-x-6 gap-y-2 text-xs leading-relaxed text-muted sm:grid-cols-3">
-                <div>
-                  <dt className="font-medium text-foreground">Profit margin</dt>
-                  <dd>Profit kept from each rupee of sales.</dd>
-                </div>
-                <div>
-                  <dt className="font-medium text-foreground">Asset turnover</dt>
-                  <dd>Sales made per rupee of assets.</dd>
-                </div>
-                <div>
-                  <dt className="font-medium text-foreground">Leverage</dt>
-                  <dd>Assets per rupee of shareholder money. Higher means more borrowing.</dd>
-                </div>
-              </dl>
               <p className="mt-4 text-xs leading-relaxed text-faint">
                 The three multiplied together give return on equity. Year-end balances are
                 used, so figures can differ slightly from ratios based on yearly averages.
