@@ -18,11 +18,14 @@ import { Tooltip } from "@/components/ui/tooltip";
 export function InfoDot({
   metric,
   info,
+  glyph = "i",
   className,
 }: {
   /** Key into METRIC_INFO, or pass `info` directly for ad-hoc entries. */
   metric?: MetricKey;
   info?: MetricInfo;
+  /** The character shown in the dot ("i" by default, "?" for plain-word help). */
+  glyph?: string;
   className?: string;
 }) {
   const resolved: MetricInfo | undefined = info ?? (metric ? METRIC_INFO[metric] : undefined);
@@ -42,7 +45,7 @@ export function InfoDot({
       aria-label={`About ${resolved.label}`}
       role={hasPopover ? "button" : undefined}
     >
-      i
+      {glyph}
     </span>
   );
 

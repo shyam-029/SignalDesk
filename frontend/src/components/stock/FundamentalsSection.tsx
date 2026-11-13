@@ -5,6 +5,7 @@ import { DataState } from "@/components/data/DataState";
 import { CollapsibleSection } from "@/components/stock/CollapsibleSection";
 import { FinancialsHistoryChart } from "@/components/stock/FinancialsHistoryChart";
 import { QualityBreakdown } from "@/components/stock/QualityBreakdown";
+import { QuarterlyTrend } from "@/components/stock/QuarterlyTrend";
 import { InfoDot } from "@/components/data/InfoDot";
 import { ExplainAction } from "@/components/explain/ExplainAction";
 import { fundamentalsSummary } from "@/lib/summaries";
@@ -127,9 +128,12 @@ export function FundamentalsSection({ symbol }: { symbol: string }) {
           <AltmanBlock symbol={symbol} />
         </div>
 
-        {/* Why return on equity is what it is: margin, turnover, leverage. */}
-        <div className="mt-8">
+        {/* Why return on equity is what it is, and whether the business is
+            speeding up. Side by side once the report column is wide enough
+            (the summary rail collapsed on a large screen), stacked otherwise. */}
+        <div className="mt-8 grid items-start gap-8 @[1300px]:grid-cols-2">
           <QualityBreakdown symbol={symbol} />
+          <QuarterlyTrend symbol={symbol} />
         </div>
 
         {/* Multi-year income-statement history (Part D, backend data only). */}

@@ -26,7 +26,7 @@ export function PerformanceStrip({ symbol }: { symbol: string }) {
   return (
     <section id="performance" aria-label="Price performance">
       <div className="border-b border-line bg-surface-2/30">
-        <div className="mx-auto max-w-6xl px-4 py-4 md:px-6">
+        <div className="mx-auto max-w-[1500px] px-4 py-4 md:px-6">
           <div className="glass rounded-sm px-5 py-4">
           <DataState
             loading={query.isLoading}

@@ -212,6 +212,17 @@
 
   /* Small label for section kickers and data labels. Sentence case as
      written (the class keeps its old name for existing markup). */
+  /* The stock report is dense: one step larger text than the rest of the
+     site, so tables and notes read without squinting. Tailwind's text-xs /
+     text-sm / text-base read these variables, so nothing else changes. */
+  .stock-page {
+    --text-xs: 0.84375rem;
+    --text-xs--line-height: 1.5;
+    --text-sm: 0.96875rem;
+    --text-sm--line-height: 1.5;
+    --text-base: 1.0625rem;
+  }
+
   .label-caps {
     @apply text-xs font-medium;
     color: var(--faint);

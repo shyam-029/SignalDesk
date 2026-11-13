@@ -10,6 +10,7 @@ import type {
   AlphaResponse,
   AltmanResponse,
   QualityResponse,
+  QuarterlyTrendResponse,
   RiskResponse,
   ValuationHistoryResponse,
   AlphaExplanationResponse,
@@ -169,6 +170,10 @@ export const api = {
     apiGet<RiskResponse>(`/stocks/${encodeURIComponent(symbol)}/risk`),
   quality: (symbol: string) =>
     apiGet<QualityResponse>(`/stocks/${encodeURIComponent(symbol)}/quality`),
+  quarterlyTrend: (symbol: string) =>
+    apiGet<QuarterlyTrendResponse>(
+      `/stocks/${encodeURIComponent(symbol)}/quarterly-trend`,
+    ),
 
   // Server-side search over the ranked universe (symbol or company name).
   search: (query: string, signal?: AbortSignal) =>

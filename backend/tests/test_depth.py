@@ -451,3 +451,90 @@ async def test_depth_endpoints_unknown_symbol(client):
     for path in ("valuation-history", "risk", "quality"):
         resp = await client.get(f"/api/v1/stocks/NOPE/{path}")
         assert resp.status_code == 404
+
+
+# --- Quarterly trend ---------------------------------------------------------
+
+
+def _q(day: str, revenue, income, net_margin=None) -> svc.QuarterFacts:
+    return svc.QuarterFacts(
+        period_end=date.fromisoformat(day),
+        revenue=revenue, net_income=income, net_margin=net_margin,
+    )
+
+
+def test_quarterly_trend_year_on_year():
+    rows = [
+        _q("2025-06-30", 100.0, 10.0, 0.10),
+        _q("2025-09-30", 110.0, 11.0, 0.10),
+        _q("2026-06-30", 120.0, 15.0, 0.125),
+        _q("2026-09-30", 143.0, 11.0, 0.077),
+    ]
+    trend = svc.quarterly_trend(rows)
+    assert trend.insufficient_data is False
+    first, second, third, fourth = trend.quarters
+    # No year-earlier quarter stored: change stays missing.
+    assert first.revenue_yoy_pct is None and second.net_income_yoy_pct is None
+    assert third.revenue_yoy_pct == 20.0
+    assert third.net_income_yoy_pct == 50.0
+    assert third.net_margin_yoy_pts == 2.5
+    assert fourth.revenue_yoy_pct == 30.0
+    assert fourth.net_income_yoy_pct == 0.0
+    # 30% after 20%: sales growth is speeding up; two growing quarters in a row.
+    assert trend.momentum == "faster"
+    assert trend.revenue_growth_streak == 2
+
+
+def test_quarterly_trend_no_growth_off_a_loss():
+    rows = [_q("2025-09-30", 100.0, -5.0), _q("2026-09-30", 90.0, 8.0)]
+    latest = svc.quarterly_trend(rows).quarters[-1]
+    assert latest.revenue_yoy_pct == -10.0
+    assert latest.net_income_yoy_pct is None
+    assert svc.quarterly_trend(rows).revenue_growth_streak == 0
+
+
+def test_quarterly_trend_gap_is_not_bridged():
+    """A missing year-earlier quarter is not replaced by a neighbouring one."""
+    rows = [_q("2025-06-30", 100.0, 10.0), _q("2026-09-30", 150.0, 20.0)]
+    trend = svc.quarterly_trend(rows)
+    assert trend.quarters[-1].revenue_yoy_pct is None
+    assert trend.momentum is None
+
+
+def test_quarterly_trend_empty_and_capped():
+    assert svc.quarterly_trend([]).insufficient_data is True
+    many = [
+        _q(f"{2020 + i // 4}-{(3, 6, 9, 12)[i % 4]:02d}-28", 100.0 + i, 10.0)
+        for i in range(20)
+    ]
+    assert len(svc.quarterly_trend(many).quarters) == svc.MAX_QUARTERS
+
+
+async def test_quarterly_trend_endpoint(client, session_factory):
+    await _seed_depth(session_factory)
+    async with session_factory() as session:
+        stock = await session.scalar(select(Stock).where(Stock.symbol == "DEPTH.NS"))
+        for day, revenue, income in (
+            ("2025-09-30", 200.0, 20.0), ("2026-09-30", 250.0, 30.0),
+        ):
+            session.add(
+                FinancialPeriod(stock_id=stock.id, period_end=date.fromisoformat(day),
+                                period_type="quarterly", revenue=revenue,
+                                net_income=income, net_margin=income / revenue,
+                                source="test")
+            )
+        await session.commit()
+    body = (await client.get("/api/v1/stocks/DEPTH/quarterly-trend")).json()
+    assert body["insufficient_data"] is False
+    assert [q["period_end"] for q in body["quarters"]] == ["2025-09-30", "2026-09-30"]
+    latest = body["quarters"][-1]
+    assert latest["revenue_yoy_pct"] == 25.0
+    assert latest["net_income_yoy_pct"] == 50.0
+    assert latest["net_margin_pct"] == 12.0
+    assert body["revenue_growth_streak"] == 1
+
+
+async def test_quarterly_trend_endpoint_empty(client, seeded):
+    body = (await client.get("/api/v1/stocks/RELIANCE/quarterly-trend")).json()
+    assert body["insufficient_data"] is True
+    assert body["quarters"] == []

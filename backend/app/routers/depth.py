@@ -136,6 +136,25 @@ class QualityResponse(BaseModel):
     cash_flow_available: bool
 
 
+class QuarterOut(BaseModel):
+    period_end: date
+    revenue: float | None
+    net_income: float | None
+    operating_margin_pct: float | None
+    net_margin_pct: float | None
+    revenue_yoy_pct: float | None
+    net_income_yoy_pct: float | None
+    net_margin_yoy_pts: float | None
+
+
+class QuarterlyTrendResponse(BaseModel):
+    symbol: str
+    insufficient_data: bool
+    quarters: list[QuarterOut]  # oldest first
+    momentum: str | None  # "faster" | "slower" | "steady"
+    revenue_growth_streak: int
+
+
 # --- Readers ---------------------------------------------------------------
 
 
@@ -316,4 +335,51 @@ async def get_quality(symbol: str, session: SessionDep) -> QualityResponse:
         from_period=result.from_period,
         to_period=result.to_period,
         cash_flow_available=False,
+    )
+
+
+@router.get("/{symbol}/quarterly-trend", response_model=QuarterlyTrendResponse)
+async def get_quarterly_trend(
+    symbol: str, session: SessionDep
+) -> QuarterlyTrendResponse:
+    """Stored quarters with their change on the same quarter a year earlier.
+
+    Reads the quarterly rows the financial-history ingestion already stores.
+    A change is null when the year-earlier quarter is not stored or is not a
+    positive base; nothing is annualized or filled in.
+    """
+    stock = await resolve_stock(session, symbol)
+    periods = await fp_repo.get_periods(session, stock.id, period_type="quarterly")
+    rows = sorted(
+        (
+            depth.QuarterFacts(
+                period_end=p.period_end,
+                revenue=_f(p.revenue),
+                net_income=_f(p.net_income),
+                operating_margin=_f(p.operating_margin),
+                net_margin=_f(p.net_margin),
+            )
+            for p in periods
+        ),
+        key=lambda r: r.period_end,
+    )
+    trend = depth.quarterly_trend(rows)
+    return QuarterlyTrendResponse(
+        symbol=stock.symbol,
+        insufficient_data=trend.insufficient_data,
+        quarters=[
+            QuarterOut(
+                period_end=q.period_end,
+                revenue=q.revenue,
+                net_income=q.net_income,
+                operating_margin_pct=q.operating_margin_pct,
+                net_margin_pct=q.net_margin_pct,
+                revenue_yoy_pct=q.revenue_yoy_pct,
+                net_income_yoy_pct=q.net_income_yoy_pct,
+                net_margin_yoy_pts=q.net_margin_yoy_pts,
+            )
+            for q in trend.quarters
+        ],
+        momentum=trend.momentum,
+        revenue_growth_streak=trend.revenue_growth_streak,
     )
