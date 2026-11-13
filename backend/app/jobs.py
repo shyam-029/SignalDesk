@@ -18,10 +18,11 @@ import os
 import random
 import time
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from typing import TypeVar
 
-from sqlalchemy import delete, exists, func, or_, select
+from sqlalchemy import delete, exists, func, or_, select, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -75,7 +76,22 @@ UNIVERSE_NAME = "top1000"  # M1-T3 cutover: nightly ingestion reads the ranked
 # top-1000 universe (was "nifty250"). Ranked-out / excluded catalog stocks
 # are intentionally outside this path: they keep every stored row, and the
 # repair_catalog_gaps pass still refreshes them when they have gaps.
-PERIOD = "2y"  # how much price history to fetch on each run
+PERIOD = "2y"  # the full price history a stock gets (new, short or refetched)
+
+# --- Incremental price fetch (work list item 27, owner decision 2026-11-12) ---
+# Most nights only the last month is fetched instead of 2 years. Prices are
+# split- and dividend-adjusted, so a corporate action rescales a stock's
+# whole past; the fetched month overlaps the newest stored bars, and if any
+# shared close differs by more than OVERLAP_TOLERANCE the full 2 years are
+# fetched again and stored over the old series. A stock with little stored
+# history, or whose newest bar is more than INCREMENTAL_MAX_GAP_DAYS old,
+# always gets the full fetch.
+INCREMENTAL_PERIOD = "1mo"
+OVERLAP_BARS = 10
+OVERLAP_MIN_SHARED = 3
+OVERLAP_TOLERANCE = 0.001  # 0.1%
+FULL_MIN_BARS = 400
+INCREMENTAL_MAX_GAP_DAYS = 20
 BATCH_SIZE = 5  # concurrent symbols per batch (respect provider rate limits)
 
 # --- Top-1000 ranking (M1-T2) ---
@@ -211,7 +227,10 @@ def _alias_fetch_symbol(symbol: str) -> str | None:
 
 
 async def _fetch_bars_with_alias(
-    provider: MarketDataProvider, symbol: str, today: date | None = None
+    provider: MarketDataProvider,
+    symbol: str,
+    today: date | None = None,
+    period: str = PERIOD,
 ) -> list[OHLCV]:
     """Fetch price bars for a catalog symbol, falling back to its rename.
 
@@ -225,7 +244,7 @@ async def _fetch_bars_with_alias(
     today is forwarded to the freshness guard (None = real clock).
     """
     async def _one(sym: str) -> list[OHLCV]:
-        bars = await provider.get_price_history(sym, PERIOD)
+        bars = await provider.get_price_history(sym, period)
         if bars:
             _assert_frame_fresh(sym, bars, today)
         return bars
@@ -282,11 +301,86 @@ def _tally_upsert(stats: dict[str, int] | None, flags: list[bool], offered: int)
     stats["unchanged"] += offered - len(flags)
 
 
+@dataclass(frozen=True)
+class StoredTail:
+    """What is stored for a stock: bar count, newest date, newest closes."""
+
+    bars: int
+    last_date: date
+    closes: dict  # date -> close, the newest OVERLAP_BARS stored bars
+
+
+_TAILS_SQL = text(
+    """
+    WITH t AS (
+        SELECT s.symbol AS symbol, dp.date AS day, dp.close::float8 AS close,
+               row_number() OVER (PARTITION BY dp.stock_id ORDER BY dp.date DESC) AS rn,
+               count(*) OVER (PARTITION BY dp.stock_id) AS n
+        FROM daily_prices dp
+        JOIN stocks s ON s.id = dp.stock_id
+        WHERE s.symbol = ANY(:symbols)
+    )
+    SELECT symbol, day, close, n FROM t WHERE rn <= :k
+    """
+)
+
+
+async def _stored_tails(symbols: list[str]) -> dict[str, StoredTail]:
+    """Each stock's stored bar count and newest closes, in one query.
+
+    About OVERLAP_BARS small rows per stock leave the database (~10k rows,
+    a few hundred KB for the whole list), counted inside PostgreSQL.
+    """
+    if not symbols:
+        return {}
+    async with SessionLocal() as session:
+        rows = (
+            await session.execute(_TAILS_SQL, {"symbols": list(symbols), "k": OVERLAP_BARS})
+        ).all()
+    grouped: dict[str, dict] = {}
+    counts: dict[str, int] = {}
+    for r in rows:
+        grouped.setdefault(r.symbol, {})[r.day] = float(r.close)
+        counts[r.symbol] = int(r.n)
+    return {
+        sym: StoredTail(bars=counts[sym], last_date=max(closes), closes=closes)
+        for sym, closes in grouped.items()
+    }
+
+
+def _overlap_matches(tail: StoredTail, bars: list[OHLCV]) -> bool:
+    """True when the fetched bars agree with the stored ones they overlap.
+
+    At least OVERLAP_MIN_SHARED shared dates are required; any shared close
+    more than OVERLAP_TOLERANCE away means the provider rescaled the history
+    (a split, bonus or dividend adjustment) and the full series is refetched.
+    """
+    shared = 0
+    for b in bars:
+        old = tail.closes.get(b.date)
+        if old is None or b.close is None:
+            continue
+        shared += 1
+        if old <= 0 or abs(float(b.close) / old - 1.0) > OVERLAP_TOLERANCE:
+            return False
+    return shared >= OVERLAP_MIN_SHARED
+
+
+def _incremental_ok(tail: StoredTail | None, today: date) -> bool:
+    return (
+        tail is not None
+        and tail.bars >= FULL_MIN_BARS
+        and (today - tail.last_date).days <= INCREMENTAL_MAX_GAP_DAYS
+    )
+
+
 async def _fetch_one_symbol(
     provider: MarketDataProvider,
     symbol: str,
     today: date | None = None,
     stats: dict[str, int] | None = None,
+    tail: StoredTail | None = None,
+    modes: dict[str, int] | None = None,
 ) -> tuple[str, int]:
     """Fetch and upsert one symbol's history. Returns (symbol, bars_offered).
 
@@ -294,8 +388,30 @@ async def _fetch_one_symbol(
     today is forwarded to the freshness guard (None = real clock).
     stats, when given, accumulates inserted / updated / unchanged row counts
     (see _tally_upsert); the return contract is unchanged.
+
+    With `tail` (what is stored, from _stored_tails) only the last month is
+    fetched when that is safe (_incremental_ok) and agrees with the stored
+    bars (_overlap_matches); otherwise the full PERIOD. `modes`, when given,
+    counts "incremental", "full" and "refetch" (the month disagreed).
     """
-    bars = await _fetch_bars_with_alias(provider, symbol, today)
+    mode = "full"
+    bars: list[OHLCV] = []
+    if _incremental_ok(tail, today or date.today()):
+        bars = await _fetch_bars_with_alias(provider, symbol, today, INCREMENTAL_PERIOD)
+        if bars and _overlap_matches(tail, bars):
+            mode = "incremental"
+        else:
+            mode = "refetch"
+            if bars:
+                logger.info(
+                    "price history for %s changed under the stored bars "
+                    "(split, bonus or dividend adjustment): refetching %s",
+                    symbol, PERIOD,
+                )
+    if mode != "incremental":
+        bars = await _fetch_bars_with_alias(provider, symbol, today)
+    if modes is not None:
+        modes[mode] = modes.get(mode, 0) + 1
     if not bars:
         logger.warning("No price data for %s; skipping.", symbol)
         return symbol, 0
@@ -371,11 +487,16 @@ async def ingest_universe(
     errors: list[str] = []
     skipped = 0
     written = _new_write_stats()
+    tails = await _stored_tails(symbols)
+    modes: dict[str, int] = {}
 
     for i in range(0, len(symbols), batch_size):
         batch = symbols[i : i + batch_size]
         results = await asyncio.gather(
-            *(_fetch_one_symbol(provider, s, today, written) for s in batch),
+            *(
+                _fetch_one_symbol(provider, s, today, written, tails.get(s), modes)
+                for s in batch
+            ),
             return_exceptions=True,
         )
         for symbol, res in zip(batch, results):
@@ -401,6 +522,11 @@ async def ingest_universe(
         written["updated"],
         written["unchanged"],
     )
+    logger.info(
+        "Price fetch modes: %d last month only, %d full (new or short history), "
+        "%d refetched in full (history adjusted)",
+        modes.get("incremental", 0), modes.get("full", 0), modes.get("refetch", 0),
+    )
     # Upstox price fallback (providers/fallback.py): how often Yahoo's answer
     # was unusable and Upstox was asked instead, by reason.
     fallbacks = dict(getattr(provider, "fallbacks", {}) or {})
@@ -418,6 +544,9 @@ async def ingest_universe(
         "skipped": skipped,
         **written,
         "upstox_fallbacks": sum(fallbacks.values()),
+        "incremental": modes.get("incremental", 0),
+        "full": modes.get("full", 0),
+        "refetch": modes.get("refetch", 0),
     }
 
 
