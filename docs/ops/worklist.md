@@ -272,10 +272,16 @@ baseline). Each item touches `ingest.yml` / `jobs.py`, so one branch each.
       against 0.43 s for 2 years
 - [ ] **28** Batched multi-ticker Yahoo download and a gradual BATCH_SIZE
       increase while watching 429s (related: 22)
-- [ ] **29** Tiered schedule: financial periods, balance sheets and profiles
-      weekly (plus after earnings season); nightly keeps the price-linked
-      passes. Saves ~30 min
-- [ ] **30** Weekday-only runs plus an NSE holiday skip (pairs with 17)
+- [x] **29** Tiered schedule (2026-11-14): financial periods and balance
+      sheets weekly, every third day in results season (10 Jan-20 Feb,
+      10 Apr-31 May, 10 Jul-20 Aug, 10 Oct-20 Nov); company profiles and
+      the full alpha-history recompute weekly. Each is due by its own last
+      successful run in job_runs, so a skipped day never skips a week.
+      Saves ~23 min on most nights (measured 13 Nov: 9.6 + 5.6 + 8.2 min)
+- [x] **30** Weekends and NSE holidays (2026-11-14): the first step of
+      `ingest.yml` ends the night as a success when the market was closed
+      (Upstox's public holiday list; if it cannot be read, the night runs).
+      Dispatch inputs `all_passes` and `run_on_closed_day` for manual runs
 - [ ] **31** Independent passes as parallel jobs (check Neon connection
       limits and shared-IP Yahoo throttling first)
 - [ ] **32** Alpha: recompute only symbols whose inputs or formula version

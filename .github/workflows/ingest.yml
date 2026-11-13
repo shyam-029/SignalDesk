@@ -20,10 +20,29 @@ name: ingest
 # After the ingest job succeeds, two more jobs publish what the site reads
 # first: per-stock snapshots to R2 and the landing snapshot (see the notes
 # above those jobs). Their failures alert but do not fail the run.
+#
+# Weekends and NSE trading holidays (work list item 30): the Worker still
+# dispatches every day, and the first step ends the run as a success when
+# the market was closed, so the 18:15 retry and the watchdog see a
+# successful night and nothing is fetched. The holiday list is Upstox's
+# public market-holidays API (no key); if it cannot be read, the night runs.
+#
+# Tiered passes (item 29): statements weekly (every third day in results
+# season), company profiles weekly and the full alpha-history recompute
+# weekly, each judged from its own last successful run (app/jobs.py).
 
 on:
   # Dispatched by the Cloudflare Worker daily (see above) or by hand.
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      all_passes:
+        description: "Run every pass tonight, including the weekly ones"
+        type: boolean
+        default: false
+      run_on_closed_day:
+        description: "Run even though the market is closed today"
+        type: boolean
+        default: false
 
 concurrency:
   group: nightly-ingestion
@@ -33,9 +52,12 @@ jobs:
   ingest:
     runs-on: ubuntu-latest
     timeout-minutes: 330
+    outputs:
+      open: ${{ steps.market.outputs.open }}
     env:
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
       APP_ENV: production
+      INGEST_ALL_PASSES: ${{ inputs.all_passes && '1' || '' }}
       # Upstox is a PRICE FALLBACK only (providers/fallback.py): asked for bars
       # only when Yahoo's answer for a symbol is an error, empty or stale.
       # Empty/missing secret = Yahoo only, as before. Token expires ~2027-08;
@@ -45,18 +67,50 @@ jobs:
       run:
         working-directory: backend
     steps:
+      - name: Was the market open today? (weekends and NSE holidays skip the night)
+        id: market
+        working-directory: ${{ github.workspace }}
+        env:
+          FORCE: ${{ inputs.run_on_closed_day && 'true' || 'false' }}
+        run: |
+          today=$(TZ=Asia/Kolkata date +%F)
+          dow=$(TZ=Asia/Kolkata date +%u)
+          open=true; why="a trading day"
+          if [ "$dow" -ge 6 ]; then
+            open=false; why="a weekend"
+          else
+            body=$(curl -sS --max-time 20 --retry 3 --retry-all-errors \
+              -H "Accept: application/json" \
+              "https://api.upstox.com/v2/market/holidays/$today" || true)
+            if [ -z "$body" ] || ! echo "$body" | jq -e '.status == "success"' >/dev/null 2>&1; then
+              why="a trading day as far as we know (holiday list unavailable)"
+            elif echo "$body" | jq -e 'any(.data[]?; .holiday_type == "TRADING_HOLIDAY" and any(.closed_exchanges[]?; . == "NSE"))' >/dev/null; then
+              open=false
+              why="an NSE holiday ($(echo "$body" | jq -r '[.data[]? | .description] | join(", ")'))"
+            fi
+          fi
+          if [ "$open" = false ] && [ "$FORCE" = true ]; then
+            open=true; why="$why, run anyway (run_on_closed_day)"
+          fi
+          echo "$today (IST) is $why: open=$open"
+          echo "### $today (IST) is $why" >> "$GITHUB_STEP_SUMMARY"
+          echo "open=$open" >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@v4
+        if: steps.market.outputs.open == 'true'
       - uses: actions/setup-python@v5
+        if: steps.market.outputs.open == 'true'
         with:
           python-version: "3.12"
           cache: pip
           cache-dependency-path: backend/requirements.txt
       - name: Install dependencies (full requirements, FinBERT runs here)
+        if: steps.market.outputs.open == 'true'
         run: pip install -r requirements.txt
       - name: Require schema at Alembic head (migrations are applied only by the migrate workflow)
         # Fails fast and loudly instead of running new code on an old schema.
         # Raw alembic output is never printed: a connection error can carry the
         # database host, and this repo's Actions logs are public.
+        if: steps.market.outputs.open == 'true'
         run: |
           if ! out=$(alembic current 2>&1); then
             kind=$(echo "$out" | grep -Eo '[A-Za-z_.]*(Error|Exception)' | tail -1)
@@ -76,9 +130,10 @@ jobs:
             exit 1
           fi
       - name: Nightly ingestion (all passes; per-pass isolation D19)
+        if: steps.market.outputs.open == 'true'
         run: python -m app.jobs ingest
       - name: Post-run smoke (/status/full via Render)
-        if: always()
+        if: always() && steps.market.outputs.open == 'true'
         env:
           OPS_API_KEY: ${{ secrets.OPS_API_KEY }}
         run: |
@@ -140,6 +195,7 @@ jobs:
   # database; the upload key can only touch the cache bucket.
   stock-snapshots:
     needs: ingest
+    if: needs.ingest.outputs.open == 'true'
     continue-on-error: true
     runs-on: ubuntu-latest
     timeout-minutes: 45
@@ -237,6 +293,7 @@ jobs:
   # committed when only the timestamp changed.
   landing-snapshot:
     needs: ingest
+    if: needs.ingest.outputs.open == 'true'
     continue-on-error: true
     runs-on: ubuntu-latest
     timeout-minutes: 10
