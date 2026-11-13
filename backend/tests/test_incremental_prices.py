@@ -136,3 +136,47 @@ def test_overlap_needs_enough_shared_days():
         closes={TODAY - timedelta(days=40): 100.0},
     )
     assert jobs_module._overlap_matches(tail, _series(31)) is False
+
+
+# --- Throttle guard (work list item 28) ---------------------------------------
+
+
+def test_next_concurrency_halves_on_failures_and_grows_back():
+    nc = jobs_module._next_concurrency
+    assert nc(8, 8, 8, 3) == (4, True)    # 3 of 8 failed: throttled
+    assert nc(4, 8, 4, 2) == (2, True)
+    assert nc(2, 8, 2, 2) == (2, False)  # too small a batch to judge
+    assert nc(2, 8, 3, 3) == (jobs_module.PRICE_CONCURRENCY_MIN, True)
+    assert nc(4, 8, 4, 0) == (5, False)   # clean batch: one more
+    assert nc(8, 8, 8, 0) == (8, False)   # never above the starting size
+    assert nc(8, 8, 8, 1) == (8, False)   # one failure is not throttling
+
+
+class _ThrottledThenFine(_Provider):
+    """Answers nothing for the first `bad` calls, as a throttled Yahoo does."""
+
+    def __init__(self, series, bad: int):
+        super().__init__(series)
+        self.bad = bad
+
+    async def get_price_history(self, symbol, period):
+        self.calls.append((symbol, period))
+        if len(self.calls) <= self.bad:
+            return []
+        bars = self.series.get(symbol, [])
+        return bars[-31:] if period == "1mo" else list(bars)
+
+
+async def test_throttled_batch_shrinks_and_pauses(session_factory, monkeypatch):
+    monkeypatch.setattr(jobs_module, "SessionLocal", session_factory)
+    monkeypatch.setattr(jobs_module, "THROTTLE_PAUSE_S", 0.0)
+    symbols = [f"T{i:02d}.NS" for i in range(12)]
+    full = _series(500)
+    await _seed(session_factory, {s: full[:-1] for s in symbols})
+    # The first batch of 8 gets nothing (month and 2-year attempts alike).
+    provider = _ThrottledThenFine({s: full for s in symbols}, bad=16)
+    out = await jobs_module.ingest_universe(provider=provider, batch_size=8, today=TODAY)
+    assert out["throttle_pauses"] == 1
+    # After the pause the remaining 4 went through at 4 at a time and worked.
+    assert out["incremental"] == 4
+    assert out["skipped"] == 8
