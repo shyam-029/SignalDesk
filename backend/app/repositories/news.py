@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import defer, selectinload
 
 from app.models import NewsArticle, NewsSentiment, Stock
 from app.services.news_relevance import generic_tokens_from_names, is_relevant_article
@@ -55,9 +55,12 @@ async def get_articles(
     Undated articles cannot be proven stale and are kept. Pass None to
     disable the window entirely.
     """
+    # The article body (`content`) is never shown by /news, so it is not
+    # loaded: up to limit*4 rows are over-fetched for the relevance filter,
+    # and the bodies were most of the bytes (2026-11-13).
     q = (
         select(NewsArticle)
-        .options(selectinload(NewsArticle.sentiment))
+        .options(selectinload(NewsArticle.sentiment), defer(NewsArticle.content))
         .where(NewsArticle.symbol == symbol)
     )
     if fresh_days is not None:
