@@ -23,6 +23,7 @@ from app.repositories import benchmarks as bench_repo
 from app.repositories import financial_periods as fp_repo
 from app.repositories import financials as fin_repo
 from app.repositories import prices as price_repo
+from app.repositories import shareholding as shareholding_repo
 from app.routers.common import resolve_stock
 from app.services import depth
 from app.services.altman import is_financial_sector
@@ -153,6 +154,29 @@ class QuarterlyTrendResponse(BaseModel):
     quarters: list[QuarterOut]  # oldest first
     momentum: str | None  # "faster" | "slower" | "steady"
     revenue_growth_streak: int
+
+
+class OwnershipQuarterOut(BaseModel):
+    period_end: date
+    promoters: float | None
+    fii: float | None
+    other_dii: float | None
+    mutual_funds: float | None
+    retail_and_other: float | None
+    # FII + other DII + mutual funds; null unless all three are present.
+    institutions: float | None
+
+
+class ShareholdingResponse(BaseModel):
+    symbol: str
+    insufficient_data: bool
+    quarters: list[OwnershipQuarterOut]  # oldest first
+    # Percentage-point change from the oldest to the newest stored quarter.
+    change_pts: dict[str, float | None]
+    from_period: date | None
+    to_period: date | None
+    promoter_direction: str | None  # "rising" | "falling" | "steady"
+    institution_direction: str | None
 
 
 # --- Readers ---------------------------------------------------------------
@@ -382,4 +406,51 @@ async def get_quarterly_trend(
         ],
         momentum=trend.momentum,
         revenue_growth_streak=trend.revenue_growth_streak,
+    )
+
+
+@router.get("/{symbol}/shareholding", response_model=ShareholdingResponse)
+async def get_shareholding(symbol: str, session: SessionDep) -> ShareholdingResponse:
+    """Who owns the company, quarter by quarter, from stored filings.
+
+    insufficient_data is true until the shareholding ingestion has stored at
+    least one quarter for the stock (or while the table is not migrated
+    yet). Changes need the category in both the oldest and newest quarter.
+    """
+    stock = await resolve_stock(session, symbol)
+    stored = []
+    if await shareholding_repo.table_exists(session):
+        stored = await shareholding_repo.get_periods(session, stock.id)
+    rows = [
+        depth.OwnershipQuarter(
+            period_end=p.period_end,
+            promoters=_f(p.promoters),
+            fii=_f(p.fii),
+            other_dii=_f(p.other_dii),
+            mutual_funds=_f(p.mutual_funds),
+            retail_and_other=_f(p.retail_and_other),
+        )
+        for p in stored
+    ]
+    trend = depth.ownership_trend(rows)
+    return ShareholdingResponse(
+        symbol=stock.symbol,
+        insufficient_data=trend.insufficient_data,
+        quarters=[
+            OwnershipQuarterOut(
+                period_end=q.period_end,
+                promoters=q.promoters,
+                fii=q.fii,
+                other_dii=q.other_dii,
+                mutual_funds=q.mutual_funds,
+                retail_and_other=q.retail_and_other,
+                institutions=depth._round(q.institutions),
+            )
+            for q in trend.quarters
+        ],
+        change_pts=trend.change_pts,
+        from_period=trend.from_period,
+        to_period=trend.to_period,
+        promoter_direction=trend.promoter_direction,
+        institution_direction=trend.institution_direction,
     )

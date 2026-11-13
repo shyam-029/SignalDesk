@@ -509,6 +509,31 @@ export interface QuarterlyTrendResponse {
   revenue_growth_streak: number;
 }
 
+export interface OwnershipQuarter {
+  period_end: string;
+  /** Percent of all shares (0-100); null = not reported. */
+  promoters: number | null;
+  fii: number | null;
+  other_dii: number | null;
+  mutual_funds: number | null;
+  retail_and_other: number | null;
+  /** FII + other DII + mutual funds; null unless all three are reported. */
+  institutions: number | null;
+}
+
+export interface ShareholdingResponse {
+  symbol: string;
+  insufficient_data: boolean;
+  /** Oldest first. */
+  quarters: OwnershipQuarter[];
+  /** Percentage-point change, oldest to newest stored quarter. */
+  change_pts: Record<string, number | null>;
+  from_period: string | null;
+  to_period: string | null;
+  promoter_direction: "rising" | "falling" | "steady" | null;
+  institution_direction: "rising" | "falling" | "steady" | null;
+}
+
 export interface DupontYear {
   period_end: string;
   roe_pct: number | null;

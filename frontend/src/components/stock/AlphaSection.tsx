@@ -36,7 +36,7 @@ export function AlphaSection({ symbol }: { symbol: string }) {
 
   return (
     <section id="alpha" className="border-b border-line">
-      <div className="px-4 py-12 md:px-6">
+      <div className="@container px-4 py-12 md:px-6">
         <SectionHeader
           index="02"
           kicker="Signal"
@@ -51,9 +51,9 @@ export function AlphaSection({ symbol }: { symbol: string }) {
           insufficientMessage="No Alpha composite can be computed. None of the three research dimensions have data for this stock yet."
         >
           {alpha && (
-            <div className="grid gap-8 lg:grid-cols-12">
+            <div className="grid gap-8 @4xl:grid-cols-12">
               {/* Score + components */}
-              <div className="lg:col-span-7">
+              <div className="@4xl:col-span-7">
                 <div
                   className={cn(
                     "border bg-surface p-6 transition-colors",
@@ -61,7 +61,7 @@ export function AlphaSection({ symbol }: { symbol: string }) {
                     compositeBand && `${compositeBand.bg.replace("/10", "/6")}`,
                   )}
                 >
-                  <div className="grid gap-6 md:grid-cols-2">
+                  <div className="grid gap-6 @2xl:grid-cols-2">
                     <ScoreBlock
                       score={alpha.composite}
                       label="Alpha Score"
@@ -129,7 +129,7 @@ export function AlphaSection({ symbol }: { symbol: string }) {
               </div>
 
               {/* Value signal + written explanation */}
-              <div className="space-y-6 lg:col-span-5">
+              <div className="space-y-6 @4xl:col-span-5">
                 {alpha.value_signal && (
                   <div>
                     <p className="label-caps mb-2">Value signal · separate from Alpha</p>

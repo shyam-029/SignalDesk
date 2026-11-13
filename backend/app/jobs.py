@@ -12,6 +12,7 @@
 #  - asyncio.gather: runs many coroutines concurrently (bounded to a batch).
 
 import asyncio
+import calendar
 import logging
 import random
 import time
@@ -54,7 +55,8 @@ from app.providers.nse_master import NseMasterRow, fetch_master_with_retry
 from app.providers.rss_provider import GoogleNewsRSSProvider, NewsProviderError
 from app.services.news_relevance import generic_tokens_from_names, is_relevant_article
 from app.providers.sentiment import FinBERTScorer, Sentiment
-from app.providers.upstox_provider import SYMBOL_ALIASES
+from app.providers.upstox_provider import SYMBOL_ALIASES, UpstoxProvider
+from app.repositories import shareholding as shareholding_repo
 from app.providers.yfinance_provider import MarketDataError, YFinanceProvider
 from app.repositories import balance_sheets as bs_repo
 from app.repositories import benchmarks as benchmark_repo
@@ -1446,6 +1448,123 @@ async def ingest_balance_sheets(
     return {"fetched": len(symbols) - len(errors), "rows": rows, "errors": len(errors)}
 
 
+# --- Shareholding pattern (checklist 6, step 3) -------------------------------
+
+# Most stocks fetched per night. The pattern changes once a quarter, the
+# provider's rate limit for this endpoint is not documented, and the nightly
+# has a time budget: a bounded slice per night covers the whole universe in
+# about a week and then idles until the next quarter is published.
+SHAREHOLDING_NIGHTLY_CAP = 150
+# Listed companies file the pattern within 21 days of the quarter end.
+SHAREHOLDING_FILING_DAYS = 21
+
+
+def expected_shareholding_quarter(today: date) -> date:
+    """The newest quarter end whose filing deadline has passed by `today`."""
+    year, month = today.year, today.month
+    # Walk back over calendar quarter ends (Mar/Jun/Sep/Dec) from this month.
+    quarter_month = ((month - 1) // 3 + 1) * 3
+    for _ in range(3):
+        last_day = calendar.monthrange(year, quarter_month)[1]
+        quarter_end = date(year, quarter_month, last_day)
+        if quarter_end + timedelta(days=SHAREHOLDING_FILING_DAYS) <= today:
+            return quarter_end
+        quarter_month -= 3
+        if quarter_month <= 0:
+            quarter_month += 12
+            year -= 1
+    raise AssertionError("unreachable: a filed quarter always exists within 9 months")
+
+
+def shareholding_due_slice(
+    coverage: list[tuple[str, date | None]], today: date, cap: int
+) -> list[str]:
+    """Tonight's symbols: stocks missing the expected quarter, at most `cap`.
+
+    `coverage` is [(symbol, latest stored quarter end | None)] ordered by
+    symbol. When more stocks are due than the cap allows, the window rotates
+    by day so a stock the provider has nothing for (always "due") can never
+    starve the others.
+    """
+    expected = expected_shareholding_quarter(today)
+    due = [s for s, latest in coverage if latest is None or latest < expected]
+    if len(due) <= cap:
+        return due
+    start = (today.toordinal() * cap) % len(due)
+    return (due + due)[start : start + cap]
+
+
+async def _fetch_one_shareholding(provider, symbol: str) -> tuple[str, int]:
+    """Fetch + upsert one symbol's quarters (per-symbol isolation, D19)."""
+    drafts = await _with_retry(
+        lambda: provider.get_shareholding(symbol),
+        what=f"shareholding fetch for {symbol}",
+    )
+    if not drafts:
+        return symbol, 0
+    async with SessionLocal() as session:
+        stock_id = await session.scalar(select(Stock.id).where(Stock.symbol == symbol))
+        if stock_id is None:
+            raise MarketDataError(f"Symbol {symbol} not in DB catalog")
+        stored = await shareholding_repo.upsert_periods(session, stock_id, drafts)
+        return symbol, stored
+
+
+async def ingest_shareholding(
+    provider=None,
+    batch_size: int = BATCH_SIZE,
+    cap: int = SHAREHOLDING_NIGHTLY_CAP,
+    today: date | None = None,
+) -> dict:
+    """Fetch the shareholding pattern for the stocks that are due tonight.
+
+    Upstox is the only source. Three quiet no-ops, each logged and returned
+    as a zero-count result rather than an error: no Upstox token configured,
+    the shareholding_periods table not migrated yet, or nothing due.
+    """
+    empty = {"fetched": 0, "rows": 0, "errors": 0}
+    if provider is None:
+        token = (settings.upstox_analytics_token or "").strip()
+        if not token:
+            logger.info("Shareholding ingestion skipped: no Upstox token configured.")
+            return empty
+        provider = UpstoxProvider(token)
+
+    async with SessionLocal() as session:
+        if not await shareholding_repo.table_exists(session):
+            logger.warning(
+                "Shareholding ingestion skipped: shareholding_periods is not migrated."
+            )
+            return empty
+        coverage = await shareholding_repo.get_universe_coverage(session, UNIVERSE_NAME)
+
+    symbols = shareholding_due_slice(coverage, today or date.today(), cap)
+    if not symbols:
+        logger.info("Shareholding ingestion: nothing due.")
+        return empty
+
+    rows = 0
+    errors: list[str] = []
+    for i in range(0, len(symbols), batch_size):
+        batch = symbols[i : i + batch_size]
+        results = await asyncio.gather(
+            *(_fetch_one_shareholding(provider, s) for s in batch),
+            return_exceptions=True,
+        )
+        for symbol, res in zip(batch, results):
+            if isinstance(res, Exception):
+                logger.error("Failed to ingest shareholding for %s: %s", symbol, res)
+                errors.append(symbol)
+            else:
+                rows += res[1]
+
+    logger.info(
+        "Shareholding ingestion done: %d symbols, %d quarters, %d errors",
+        len(symbols) - len(errors), rows, len(errors),
+    )
+    return {"fetched": len(symbols) - len(errors), "rows": rows, "errors": len(errors)}
+
+
 # --- ETF catalog ingestion (Plan 9 slice; is_etf stocks + prices) ------------
 
 # Display names for the curated ETF list (data/ranking_exclusions.ETF_SYMBOLS
@@ -2142,6 +2261,9 @@ async def _ingest_passes() -> dict:
         ("ingest_financial_periods", ingest_financial_periods),
         ("ingest_balance_sheets", ingest_balance_sheets),
         ("ingest_company_profiles", ingest_company_profiles),
+        # Quarterly ownership pattern (checklist 6 step 3): a bounded slice
+        # of due stocks per night; a quiet no-op without token or table.
+        ("ingest_shareholding", ingest_shareholding),
         # Benchmark indexes (M1-T6): own tables, own measured contribution.
         ("ingest_benchmarks", ingest_benchmarks),
         # ETF catalog + prices (Plan 9 slice); is_etf stocks, never universes.

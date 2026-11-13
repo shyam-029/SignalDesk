@@ -95,7 +95,7 @@ export function RiskSection({ symbol }: { symbol: string }) {
               </p>
             )}
 
-            <div className="grid gap-px border border-line bg-line sm:grid-cols-2 lg:grid-cols-4">
+            <div className="grid gap-px border border-line bg-line @xl:grid-cols-2 @5xl:grid-cols-4">
               <Tile
                 label="Volatility"
                 value={pct(risk.volatility_pct)}

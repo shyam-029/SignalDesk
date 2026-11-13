@@ -588,3 +588,39 @@ class MutualFundNav(Base):
     date: Mapped[date]
     nav: Mapped[Numeric] = mapped_column(Numeric(12, 4))
     source: Mapped[str] = mapped_column(String(16))
+
+class ShareholdingPeriod(Base):
+    """One quarter's shareholding pattern for a stock (checklist 6, step 3).
+
+    Percent of total shares held by each owner category at a quarter end,
+    as reported by the provider (Upstox share-holdings). Every category is
+    nullable: a category the provider did not supply stays missing, never
+    derived as "100 minus the rest". The provider serves only the latest few
+    quarters per call, so history builds up here over time.
+    """
+
+    __tablename__ = "shareholding_periods"
+    __table_args__ = (
+        # One row per stock per quarter end; upserts target this constraint.
+        UniqueConstraint(
+            "stock_id", "period_end", name="uq_shareholding_periods_stock_period"
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    stock_id: Mapped[int] = mapped_column(ForeignKey("stocks.id"), index=True)
+    period_end: Mapped[date]
+
+    # Percent of total shares (0-100).
+    promoters: Mapped[Numeric | None] = mapped_column(Numeric(7, 4))
+    fii: Mapped[Numeric | None] = mapped_column(Numeric(7, 4))
+    other_dii: Mapped[Numeric | None] = mapped_column(Numeric(7, 4))
+    mutual_funds: Mapped[Numeric | None] = mapped_column(Numeric(7, 4))
+    retail_and_other: Mapped[Numeric | None] = mapped_column(Numeric(7, 4))
+
+    source: Mapped[str] = mapped_column(String(32))
+    ingested_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+    stock: Mapped["Stock"] = relationship()

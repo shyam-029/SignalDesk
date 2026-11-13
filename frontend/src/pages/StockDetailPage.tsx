@@ -11,6 +11,7 @@ import { ValuationSection } from "@/components/stock/ValuationSection";
 import { FundamentalsSection } from "@/components/stock/FundamentalsSection";
 import { TechnicalsSection } from "@/components/stock/TechnicalsSection";
 import { RiskSection } from "@/components/stock/RiskSection";
+import { OwnershipSection } from "@/components/stock/OwnershipSection";
 import { AtAGlance } from "@/components/stock/AtAGlance";
 import { NewsSection } from "@/components/stock/NewsSection";
 import { StockMethodology } from "@/components/stock/StockMethodology";
@@ -32,6 +33,10 @@ import { loadStockSnapshot } from "@/lib/stockSnapshot";
  * visit records the stock in the device-local "recently viewed" list.
  */
 
+/** Two sections share a row once the report column is wide enough. */
+const PAIR =
+  "@[1300px]:grid @[1300px]:grid-cols-2 @[1300px]:[&>section:first-child]:border-r @[1300px]:[&>section]:min-w-0";
+
 /** Device-local memory of whether the summary rail is open. */
 const RAIL_KEY = "signaldesk.stock.rail";
 
@@ -40,6 +45,7 @@ const SECTIONS = [
   { id: "price", label: "Price" },
   { id: "valuation", label: "Valuation" },
   { id: "fundamentals", label: "Fundamentals" },
+  { id: "ownership", label: "Ownership" },
   { id: "technicals", label: "Technicals" },
   { id: "risk", label: "Risk" },
   { id: "news", label: "News" },
@@ -105,24 +111,33 @@ export default function StockDetailPage() {
         )}
       >
       <div className="@container min-w-0">
+      {/* Wide column (rail collapsed): the score and the chart share a row,
+          with the chart staying in view beside the longer Alpha column. */}
+      <div className={cn(PAIR, "@[1300px]:[&>section:last-child>div]:sticky @[1300px]:[&>section:last-child>div]:top-28")}>
       <ErrorBoundary label="Alpha">
         <AlphaSection symbol={canonical} />
       </ErrorBoundary>
       <ErrorBoundary label="price chart">
         <PriceSection symbol={canonical} />
       </ErrorBoundary>
+      </div>
       <ErrorBoundary label="valuation">
         <ValuationSection symbol={canonical} />
       </ErrorBoundary>
       <ErrorBoundary label="fundamentals">
         <FundamentalsSection symbol={canonical} />
       </ErrorBoundary>
+      <ErrorBoundary label="ownership">
+        <OwnershipSection symbol={canonical} />
+      </ErrorBoundary>
+      <div className={PAIR}>
       <ErrorBoundary label="technicals">
         <TechnicalsSection symbol={canonical} />
       </ErrorBoundary>
       <ErrorBoundary label="risk">
         <RiskSection symbol={canonical} />
       </ErrorBoundary>
+      </div>
       <ErrorBoundary label="news">
         <NewsSection symbol={canonical} />
       </ErrorBoundary>
