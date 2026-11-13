@@ -4,11 +4,16 @@
 # with a window function (ROW_NUMBER partitioned by stock) to fetch the latest
 # two price rows for many stocks at once.
 
+from dataclasses import dataclass, field
+from datetime import date, timedelta
+from decimal import Decimal
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql import func
 
 from app.models import DailyPrice
+from app.repositories.batch_memo import memo_for
 
 
 async def get_two_latest(
@@ -105,6 +110,10 @@ async def get_close_series(
     session: AsyncSession, stock_id: int, limit: int = 200
 ) -> list[float]:
     """Return the most recent `limit` close prices, oldest first (for indicators)."""
+    memo = memo_for(session)
+    key = ("close_series", stock_id, limit)
+    if memo is not None and key in memo:
+        return list(memo[key])
     result = await session.execute(
         select(DailyPrice.close)
         .where(DailyPrice.stock_id == stock_id)
@@ -113,6 +122,8 @@ async def get_close_series(
     )
     closes = [float(v) for v in result.scalars()]
     closes.reverse()  # chronological
+    if memo is not None:
+        memo[key] = list(closes)
     return closes
 
 
@@ -130,6 +141,78 @@ async def get_closes(session: AsyncSession, stock_id: int) -> list[tuple]:
         .order_by(DailyPrice.date.asc())
     )
     return [(day, float(close)) for day, close in rows.all()]
+
+
+@dataclass
+class PerformanceInputs:
+    """Everything /performance reads from a stock's bars (see get_performance_inputs)."""
+
+    count: int = 0
+    as_of: date | None = None
+    last_close: Decimal | None = None
+    recent: list = field(default_factory=list)  # (date, close) since as_of - 366 d, oldest first
+    high_52w: Decimal | None = None
+    low_52w: Decimal | None = None
+    anchors: dict = field(default_factory=dict)  # window days -> (date, close) | None
+
+
+async def get_performance_inputs(
+    session: AsyncSession, stock_id: int, window_days, recent_days: int = 366
+) -> PerformanceInputs:
+    """The few values /performance needs, instead of every stored bar.
+
+    Same answers as scanning get_bars(): the row count; the latest bar; the
+    (date, close) pairs on or after latest - recent_days; that span's
+    highest high and lowest low (computed by the database over the same
+    stored values); and for each window, the last bar on or before
+    latest - days. Before 2026-11-13 the endpoint loaded every column of
+    ~2 years of bars, the largest read in the nightly stock snapshots.
+    """
+    base = DailyPrice.stock_id == stock_id
+    count = await session.scalar(select(func.count()).select_from(DailyPrice).where(base))
+    out = PerformanceInputs(count=count or 0)
+    if not out.count:
+        return out
+    last = (
+        await session.execute(
+            select(DailyPrice.date, DailyPrice.close).where(base).order_by(DailyPrice.date.desc()).limit(1)
+        )
+    ).one()
+    out.as_of, out.last_close = last.date, last.close
+    cutoff = out.as_of - timedelta(days=recent_days)
+    out.recent = list(
+        (
+            await session.execute(
+                select(DailyPrice.date, DailyPrice.close)
+                .where(base, DailyPrice.date >= cutoff)
+                .order_by(DailyPrice.date.asc())
+            )
+        ).all()
+    )
+    hl = (
+        await session.execute(
+            select(func.max(DailyPrice.high), func.min(DailyPrice.low)).where(base, DailyPrice.date >= cutoff)
+        )
+    ).one()
+    out.high_52w, out.low_52w = hl[0], hl[1]
+    for days in window_days:
+        target = out.as_of - timedelta(days=days)
+        # Every bar on or after the cutoff is in `recent`, so if one of them
+        # is on or before the target it is the last such bar overall.
+        inside = [r for r in out.recent if r.date <= target]
+        if inside:
+            out.anchors[days] = (inside[-1].date, inside[-1].close)
+            continue
+        row = (
+            await session.execute(
+                select(DailyPrice.date, DailyPrice.close)
+                .where(base, DailyPrice.date <= target)
+                .order_by(DailyPrice.date.desc())
+                .limit(1)
+            )
+        ).first()
+        out.anchors[days] = (row.date, row.close) if row else None
+    return out
 
 
 async def get_bars(

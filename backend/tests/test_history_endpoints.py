@@ -674,3 +674,81 @@ async def test_peers_no_peers_returns_empty(client, session_factory):
     assert body["count"] == 0
     assert body["items"] == []
 
+
+
+async def _old_performance(client, session_factory, symbol):
+    """The pre-2026-11-13 /performance algorithm: scan every stored bar."""
+    from app.repositories import prices as price_repo
+    from app.routers.history import PERFORMANCE_WINDOWS, _annualized_volatility_pct
+
+    async with session_factory() as session:
+        stock = await session.scalar(select(Stock).where(Stock.symbol == symbol))
+        bars = await price_repo.get_bars(session, stock.id)
+    windows = {}
+    as_of = bars[-1].date if bars else None
+    if bars:
+        last_close = float(bars[-1].close)
+        for label, days in PERFORMANCE_WINDOWS.items():
+            target = as_of - timedelta(days=days)
+            start = None
+            for bar in bars:
+                if bar.date <= target:
+                    start = bar
+                else:
+                    break
+            if start is None:
+                windows[label] = {"change_pct": None, "change_abs": None,
+                                  "start_close": None, "end_close": None, "start_date": None}
+                continue
+            sc = float(start.close)
+            windows[label] = {
+                "change_pct": round((last_close - sc) / sc * 100, 2) if sc else None,
+                "change_abs": round(last_close - sc, 2), "start_close": sc,
+                "end_close": last_close, "start_date": start.date.isoformat(),
+            }
+    hi = lo = None
+    closes = []
+    if bars:
+        recent = [b for b in bars if b.date >= bars[-1].date - timedelta(days=366)]
+        hi = max(float(b.high) for b in recent)
+        lo = min(float(b.low) for b in recent)
+        closes = [float(b.close) for b in recent]
+    return {
+        "as_of": as_of.isoformat() if as_of else None, "bars_used": len(bars),
+        "windows": windows, "high_52w": hi, "low_52w": lo,
+        "volatility_1y_pct": _annualized_volatility_pct(closes),
+        "insufficient_data": len(bars) < 2,
+    }
+
+
+async def test_performance_matches_the_full_scan_with_gaps(client, session_factory):
+    # 800 calendar days with weekends and a 12-day gap removed, uneven
+    # prices: every window, the 52-week range and volatility must equal the
+    # old scan of every bar (the endpoint now reads only what it needs).
+    async with session_factory() as session:
+        session.add(Stock(symbol="GAPPY.NS", name="Gappy", sector="E", industry="O"))
+        await session.flush()
+        stock = await session.scalar(select(Stock).where(Stock.symbol == "GAPPY.NS"))
+        end = date.today()
+        for i in range(800):
+            d = end - timedelta(days=799 - i)
+            if d.weekday() >= 5 or 300 <= i < 312 or 430 <= i < 437:
+                continue
+            close = 100 + (i * 37 % 101) / 7
+            session.add(DailyPrice(stock_id=stock.id, date=d, open=close,
+                                   high=close + (i % 5), low=close - (i % 3),
+                                   close=close, volume=1000))
+        await session.commit()
+    new = (await client.get("/api/v1/stocks/GAPPY/performance")).json()
+    old = await _old_performance(client, session_factory, "GAPPY.NS")
+    new.pop("symbol", None)
+    assert new == old
+
+
+async def test_performance_no_bars_matches_old(client, session_factory):
+    async with session_factory() as session:
+        session.add(Stock(symbol="EMPTY.NS", name="Empty", sector="E", industry="O"))
+        await session.commit()
+    new = (await client.get("/api/v1/stocks/EMPTY/performance")).json()
+    new.pop("symbol", None)
+    assert new == await _old_performance(client, session_factory, "EMPTY.NS")

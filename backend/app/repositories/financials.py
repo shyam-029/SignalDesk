@@ -4,11 +4,14 @@
 # "latest financials" is simply that row. We map it to the Fundamentals dataclass
 # (raw values; scores/valuation services normalize percents themselves).
 
+import copy
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Financials, Stock
 from app.providers.base import Fundamentals
+from app.repositories.batch_memo import memo_for
 
 
 def _to_fundamentals(row: Financials, symbol: str) -> Fundamentals:
@@ -92,6 +95,10 @@ async def get_financials_batch(
     """
     if not stocks:
         return {}
+    memo = memo_for(session)
+    key = ("financials_batch", tuple(sorted((s.id, s.symbol) for s in stocks)))
+    if memo is not None and key in memo:
+        return copy.deepcopy(memo[key])
     ids = [s.id for s in stocks]
     rows = (
         await session.execute(
@@ -105,4 +112,6 @@ async def get_financials_batch(
         result[row.stock_id] = _to_fundamentals(row, by_id[row.stock_id].symbol)
     for s in stocks:
         result.setdefault(s.id, None)
+    if memo is not None:
+        memo[key] = copy.deepcopy(result)
     return result
