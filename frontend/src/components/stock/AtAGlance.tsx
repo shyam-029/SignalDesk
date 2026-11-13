@@ -68,7 +68,7 @@ export function AtAGlance({
       <Group href="#alpha" title="Alpha">
         <ScoreLine label="Alpha score" value={alpha?.composite} />
         <ScoreLine label="Fundamental" value={alpha?.fundamental} small />
-        <ScoreLine label="Technical" value={alpha?.technical} small />
+        <ScoreLine label="Strength" value={alpha?.strength} small />
         <ScoreLine label="Sentiment" value={alpha?.sentiment} small />
       </Group>
 

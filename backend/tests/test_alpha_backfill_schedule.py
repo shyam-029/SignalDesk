@@ -47,7 +47,7 @@ async def test_weekday_pass_backfills_only_missing(session_factory, monkeypatch)
     async def fake_universe(_session):
         return ["FULL.NS", "NEW.NS"]
 
-    async def fake_one(symbol, _written):
+    async def fake_one(symbol, _written, _strength=None):
         done.append(symbol)
         return 1
 

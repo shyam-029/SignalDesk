@@ -814,8 +814,20 @@ async def ingest_news(
 # --- Alpha history backfill (retroactive snapshots, user decision 2026-09-06) ---
 
 
-async def _backfill_one_alpha(symbol: str, stats: dict[str, int] | None = None) -> int:
+async def _backfill_one_alpha(
+    symbol: str,
+    stats: dict[str, int] | None = None,
+    strength_by_day: dict | None = None,
+) -> int:
     """Retroactively compute alpha snapshots for every stored trading day.
+
+    Methodology v2.0: the composite's price pillar is the stock's Strength
+    rank on that day (`strength_by_day`, from
+    strength_repo.get_strength_history), not the technical score. A day
+    without a Strength rank (the first year of stored prices, or a share
+    that was not rankable then) keeps its technical value but has no
+    composite, so the Alpha line starts where Strength can be computed and
+    never mixes the two methods.
 
     For each bar date past indicator warm-up, the technical score is computed
     from the closes UP TO that date (real math on real stored prices, EMA-
@@ -887,9 +899,12 @@ async def _backfill_one_alpha(symbol: str, stats: dict[str, int] | None = None) 
     for i, scored in enumerate(scored_series):
         if scored is None or scored.get("score") is None:
             continue
-        composite, _ = _renormalized(fundamental, scored["score"], sentiment)
-        if composite is None:
-            continue
+        components = dict(scored.get("components") or {})
+        day_strength = (strength_by_day or {}).get(dates[i])
+        composite = None
+        if day_strength is not None:
+            components["strength"] = day_strength
+            composite, _ = _renormalized(fundamental, round(day_strength), sentiment)
         rows.append(
             {
                 "symbol": symbol,
@@ -900,7 +915,7 @@ async def _backfill_one_alpha(symbol: str, stats: dict[str, int] | None = None) 
                 "fundamental": None,
                 "technical": scored["score"],
                 "sentiment": None,
-                "components_json": scored.get("components") or {},
+                "components_json": components,
             }
         )
 
@@ -1006,8 +1021,9 @@ async def record_strength_scores(today: date | None = None) -> dict:
     stale last bar, or with a one-day move of 40% or more in the window is
     left without a score.
 
-    The Alpha composite is NOT changed by this pass: Strength is stored and
-    shown beside it.
+    Since methodology v2.0 Strength is the composite's price pillar: after
+    storing the ranks this pass re-blends the composite of the rows it
+    touched (strength_repo.recompose_composites).
     """
     from app.repositories import strength as strength_repo
     from app.services import strength as strength_svc
@@ -1041,10 +1057,17 @@ async def record_strength_scores(today: date | None = None) -> dict:
 
     async with SessionLocal() as session:
         counts = await strength_repo.store_ratings(session, rated, unrated)
+        # Methodology v2.0: Strength is the composite's price pillar, so the
+        # rows the live pass wrote tonight (with yesterday's rank) are
+        # re-blended now that today's rank is stored.
+        counts["recomposed"] = await strength_repo.recompose_composites(
+            session, [(s, f.last_date) for s, f in facts.items()]
+        )
 
     logger.info(
-        "Strength scores: rated=%d of %d written=%d cleared=%d not_rated=%s",
-        len(rated), len(facts), counts["written"], counts["cleared"], reasons,
+        "Strength scores: rated=%d of %d written=%d cleared=%d recomposed=%d not_rated=%s",
+        len(rated), len(facts), counts["written"], counts["cleared"],
+        counts["recomposed"], reasons,
     )
     return {"stored": len(rated), "skipped": len(unrated), "errors": 0}
 
@@ -1058,6 +1081,9 @@ async def record_strength_scores(today: date | None = None) -> dict:
 # the technical series). Stocks with little or no history are still filled
 # every night, so a newly added stock gets its chart at once.
 ALPHA_FULL_BACKFILL_WEEKDAY = 6  # Sunday (UTC date of the run)
+# Days of past Strength ranks fetched for the history (covers the ~2 years
+# of stored prices; the first year has no rank).
+ALPHA_HISTORY_DAYS = 800
 ALPHA_MIN_HISTORY_ROWS = 100  # fewer stored snapshots = backfill tonight
 
 
@@ -1107,13 +1133,32 @@ async def backfill_alpha_history(
         "full weekly recompute" if full else "missing-history only", len(symbols),
     )
 
+    # Strength on every past day (v2.0 price pillar), ranked over the whole
+    # list inside PostgreSQL; only these symbols' values leave the database.
+    from app.repositories import strength as strength_repo
+
+    # Only on the weekly full recompute: the query ranks every stored day of
+    # the whole list (measured locally: ~25 s, ~8.6 MB out). The nightly
+    # top-up covers stocks with little history, which have no full year of
+    # prices and so no Strength yet; their past days get an Alpha point on
+    # the next Sunday, and today's comes from the live pass.
+    strength_history: dict = {}
+    if symbols and full:
+        async with SessionLocal() as session:
+            strength_history = await strength_repo.get_strength_history(
+                session,
+                UNIVERSE_NAME,
+                since=date.today() - timedelta(days=ALPHA_HISTORY_DAYS),
+            )
+
     total = 0
     errors: list[str] = []
     written: dict[str, int] = {**_new_write_stats(), "deleted": 0}
     for i in range(0, len(symbols), batch_size):
         batch = symbols[i : i + batch_size]
         results = await asyncio.gather(
-            *(_backfill_one_alpha(s, written) for s in batch), return_exceptions=True
+            *(_backfill_one_alpha(s, written, strength_history.get(s)) for s in batch),
+            return_exceptions=True,
         )
         for symbol, res in zip(batch, results):
             if isinstance(res, Exception):

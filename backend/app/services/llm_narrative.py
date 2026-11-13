@@ -61,7 +61,10 @@ def _alpha_facts(result: AlphaResult) -> dict:
         "symbol": result.symbol,
         "composite": result.composite,
         "fundamental": result.fundamental,
+        # Since methodology v2.0 the composite blends fundamental, strength
+        # and sentiment; the technical score is reported but not blended.
         "technical": result.technical,
+        "strength": result.strength,
         "sentiment": result.sentiment,
         "components": dict(result.components),  # trend/momentum/reversion
         "weights": dict(result.weights),
@@ -102,10 +105,12 @@ def _alpha_narrative(result: AlphaResult) -> str:
         parts.append(f"Alpha composite {result.composite}/100")
         if result.fundamental is not None:
             parts.append(f"fundamentals {result.fundamental}/100")
-        if result.technical is not None:
-            parts.append(f"technicals {result.technical}/100")
+        if result.strength is not None:
+            parts.append(f"one-year price strength {result.strength}/100")
         if result.sentiment is not None:
             parts.append(f"sentiment {result.sentiment}/100")
+        if result.technical is not None:
+            parts.append(f"short-term technicals {result.technical}/100 (not in the composite)")
     if result.value_signal is not None:
         vs = result.value_signal
         status = (vs.status or "unknown").replace("_", " ")

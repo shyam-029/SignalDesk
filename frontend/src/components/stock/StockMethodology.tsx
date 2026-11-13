@@ -34,7 +34,7 @@ export function StockMethodology({ symbol }: { symbol: string }) {
 const BLOCKS = [
   {
     title: "Alpha Score",
-    body: "40% fundamental + 30% technical + 30% sentiment, renormalized over available components. Valuation is not blended in: multiples already derive from fundamentals, so blending would double-count.",
+    body: "40% fundamental + 35% one-year price strength + 25% sentiment, renormalized over available components (methodology 2.0). Valuation is not blended in: multiples already derive from fundamentals, so blending would double-count.",
   },
   {
     title: "Fundamental scores",
@@ -42,7 +42,7 @@ const BLOCKS = [
   },
   {
     title: "Technical positioning",
-    body: "Trend 50% (close vs SMA20), momentum 30% (MACD histogram), mean reversion 20% (RSI 14). The verdict describes the aggregate technical evidence only. These are explainable heuristics, not predictive models.",
+    body: "Trend 50% (close vs SMA20), momentum 30% (MACD histogram), mean reversion 20% (RSI 14). Shown for context and no longer part of Alpha: a twelve-year test found it did not point to future returns. These are explainable heuristics, not predictive models.",
   },
   {
     title: "Valuation",
