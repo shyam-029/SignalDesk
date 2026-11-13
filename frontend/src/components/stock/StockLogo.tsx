@@ -1,8 +1,13 @@
+import * as React from "react";
+
+import { logoUrl } from "@/lib/logos";
 import { cn } from "@/lib/utils";
 
-// Monogram stock mark: a neutral square tile with the company's initials.
-// Computed entirely from the symbol/name, so it ships zero remote requests
-// and never breaks. Deliberately colorless: a row of rainbow discs made the
+// Stock mark: the company's logo when one was downloaded (lib/logos.ts,
+// static files shipped with the site), otherwise a neutral square tile with
+// the company's initials. Logos sit on a white tile so dark marks stay
+// visible in dark mode; a logo that fails to load falls back to the
+// initials. Deliberately colorless fallback: a row of rainbow discs made the
 // tables look like an app launcher instead of a research list.
 
 function initials(name: string | undefined, symbol: string): string {
@@ -30,6 +35,30 @@ export function StockLogo({
 }) {
   const dims =
     size === "lg" ? "size-11 text-base" : size === "sm" ? "size-6 text-[10px]" : "size-9 text-sm";
+  const src = logoUrl(symbol);
+  const [failed, setFailed] = React.useState(false);
+  if (src && !failed) {
+    return (
+      <span
+        aria-hidden
+        className={cn(
+          "inline-flex shrink-0 items-center justify-center overflow-hidden rounded-[3px] border border-rule bg-white",
+          dims,
+          className,
+        )}
+      >
+        <img
+          src={src}
+          alt=""
+          loading="lazy"
+          decoding="async"
+          draggable={false}
+          className="size-full object-contain"
+          onError={() => setFailed(true)}
+        />
+      </span>
+    );
+  }
   return (
     <span
       aria-hidden
