@@ -116,6 +116,22 @@ async def get_close_series(
     return closes
 
 
+async def get_closes(session: AsyncSession, stock_id: int) -> list[tuple]:
+    """A stock's stored (date, close) pairs, oldest first.
+
+    Same rows, order and values as [(b.date, float(b.close)) for b in
+    get_bars(...)], but reads two columns instead of every column of every
+    bar: about a third of the bytes out of Neon for the valuation-history
+    and risk endpoints, which only use the close (2026-11-13).
+    """
+    rows = await session.execute(
+        select(DailyPrice.date, DailyPrice.close)
+        .where(DailyPrice.stock_id == stock_id)
+        .order_by(DailyPrice.date.asc())
+    )
+    return [(day, float(close)) for day, close in rows.all()]
+
+
 async def get_bars(
     session: AsyncSession, stock_id: int, limit: int | None = None
 ) -> list[DailyPrice]:

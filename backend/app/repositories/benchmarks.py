@@ -84,6 +84,51 @@ async def list_benchmarks(session: AsyncSession) -> list[Benchmark]:
     return list(rows.scalars())
 
 
+# Cache for get_closes_cached: symbol -> (fingerprint, closes).
+_closes_cache: dict[str, tuple[tuple, list[tuple]]] = {}
+
+
+def reset_cache() -> None:
+    """Test hook: forget cached benchmark closes."""
+    _closes_cache.clear()
+
+
+async def _closes_fingerprint(session: AsyncSession, symbol: str) -> tuple:
+    """(row count, latest date, sum of closes) of one index's stored bars.
+
+    Computed by the database and returned as one row, so checking it costs
+    almost nothing. Any added, removed or revised close changes it.
+    """
+    row = (
+        await session.execute(
+            select(
+                func.count(BenchmarkPrice.date),
+                func.max(BenchmarkPrice.date),
+                func.sum(BenchmarkPrice.close),
+            )
+            .join(Benchmark, Benchmark.id == BenchmarkPrice.benchmark_id)
+            .where(Benchmark.symbol == symbol)
+        )
+    ).one()
+    return tuple(row)
+
+
+async def get_closes_cached(session: AsyncSession, symbol: str) -> list[tuple]:
+    """get_closes(), re-read only when the index's stored bars changed.
+
+    The risk endpoint needs the NIFTY 50 series for every stock; without
+    this, building 1,000 stock snapshots read the same ~500 rows 1,000
+    times (2026-11-13). Returns exactly what get_closes() would.
+    """
+    fp = await _closes_fingerprint(session, symbol)
+    hit = _closes_cache.get(symbol)
+    if hit is not None and hit[0] == fp:
+        return hit[1]
+    closes = await get_closes(session, symbol)
+    _closes_cache[symbol] = (fp, closes)
+    return closes
+
+
 async def get_closes(session: AsyncSession, symbol: str) -> list[tuple]:
     """One index's stored (date, close) pairs, oldest first; [] when absent."""
     rows = await session.execute(

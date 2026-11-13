@@ -538,3 +538,76 @@ async def test_quarterly_trend_endpoint_empty(client, seeded):
     body = (await client.get("/api/v1/stocks/RELIANCE/quarterly-trend")).json()
     assert body["insufficient_data"] is True
     assert body["quarters"] == []
+
+
+# --- Slim reads (2026-11-13): same data, fewer bytes from the database ------
+
+
+async def test_closes_equal_the_full_bars(client, session_factory):
+    # The valuation-history and risk endpoints now read (date, close) only;
+    # it must be exactly what they used to derive from the full bars.
+    from sqlalchemy import select
+
+    from app.repositories import prices as price_repo
+
+    await _seed_depth(session_factory)
+    async with session_factory() as session:
+        stock = await session.scalar(select(Stock).where(Stock.symbol == "DEPTH.NS"))
+        slim = await price_repo.get_closes(session, stock.id)
+        full = [(b.date, float(b.close)) for b in await price_repo.get_bars(session, stock.id)]
+    assert slim == full
+    assert len(slim) == 400
+
+
+async def test_benchmark_cache_returns_get_closes_and_sees_revisions(client, session_factory):
+    from sqlalchemy import select, update
+
+    from app.repositories import benchmarks as bench_repo
+
+    await _seed_depth(session_factory)
+    async with session_factory() as session:
+        first = await bench_repo.get_closes_cached(session, "^NSEI")
+        assert first == await bench_repo.get_closes(session, "^NSEI")
+        # A later call with unchanged data serves the cached list.
+        assert await bench_repo.get_closes_cached(session, "^NSEI") is first
+
+        # A revised close (no new day, same row count) must be picked up.
+        bench = await session.scalar(select(Benchmark).where(Benchmark.symbol == "^NSEI"))
+        last_day = first[-1][0]
+        await session.execute(
+            update(BenchmarkPrice)
+            .where(BenchmarkPrice.benchmark_id == bench.id, BenchmarkPrice.date == last_day)
+            .values(close=first[-1][1] + 7)
+        )
+        await session.commit()
+        revised = await bench_repo.get_closes_cached(session, "^NSEI")
+        assert revised == await bench_repo.get_closes(session, "^NSEI")
+        assert revised[-1][1] == first[-1][1] + 7
+
+
+async def test_risk_response_is_unchanged_by_the_cache(client, session_factory):
+    # Same request twice (cold, then cached Nifty): identical responses.
+    await _seed_depth(session_factory)
+    a = await client.get("/api/v1/stocks/DEPTH/risk")
+    b = await client.get("/api/v1/stocks/DEPTH/risk")
+    assert a.status_code == 200
+    assert a.json() == b.json()
+
+
+async def test_endpoints_identical_to_the_old_full_row_reads(client, session_factory, monkeypatch):
+    # Old behaviour: full bars -> (date, close); uncached benchmark read.
+    from app.repositories import benchmarks as bench_repo
+    from app.repositories import prices as price_repo
+
+    await _seed_depth(session_factory)
+    new = {p: (await client.get(f"/api/v1/stocks/DEPTH/{p}")).json() for p in ("risk", "valuation-history")}
+
+    async def old_closes(session, stock_id):
+        return [(b.date, float(b.close)) for b in await price_repo.get_bars(session, stock_id)]
+
+    monkeypatch.setattr(price_repo, "get_closes", old_closes)
+    monkeypatch.setattr(bench_repo, "get_closes_cached", bench_repo.get_closes)
+    bench_repo.reset_cache()
+    old = {p: (await client.get(f"/api/v1/stocks/DEPTH/{p}")).json() for p in ("risk", "valuation-history")}
+    assert new == old
+    assert new["risk"] and new["valuation-history"]
