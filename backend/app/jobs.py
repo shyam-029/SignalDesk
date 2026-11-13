@@ -995,6 +995,60 @@ async def record_live_alpha_snapshots(batch_size: int = BATCH_SIZE) -> dict:
     return {"stored": stored, "errors": len(errors)}
 
 
+async def record_strength_scores(today: date | None = None) -> dict:
+    """Rank the whole list on one-year price strength and store the result.
+
+    Strength and steadiness are ranks among the shares on the list, so they
+    are computed for every share in one pass (services/strength.py). The
+    figures are merged into each share's alpha row for its latest bar, which
+    record_live_alpha_snapshots has just written; this pass must run after
+    it. No provider calls. A share without about 13 months of closes, with a
+    stale last bar, or with a one-day move of 40% or more in the window is
+    left without a score.
+
+    The Alpha composite is NOT changed by this pass: Strength is stored and
+    shown beside it.
+    """
+    from app.repositories import strength as strength_repo
+    from app.services import strength as strength_svc
+
+    async with SessionLocal() as session:
+        facts = await strength_repo.get_price_facts(
+            session, today or date.today(), universe_name=UNIVERSE_NAME
+        )
+    if not facts:
+        logger.info("Strength scores: no stored prices for universe '%s'", UNIVERSE_NAME)
+        return {"stored": 0, "skipped": 0, "errors": 0}
+
+    reference = max(f.last_date for f in facts.values())
+    inputs: dict[str, strength_svc.Inputs] = {}
+    reasons: dict[str, int] = {}
+    for symbol, fact in facts.items():
+        ready, reason = strength_svc.inputs_for(fact, reference)
+        if ready is not None:
+            inputs[symbol] = ready
+        else:
+            reasons[reason] = reasons.get(reason, 0) + 1
+
+    ratings = strength_svc.rate_list(inputs)
+    rated = []
+    for symbol, rating in ratings.items():
+        patch = {strength_repo.KEY_STRENGTH: rating.strength}
+        if rating.steadiness is not None:
+            patch[strength_repo.KEY_STEADINESS] = rating.steadiness
+        rated.append((symbol, facts[symbol].last_date, patch))
+    unrated = [(s, f.last_date) for s, f in facts.items() if s not in ratings]
+
+    async with SessionLocal() as session:
+        counts = await strength_repo.store_ratings(session, rated, unrated)
+
+    logger.info(
+        "Strength scores: rated=%d of %d written=%d cleared=%d not_rated=%s",
+        len(rated), len(facts), counts["written"], counts["cleared"], reasons,
+    )
+    return {"stored": len(rated), "skipped": len(unrated), "errors": 0}
+
+
 # Weekly full recompute (owner decision 2026-11-13, to keep Neon network
 # transfer inside the free 5 GB a month). The full pass re-reads every
 # stock's ~2 years of closes (~15-25 MB a night). Today's snapshot is still
@@ -2325,6 +2379,9 @@ async def _ingest_passes() -> dict:
         # Today's live snapshot per symbol (Phase 8: GET /alpha is pure read,
         # so ingestion owns the write that keeps per-component history current).
         ("record_live_alpha_snapshots", record_live_alpha_snapshots),
+        # One-year price strength, ranked across the list in one pass and
+        # merged into the rows the pass above just wrote. Must follow it.
+        ("record_strength_scores", record_strength_scores),
         # Plan 18: no nightly LLM pre-warm — explanations are on-demand with
         # the rule-based default; the pre-warm helper remains for manual use.
         ("ingest_news", ingest_news),

@@ -106,6 +106,14 @@ export function useQuality(symbol: string) {
   });
 }
 
+export function useStrength(symbol: string) {
+  return useQuery({
+    queryKey: ["strength", symbol],
+    queryFn: () => api.strength(symbol),
+    staleTime: 10 * 60_000,
+  });
+}
+
 export function useShareholding(symbol: string) {
   return useQuery({
     queryKey: ["shareholding", symbol],
