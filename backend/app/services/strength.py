@@ -113,15 +113,13 @@ def inputs_for(facts: PriceFacts, reference: date | None) -> tuple[Inputs | None
     )
 
 
-def percentile_ranks(values: dict[str, float]) -> dict[str, float]:
-    """Rank each value among the others, 0 to 100, highest value = 100.
+def places(values: dict[str, float]) -> dict[str, float]:
+    """Each value's 1-based place, lowest first; ties share their average place.
 
-    Ties share the average of their places (the same rule the research
-    used), so the result does not depend on input order.
+    Places are whole or half numbers, so sums of places compare exactly
+    (no floating-point noise deciding a tie).
     """
     n = len(values)
-    if n == 0:
-        return {}
     ordered = sorted(values.items(), key=lambda item: item[1])
     out: dict[str, float] = {}
     i = 0
@@ -131,9 +129,21 @@ def percentile_ranks(values: dict[str, float]) -> dict[str, float]:
             j += 1
         place = (i + j) / 2.0 + 1.0  # average 1-based place of the tie group
         for k in range(i, j + 1):
-            out[ordered[k][0]] = place / n * 100.0
+            out[ordered[k][0]] = place
         i = j + 1
     return out
+
+
+def percentile_ranks(values: dict[str, float]) -> dict[str, float]:
+    """Rank each value among the others, 0 to 100, highest value = 100.
+
+    Ties share the average of their places (the same rule the research
+    used), so the result does not depend on input order.
+    """
+    n = len(values)
+    if n == 0:
+        return {}
+    return {s: place / n * 100.0 for s, place in places(values).items()}
 
 
 def rate_list(inputs: dict[str, Inputs]) -> dict[str, Rating]:
@@ -144,9 +154,12 @@ def rate_list(inputs: dict[str, Inputs]) -> dict[str, Rating]:
     n = len(inputs)
     if n < MIN_RANKED:
         return {}
-    by_year = percentile_ranks({s: i.year_return_pct for s, i in inputs.items()})
-    by_high = percentile_ranks({s: i.from_high_pct for s, i in inputs.items()})
-    strength = percentile_ranks({s: (by_year[s] + by_high[s]) / 2.0 for s in inputs})
+    # Averaging the two ranks orders shares exactly as the sum of their two
+    # places does; the sum is exact, so equal averages always tie (repositories
+    # /strength.get_strength_history ranks the same way in SQL).
+    by_year = places({s: i.year_return_pct for s, i in inputs.items()})
+    by_high = places({s: i.from_high_pct for s, i in inputs.items()})
+    strength = percentile_ranks({s: by_year[s] + by_high[s] for s in inputs})
     calm = percentile_ranks(
         {s: -i.volatility_pct for s, i in inputs.items() if i.volatility_pct is not None}
     )

@@ -137,6 +137,11 @@ ALPHA_VERSIONS = (
 )
 
 
+# A Strength rank on every seeded day, so each backfilled row has a
+# composite that changes when the fundamentals change (methodology v2.0).
+STRENGTH_DAYS = {TODAY - timedelta(days=k): 55.0 for k in range(60)}
+
+
 async def _seed_alpha_stock(session_factory, n_bars: int = 60) -> None:
     async with session_factory() as session:
         stock = Stock(symbol="BACK.NS", name="Backfill", sector="E", industry="O")
@@ -214,7 +219,7 @@ async def test_alpha_backfill_updates_changed_rows_in_place(session_factory, mon
     in place: same ids, new versions. No delete, no new ids."""
     monkeypatch.setattr(jobs_module, "SessionLocal", session_factory)
     await _seed_alpha_stock(session_factory)
-    await jobs_module._backfill_one_alpha("BACK.NS")
+    await jobs_module._backfill_one_alpha("BACK.NS", None, STRENGTH_DAYS)
     before = await _versions(session_factory, ALPHA_VERSIONS)
 
     async with session_factory() as session:
@@ -223,7 +228,7 @@ async def test_alpha_backfill_updates_changed_rows_in_place(session_factory, mon
         await session.commit()
 
     stats: dict = {}
-    computed = await jobs_module._backfill_one_alpha("BACK.NS", stats)
+    computed = await jobs_module._backfill_one_alpha("BACK.NS", stats, STRENGTH_DAYS)
     assert stats["updated"] == computed and stats["inserted"] == 0
     after = await _versions(session_factory, ALPHA_VERSIONS)
     assert set(after) == set(before)

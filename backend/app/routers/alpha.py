@@ -36,12 +36,16 @@ class AlphaResponse(BaseModel):
     date: date
     composite: float | None
     fundamental: float | None
+    # Shown on its own; not part of the composite since methodology v2.0.
     technical: float | None
+    # The composite's price pillar since v2.0 (one-year Strength rank).
+    strength: float | None = None
     sentiment: float | None
     components: dict[str, float]
     weights: dict[str, float]
     value_signal: ValueSignalResponse | None
     insufficient_data: bool
+    methodology_version: str = alpha_svc.METHODOLOGY_VERSION
 
 
 class AlphaExplanationResponse(BaseModel):
@@ -69,6 +73,7 @@ async def get_alpha(symbol: str, session: SessionDep) -> AlphaResponse:
         composite=result.composite,
         fundamental=result.fundamental,
         technical=result.technical,
+        strength=result.strength,
         sentiment=result.sentiment,
         components=result.components,
         weights=result.weights,

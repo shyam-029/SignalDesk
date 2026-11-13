@@ -103,7 +103,7 @@ async def test_openrouter_failure_logs_exclude_api_key(caplog, monkeypatch):
 
     result = AlphaResult(
         symbol="AAA.NS", composite=None, fundamental=None, technical=None,
-        sentiment=None, components={}, weights={}, value_signal=None,
+        strength=None, sentiment=None, components={}, weights={}, value_signal=None,
         insufficient_data=True,
     )
     with caplog.at_level(logging.INFO):

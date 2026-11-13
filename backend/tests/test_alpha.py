@@ -34,11 +34,12 @@ def test_renormalized_uses_all_weights():
 
 
 def test_renormalized_drops_missing_component():
-    # Only fundamental + technical: weights become 0.4/0.35 renormalized = 0.533/0.467
+    # Only fundamental + strength: weights become 0.4/0.35 renormalized = 0.533/0.467
     c, w = _renormalized(100, 0, None)
     assert c == round(100 * 0.4 / 0.75)
     assert abs(w["fundamental"] - 0.53) < 0.01
-    assert abs(w["technical"] - 0.47) < 0.01
+    assert abs(w["strength"] - 0.47) < 0.01
+    assert "technical" not in w
 
 
 def test_renormalized_all_missing():
@@ -48,7 +49,7 @@ def test_renormalized_all_missing():
 
 
 def test_renormalized_mix():
-    # fundamental 100 (40%), technical 50 (35%), sentiment 0 (25%)
+    # fundamental 100 (40%), strength 50 (35%), sentiment 0 (25%)
     # = 40 + 17.5 + 0 = 57.5 -> 58
     c, _ = _renormalized(100, 50, 0)
     assert c == 58
@@ -187,7 +188,9 @@ async def test_backfill_blends_components_and_replaces_history(
         await session.commit()
 
     monkeypatch.setattr(jobs, "SessionLocal", session_factory)
-    inserted = await jobs._backfill_one_alpha("BACK.NS")
+    # Strength ranks exist for the last 30 bar days only (v2.0 price pillar).
+    strength_days = {today - timedelta(days=k): 60.0 + k * 0.1 for k in range(30)}
+    inserted = await jobs._backfill_one_alpha("BACK.NS", None, strength_days)
     assert inserted > 0
 
     async with session_factory() as session:
@@ -207,15 +210,17 @@ async def test_backfill_blends_components_and_replaces_history(
     # present carried-forward constants as daily observations.
     assert all(r.fundamental is None for r in rows)
     assert all(r.sentiment is None for r in rows)
-    # The composite is still a real blend (never identical to the technical
-    # score when the latest known fundamental differs).
-    assert all(
-        float(r.composite) != float(r.technical)
-        for r in rows
-        if r.technical is not None
-    )
+    # v2.0: a day with a Strength rank has a composite that blends it (and
+    # stores it); a day without one keeps its technical value but has no
+    # composite, so the two methods never mix on one line.
+    rated = [r for r in rows if r.date in strength_days]
+    unrated = [r for r in rows if r.date not in strength_days]
+    assert rated and unrated
+    assert all(r.composite is None and r.technical is not None for r in unrated)
+    assert all(r.components_json["strength"] == strength_days[r.date] for r in rated)
+    assert all(float(r.composite) != round(strength_days[r.date]) for r in rated)
     # The composite drifts; it does not sawtooth.
-    composites = [float(r.composite) for r in rows]
+    composites = [float(r.composite) for r in rated]
     deltas = [abs(b - a) for a, b in zip(composites, composites[1:])]
     assert max(deltas) <= 12
 

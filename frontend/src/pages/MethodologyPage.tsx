@@ -16,6 +16,7 @@ export default function MethodologyPage() {
         <Alpha />
         <Fundamental />
         <Altman />
+        <Strength />
         <Technical />
         <Sentiment />
         <Valuation />
@@ -44,8 +45,8 @@ function Alpha() {
         Alpha Score <InfoDot metric="alpha" />
       </h2>
       <p className="mt-3 text-sm leading-relaxed text-muted">
-        The composite blends three independent analyses, each scored 0 to 100: fundamental
-        strength (40%), technical positioning (35%), and news sentiment (25%). Weights
+        The composite blends three independent analyses, each scored 0 to 100: the business
+        (40%), one-year price strength (35%), and news sentiment (25%). Weights
         renormalize over the components that have data, so a stock without news is scored on
         the other two dimensions rather than penalized. The score is bounded 0 to 100 and is a
         research summary, not a prediction or a recommendation.
@@ -131,6 +132,34 @@ function Altman() {
   );
 }
 
+function Strength() {
+  return (
+    <section>
+      <h2 className="flex items-center gap-2 font-display text-2xl font-semibold">
+        Strength <InfoDot metric="strength_score" />
+      </h2>
+      <p className="mt-3 text-sm leading-relaxed text-muted">
+        Strength answers one question: how strong has the price been over the past year,
+        compared with the other listed stocks? It averages two ranks: the one-year return,
+        skipping the latest month, and how close the price is to its one-year high. Both are
+        ranked across the list every night, so Strength is a place from 0 to 100, not a
+        forecast. A stock with less than about 13 months of prices, or a one-day move of 40%
+        or more in the year (often a split the price source did not adjust), gets no score.
+      </p>
+      <p className="mt-3 text-sm leading-relaxed text-muted">
+        Methodology 2.0 (14 November 2026) made Strength the price part of the Alpha Score,
+        replacing the technical score below. The design was fixed before testing it on twelve
+        years of NSE prices. The strongest fifth of stocks beat the average stock by about
+        0.7% a month after trading costs, both in the years used to choose the design and in
+        the years held back. Stocks with a high technical score did not beat the average. It
+        works worst in sharp rebounds after a crash (2020 was its weakest year). The Alpha
+        history is recomputed with Strength, so it starts about a year after the first stored
+        price, where a full year of prices exists.
+      </p>
+    </section>
+  );
+}
+
 function Technical() {
   return (
     <section>
@@ -144,7 +173,8 @@ function Technical() {
       </p>
       <p className="mt-3 text-sm leading-relaxed text-muted">
         These are product-defined heuristics, kept simple and explainable on purpose. They are
-        not validated predictive models. The verdict wording (&ldquo;Bullish&rdquo;,
+        not validated predictive models, and since methodology 2.0 they are shown for context
+        only and are not part of the Alpha Score. The verdict wording (&ldquo;Bullish&rdquo;,
         &ldquo;Bearish&rdquo; and similar) describes the aggregate technical evidence only;
         SignalDesk never labels an entire stock as bullish or bearish.
       </p>

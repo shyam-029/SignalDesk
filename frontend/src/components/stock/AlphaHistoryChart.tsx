@@ -8,7 +8,9 @@ import { fmtDate } from "@/lib/format";
 /**
  * AlphaHistoryChart: stored Alpha Score snapshots over time (Part D), read
  * from the backend's /alpha/history endpoint. The composite is the primary
- * line, with the technical component beside it. Gaps in the history break
+ * line, with its price pillar (Strength, methodology v2.0) beside it. The
+ * Alpha line starts where a Strength rank exists (about a year after the
+ * first stored price). Gaps in the history break
  * the line rather than being interpolated. Sparse history (fewer than two points) is an honest
  * insufficient state: history builds up as scores are computed per day.
  */
@@ -31,12 +33,11 @@ export function AlphaHistoryChart({ symbol }: { symbol: string }) {
     });
     return [
       series("composite", "Alpha", "--cobalt", (i) => i.composite),
-      // Only the technical component is charted beside the composite. The
+      // Only the price pillar is charted beside the composite. The
       // fundamental and sentiment scores exist only on the few live
-      // snapshots (backfilled history is technical-only), so their lines
-      // were a few dots at the right edge and read as noise.
-      ...(items.some((i) => i.technical != null)
-        ? [series("technical", "Technical", "--accent-coral", (i) => i.technical)]
+      // snapshots, so their lines were a few dots at the right edge.
+      ...(items.some((i) => i.strength != null)
+        ? [series("strength", "Strength", "--accent-coral", (i) => i.strength ?? null)]
         : []),
     ];
   }, [items]);

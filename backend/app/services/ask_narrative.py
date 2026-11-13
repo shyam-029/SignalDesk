@@ -100,8 +100,9 @@ _NESTED_ALLOWED_KEYS = {
                 "employees", "website"},
     "price": {"last_price", "change_abs", "change_pct", "open", "high", "low",
               "prev_close", "volume", "date"},
-    "alpha": {"symbol", "composite", "fundamental", "technical", "sentiment",
-              "components", "weights", "value_signal", "insufficient_data"},
+    "alpha": {"symbol", "composite", "fundamental", "technical", "strength",
+              "sentiment", "components", "weights", "value_signal",
+              "insufficient_data"},
     "technical": {"score", "trend", "momentum", "reversion", "sma20", "ema12",
                   "rsi14", "macd", "macd_signal", "last_close", "closes_used"},
     "valuation": {"metric", "current", "peer_median", "margin_pct", "status",
@@ -303,8 +304,10 @@ _INSUFFICIENT_ANSWER = (
 )
 
 _METHODOLOGY_TEXT = (
-    "Alpha = 40% fundamental + 35% technical + 25% sentiment (renormalized "
-    "over available parts). The fundamental part blends profitability 45%, "
+    "Alpha = 40% fundamental + 35% one-year price strength + 25% sentiment "
+    "(renormalized over available parts; methodology v2.0). Strength ranks "
+    "the one-year return, skipping the latest month, and closeness to the "
+    "one-year high against the other listed stocks. The fundamental part blends profitability 45%, "
     "solvency 30% and Altman Z-score distress 25%. Valuation compares "
     "multiples to the same-industry peer median; outside +/-5% of the median "
     "reads under/overvalued, and it is kept separate from Alpha. Technicals: "

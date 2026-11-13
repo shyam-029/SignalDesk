@@ -34,7 +34,7 @@ QUESTION_TYPES = ("alpha", "technical", "valuation", "fundamental", "sentiment")
 # prompt is built, so adding a field to a facts dict is not enough to expose it.
 _ALLOWED_FACT_KEYS: dict[str, set[str]] = {
     "alpha": {
-        "symbol", "composite", "fundamental", "technical", "sentiment",
+        "symbol", "composite", "fundamental", "technical", "strength", "sentiment",
         "components", "weights", "insufficient_data", "value_signal",
         "available",
     },
@@ -119,7 +119,8 @@ def _rule_based(question_type: str, facts: dict) -> str:
     qt = question_type
     if qt == "alpha":
         parts = [f"Alpha composite {facts.get('composite')}/100"]
-        for key, label in (("fundamental", "fundamentals"), ("technical", "technicals"),
+        for key, label in (("fundamental", "fundamentals"),
+                           ("strength", "one-year price strength"),
                            ("sentiment", "sentiment")):
             if facts.get(key) is not None:
                 parts.append(f"{label} {facts[key]}/100")

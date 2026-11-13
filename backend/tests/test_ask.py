@@ -330,8 +330,8 @@ def test_prompt_guides_a_direct_answer_and_names_the_new_evidence():
 
 def test_methodology_text_matches_the_live_alpha_weights():
     text = ask_svc._METHODOLOGY_TEXT
-    assert "40% fundamental + 35% technical + 25% sentiment" in text
-    assert "30% technical" not in text
+    assert "40% fundamental + 35% one-year price strength + 25% sentiment" in text
+    assert "technical + 25%" not in text
     assert "Altman" in text
 
 
@@ -407,7 +407,7 @@ async def test_ask_prompt_includes_computed_history_and_distress(client, session
     prompt = provider.last_user
     assert '"price_history"' in prompt and '"biggest_gains"' in prompt
     assert '"recent_closes"' in prompt and '"distress"' in prompt
-    assert "40% fundamental + 35% technical + 25% sentiment" in prompt
+    assert "40% fundamental + 35% one-year price strength + 25% sentiment" in prompt
 
 
 async def test_ask_prompt_injection_attempt_still_structured(client, session_factory, monkeypatch):
