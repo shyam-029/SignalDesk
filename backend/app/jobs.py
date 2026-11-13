@@ -13,6 +13,7 @@
 
 import asyncio
 import calendar
+import functools
 import logging
 import os
 import random
@@ -1049,23 +1050,72 @@ async def record_strength_scores(today: date | None = None) -> dict:
     return {"stored": len(rated), "skipped": len(unrated), "errors": 0}
 
 
-# Weekly full recompute (owner decision 2026-11-13, to keep Neon network
-# transfer inside the free 5 GB a month). The full pass re-reads every
-# stock's ~2 years of closes (~15-25 MB a night). Today's snapshot is still
-# written nightly by record_live_alpha_snapshots; what moves to weekly is
-# the refresh of PAST technical-only points (their composite uses the
-# latest fundamental and sentiment scores, and a revised old close changes
-# the technical series). Stocks with little or no history are still filled
-# every night, so a newly added stock gets its chart at once.
-ALPHA_FULL_BACKFILL_WEEKDAY = 6  # Sunday (UTC date of the run)
+# --- Tiered schedule (work list item 29, owner decision 2026-11-14) ---------
+# Some passes fetch data that changes only when a company files results, so
+# they run on an interval instead of every night. "Due" is judged from the
+# pass's own last successful run in job_runs, not from the weekday: the
+# nightly skips weekends and NSE holidays (ingest.yml), so a fixed weekday
+# could be skipped for a whole week, while an interval always catches up on
+# the next run. INGEST_ALL_PASSES=1 (the workflow's all_passes input) runs
+# every pass tonight.
+WEEKLY_DAYS = 7
+RESULTS_SEASON_DAYS = 3
+# A run that starts a little later than last week's is still on time.
+_DUE_SLACK = timedelta(hours=12)
+
+# Statements change only when results are filed: weekly, every third day in
+# results season. Company profiles (business summary, CEO, staff) weekly.
+FINANCIAL_PASSES = ("ingest_financial_periods", "ingest_balance_sheets")
+WEEKLY_PASSES = ("ingest_company_profiles",)
+
+# Weekly full alpha-history recompute (owner decision 2026-11-13, to keep
+# Neon network transfer inside the free 5 GB a month). The full pass
+# re-reads every stock's ~2 years of closes (~15-25 MB). Today's snapshot is
+# still written nightly by record_live_alpha_snapshots; what moves to weekly
+# is the refresh of PAST points. Stocks with little or no history are still
+# filled every night, so a newly added stock gets its chart at once. The
+# full run is recorded under its own job name so its interval can be read.
+ALPHA_FULL_JOB = "backfill_alpha_history_full"
 ALPHA_MIN_HISTORY_ROWS = 100  # fewer stored snapshots = backfill tonight
 
 
-def _alpha_full_backfill_due(today: date | None = None) -> bool:
-    if os.environ.get("ALPHA_BACKFILL_FULL", "").strip() in ("1", "true", "yes"):
+def _env_flag(name: str) -> bool:
+    return os.environ.get(name, "").strip().lower() in ("1", "true", "yes")
+
+
+def in_results_season(today: date) -> bool:
+    """True while quarterly results are being filed (SEBI deadlines).
+
+    Results are due within 45 days of a quarter's end (60 for the March
+    quarter), and most arrive in the second half of that window:
+    10 Jan-20 Feb, 10 Apr-31 May, 10 Jul-20 Aug, 10 Oct-20 Nov.
+    """
+    m, d = today.month, today.day
+    if m in (1, 4, 7, 10):
+        return d >= 10
+    if m in (2, 8, 11):
+        return d <= 20
+    return m == 5
+
+
+async def _pass_due(name: str, interval_days: int, now: datetime | None = None) -> bool:
+    """True when `name` has no successful run within `interval_days` (minus slack)."""
+    async with SessionLocal() as session:
+        last = await session.scalar(
+            select(func.max(JobRun.started_at)).where(
+                JobRun.job_name == name, JobRun.status.in_(("success", "partial"))
+            )
+        )
+    if last is None:
         return True
-    today = today or datetime.now(timezone.utc).date()
-    return today.weekday() == ALPHA_FULL_BACKFILL_WEEKDAY
+    now = now or datetime.now(timezone.utc)
+    return now - last >= timedelta(days=interval_days) - _DUE_SLACK
+
+
+async def _alpha_full_backfill_due(now: datetime | None = None) -> bool:
+    if _env_flag("ALPHA_BACKFILL_FULL") or _env_flag("INGEST_ALL_PASSES"):
+        return True
+    return await _pass_due(ALPHA_FULL_JOB, WEEKLY_DAYS, now)
 
 
 async def _symbols_missing_alpha_history(session, symbols: list[str]) -> list[str]:
@@ -1089,15 +1139,15 @@ async def backfill_alpha_history(
 ) -> dict:
     """Retroactively backfill alpha snapshots for the active universe.
 
-    full=True recomputes every symbol (Sundays, ALPHA_BACKFILL_FULL=1, or
+    full=True recomputes every symbol (weekly by ALPHA_FULL_JOB, ALPHA_BACKFILL_FULL=1, or
     the standalone `backfill` command); otherwise only symbols with little
-    or no stored history are done (see ALPHA_FULL_BACKFILL_WEEKDAY).
+    or no stored history are done (see ALPHA_FULL_JOB).
     Idempotent: existing technical-only rows are recomputed; full live
     snapshots (with a fundamental score) are preserved. Failures are
     isolated per symbol (D19).
     """
     if full is None:
-        full = _alpha_full_backfill_due()
+        full = await _alpha_full_backfill_due()
     async with SessionLocal() as session:
         symbols = await _get_universe_symbols(session)
         if not full:
@@ -2358,12 +2408,37 @@ async def _ingest_passes() -> dict:
     Returns child-pass failure/success counts so the top-level
     nightly_ingestion row never masks a failed pass as overall success.
     """
+    every_pass = _env_flag("INGEST_ALL_PASSES")
+    today = datetime.now(timezone.utc).date()
+    financial_days = RESULTS_SEASON_DAYS if in_results_season(today) else WEEKLY_DAYS
+
+    async def due(name: str, days: int) -> bool:
+        if every_pass or await _pass_due(name, days):
+            return True
+        logger.info("%s not due tonight (runs every %d days)", name, days)
+        return False
+
+    slow = []
+    for name, run in (
+        ("ingest_financial_periods", ingest_financial_periods),
+        ("ingest_balance_sheets", ingest_balance_sheets),
+    ):
+        if await due(name, financial_days):
+            slow.append((name, run))
+    if await due("ingest_company_profiles", WEEKLY_DAYS):
+        slow.append(("ingest_company_profiles", ingest_company_profiles))
+
+    full_alpha = await _alpha_full_backfill_due()
+    alpha_pass = (
+        (ALPHA_FULL_JOB, functools.partial(backfill_alpha_history, full=True))
+        if full_alpha
+        else ("backfill_alpha_history", functools.partial(backfill_alpha_history, full=False))
+    )
+
     passes = (
         ("ingest_prices", ingest_universe),
         ("ingest_financials", ingest_financials),
-        ("ingest_financial_periods", ingest_financial_periods),
-        ("ingest_balance_sheets", ingest_balance_sheets),
-        ("ingest_company_profiles", ingest_company_profiles),
+        *slow,
         # Quarterly ownership pattern (checklist 6 step 3): a bounded slice
         # of due stocks per night; a quiet no-op without token or table.
         ("ingest_shareholding", ingest_shareholding),
@@ -2375,7 +2450,7 @@ async def _ingest_passes() -> dict:
         ("ingest_funds", ingest_funds),
         # Catch catalog stocks the universe passes dropped (renames/demergers).
         ("repair_catalog_gaps", repair_catalog_gaps),
-        ("backfill_alpha_history", backfill_alpha_history),
+        alpha_pass,
         # Today's live snapshot per symbol (Phase 8: GET /alpha is pure read,
         # so ingestion owns the write that keeps per-component history current).
         ("record_live_alpha_snapshots", record_live_alpha_snapshots),
@@ -2485,7 +2560,7 @@ if __name__ == "__main__":
         # symbol; live snapshots carrying a fundamental score are kept).
         # Recorded like the scheduled passes so /debug/jobs reflects it.
         status = asyncio.run(
-            _record_pass("backfill_alpha_history", backfill_alpha_history, full=True)
+            _record_pass(ALPHA_FULL_JOB, backfill_alpha_history, full=True)
         )
     elif command == "ingest":
         status = run_daily_ingestion()
