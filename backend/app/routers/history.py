@@ -289,27 +289,26 @@ async def get_performance(symbol: str, session: SessionDep) -> PerformanceRespon
     missing windows honestly instead of approximating.
     """
     stock = await resolve_stock(session, symbol)
-    bars = await price_repo.get_bars(session, stock.id)
+    # Only the values the response needs (repositories/prices.py,
+    # get_performance_inputs); the same answers as scanning every bar.
+    inp = await price_repo.get_performance_inputs(
+        session, stock.id, PERFORMANCE_WINDOWS.values()
+    )
 
     windows: dict[str, WindowPerformance] = {}
-    if bars:
-        as_of = bars[-1].date
-        last_close = float(bars[-1].close)
+    as_of = inp.as_of
+    if inp.count:
+        last_close = float(inp.last_close)
         for label, days in PERFORMANCE_WINDOWS.items():
-            target = as_of - timedelta(days=days)
-            start_bar = None
-            for bar in bars:  # ascending; first bar <= target is the anchor
-                if bar.date <= target:
-                    start_bar = bar
-                else:
-                    break
-            if start_bar is None:
+            anchor = inp.anchors.get(days)
+            if anchor is None:
                 windows[label] = WindowPerformance(
                     change_pct=None, change_abs=None,
                     start_close=None, end_close=None, start_date=None,
                 )
                 continue
-            start_close = float(start_bar.close)
+            start_date, start_close_raw = anchor
+            start_close = float(start_close_raw)
             windows[label] = WindowPerformance(
                 change_pct=round((last_close - start_close) / start_close * 100, 2)
                 if start_close
@@ -317,30 +316,25 @@ async def get_performance(symbol: str, session: SessionDep) -> PerformanceRespon
                 change_abs=round(last_close - start_close, 2),
                 start_close=start_close,
                 end_close=last_close,
-                start_date=start_bar.date,
+                start_date=start_date,
             )
-    else:
-        as_of = None
 
     high_52w = low_52w = None
     recent_closes: list[float] = []
-    if bars:
-        cutoff = bars[-1].date - timedelta(days=366)
-        recent = [b for b in bars if b.date >= cutoff]
-        if recent:
-            high_52w = max(float(b.high) for b in recent)
-            low_52w = min(float(b.low) for b in recent)
-            recent_closes = [float(b.close) for b in recent]
+    if inp.recent:
+        high_52w = float(inp.high_52w)
+        low_52w = float(inp.low_52w)
+        recent_closes = [float(r.close) for r in inp.recent]
 
     return PerformanceResponse(
         symbol=stock.symbol,
         as_of=as_of,
-        bars_used=len(bars),
+        bars_used=inp.count,
         windows=windows,
         high_52w=high_52w,
         low_52w=low_52w,
         volatility_1y_pct=_annualized_volatility_pct(recent_closes),
-        insufficient_data=len(bars) < 2,
+        insufficient_data=inp.count < 2,
     )
 
 

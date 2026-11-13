@@ -41,6 +41,8 @@ from urllib.parse import quote
 import httpx
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.repositories.batch_memo import MEMO_KEY
+
 SNAPSHOT_VERSION = 1
 # Parallel stocks. Each stock's calls run one after another on ONE database
 # session, so this is also the number of database connections the batch
@@ -134,6 +136,9 @@ async def build_one(
                 queries.append({"key": key, "data": r.json()})
     else:
         async with session_factory() as session:
+            # Repeated reads within this stock are answered once
+            # (repositories/batch_memo.py); the live API never sets this.
+            session.info[MEMO_KEY] = {}
             token = _stock_session.set(session)
             try:
                 for key, path in stock_queries(symbol):

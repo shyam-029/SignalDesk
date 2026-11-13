@@ -83,3 +83,34 @@ async def test_batch_mode_end_to_end(client, seeded, session_factory, tmp_path):
     assert (written, failed) == (len(listed), 0)
     for sym in listed:
         assert (tmp_path / "stock" / f"{sym}.json").exists()
+
+
+async def test_memo_mode_returns_the_same_snapshot(client, seeded, session_factory):
+    # With the per-stock read memo on (as main() runs it), every entry must
+    # equal the build without it.
+    from app.main import app
+
+    stock_snapshot.install_shared_sessions(app, session_factory)
+    plain = await stock_snapshot.build_one(client, "RELIANCE")
+
+    async def with_memo():
+        async with session_factory() as session:
+            from app.repositories.batch_memo import MEMO_KEY
+
+            session.info[MEMO_KEY] = {}
+            token = stock_snapshot._stock_session.set(session)
+            try:
+                return await stock_snapshot.build_one(client, "RELIANCE")
+            finally:
+                stock_snapshot._stock_session.reset(token)
+
+    memo = await with_memo()
+
+    def strip(o):
+        if isinstance(o, dict):
+            return {k: strip(v) for k, v in o.items() if k not in ("computed_at", "generated_at")}
+        if isinstance(o, list):
+            return [strip(v) for v in o]
+        return o
+
+    assert strip(memo) == strip(plain)
