@@ -22,9 +22,9 @@ export const METRIC_INFO = {
   alpha: {
     label: "Alpha Score",
     short:
-      "SignalDesk's composite research signal: 40% fundamental, 35% technical, 25% sentiment, renormalized when a component is unavailable.",
+      "SignalDesk's composite research signal: 40% fundamental, 35% one-year price strength, 25% sentiment, renormalized when a component is unavailable.",
     method:
-      "The composite blends three separate analyses: fundamental strength (profitability, solvency and the Altman distress diagnostic), technical positioning (trend/momentum/reversion heuristics), and news sentiment, weighted 40/35/25 and renormalized over available components. It is a research summary, not a prediction, and it is not investment advice.",
+      "The composite blends three separate analyses: the business (profitability, solvency and the Altman distress diagnostic), one-year price strength ranked against the other listed stocks, and news sentiment, weighted 40/35/25 and renormalized over available components. Methodology 2.0 (14 Nov 2026) replaced the short-term technical score with Strength after a twelve-year test: stocks with a high technical score did not go on to beat the average stock, while the strongest fifth by Strength beat it by about 0.7% a month after costs. It is a research summary, not a prediction, and it is not investment advice.",
     longer:
       "Alpha leaves valuation out on purpose. Multiples derive from the same fundamentals, so blending them would double count. Valuation is reported separately as the value signal: read both, don't merge them. News is deliberately the smallest pillar: headline sentiment is the most subjective input.",
   },
@@ -33,6 +33,12 @@ export const METRIC_INFO = {
     short: "Mean of the profitability and solvency scores, 0 to 100.",
     method:
       "Profitability maps ROE, ROA, operating margin and net margin through fixed thresholds; solvency maps debt/equity, interest coverage and current ratio. Missing metrics are dropped and the remaining weights renormalized, so the score reflects only the data that exists.",
+  },
+  strength_score: {
+    label: "Strength",
+    short: "How strong the price has been over the past year compared with the other listed stocks, 0 to 100.",
+    method:
+      "The average of two ranks among the listed stocks: the one-year return skipping the latest month, and how close the price is to its one-year high. Recomputed every night. A stock with less than about 13 months of prices, or a one-day move of 40% or more in the year (often an unadjusted split), gets no score. It describes the past year; it is not a forecast.",
   },
   technical_score: {
     label: "Technical Score",

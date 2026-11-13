@@ -305,8 +305,10 @@ class NewsSentiment(Base):
 class AlphaScore(Base):
     """Daily Alpha Score snapshot for a stock (one row per symbol/date).
 
-    Composite = 40% fundamental + 30% technical + 30% sentiment (weights
-    renormalized over available components), bounded 0-100. Valuation is NOT
+    Composite = 40% fundamental + 35% strength + 25% sentiment since
+    methodology v2.0 (weights renormalized over available components),
+    bounded 0-100; the technical column is kept as its own score. Strength
+    lives in components_json["strength"]. Valuation is NOT
     blended in — it is surfaced separately as the "value signal". The
     components_json column keeps every sub-component so the score stays
     explainable.

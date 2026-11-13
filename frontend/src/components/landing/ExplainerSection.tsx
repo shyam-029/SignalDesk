@@ -36,7 +36,7 @@ export function ExplainerSection() {
               </div>
               <div className="space-y-4 px-5 py-5">
                 <div className="num flex flex-wrap gap-2">
-                  {["Alpha 59/100", "Fundamental 98", "Technical 27", "Sentiment 39"].map(
+                  {["Alpha 59/100", "Fundamental 98", "Strength 27", "Sentiment 39"].map(
                     (chip) => (
                       <span
                         key={chip}

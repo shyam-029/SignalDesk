@@ -106,6 +106,23 @@ async def get_return_1y(
     return out
 
 
+async def get_latest_date(session: AsyncSession, stock_id: int) -> date | None:
+    """The date of the stock's newest stored bar (None without bars).
+
+    Memoised within a snapshot batch like the other price reads.
+    """
+    memo = memo_for(session)
+    key = ("latest_date", stock_id)
+    if memo is not None and key in memo:
+        return memo[key]
+    latest = await session.scalar(
+        select(func.max(DailyPrice.date)).where(DailyPrice.stock_id == stock_id)
+    )
+    if memo is not None:
+        memo[key] = latest
+    return latest
+
+
 async def get_close_series(
     session: AsyncSession, stock_id: int, limit: int = 200
 ) -> list[float]:

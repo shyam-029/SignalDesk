@@ -35,12 +35,12 @@ const DIMENSIONS: Array<{
     weight: null,
   },
   {
-    title: "Technicals",
+    title: "Strength",
     accentVar: "var(--accent-coral)",
-    question: "How is price positioned?",
-    metrics: [["SMA 20", "below"], ["RSI 14", "38.6"], ["MACD", "negative"]],
-    note: "Heuristic read · not predictive",
-    weight: "Technical",
+    question: "How strong has the price been over a year?",
+    metrics: [["1y return", "-4%"], ["From 1y high", "-18%"], ["Rank", "27 of 100"]],
+    note: "Ranked against the listed stocks · tested on 12 years",
+    weight: "Strength",
   },
   {
     title: "Sentiment",
@@ -142,8 +142,9 @@ export function Framework() {
               </p>
               <div className="mt-4 space-y-2">
                 {DIMENSIONS.filter((d) => d.weight).map((d) => {
-                  const value = d.title === "Fundamentals" ? 98 : d.title === "Technicals" ? 27 : 39;
-                  const weight = d.title === "Fundamentals" ? "40%" : "30%";
+                  const value = d.title === "Fundamentals" ? 98 : d.title === "Strength" ? 27 : 39;
+                  const weight =
+                    d.title === "Fundamentals" ? "40%" : d.title === "Strength" ? "35%" : "25%";
                   const tone =
                     d.title === "Fundamentals"
                       ? "var(--band-strong)"

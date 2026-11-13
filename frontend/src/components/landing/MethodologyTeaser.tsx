@@ -18,15 +18,15 @@ import { cn } from "@/lib/utils";
 const ITEMS = [
   {
     key: "Alpha Score",
-    body: "40% fundamental + 30% technical + 30% sentiment, renormalized over available components, bounded 0 to 100. Valuation is left out of the blend and reported separately.",
+    body: "40% fundamental + 35% one-year price strength + 25% sentiment, renormalized over available components, bounded 0 to 100. Valuation is left out of the blend and reported separately.",
   },
   {
     key: "Fundamentals",
     body: "Profitability (ROE 40%, ROA 20%, operating margin 20%, net margin 20%) and solvency (D/E 50%, interest coverage 30%, current ratio 20%), each mapped through fixed thresholds. Missing metrics drop out and remaining weights renormalize.",
   },
   {
-    key: "Technicals",
-    body: "Trend (price vs SMA20) 50%, momentum (MACD histogram) 30%, mean reversion (RSI 14) 20%. Explicitly heuristic and explainable, not validated predictive models.",
+    key: "Strength",
+    body: "The one-year return (skipping the latest month) and closeness to the one-year high, each ranked against the other listed stocks. Chosen after a twelve-year test; it describes the past year, not a forecast.",
   },
   {
     key: "Sentiment",
