@@ -1,0 +1,63 @@
+name: logos
+
+# Monthly refresh of the company logos shipped with the site
+# (frontend/public/logos/*.webp and frontend/src/lib/logoIndex.ts), built by
+# ops/logos/build_logos.py from public sources only: each company's app icon
+# via Google's favicon service, else its Wikimedia Commons logo via Wikidata.
+# No database, no secrets. Commits to main only when something changed;
+# Cloudflare Workers Builds then redeploys the site.
+#
+# Free-tier impact: none. The files are static assets (~3.3 MB, ~740 files),
+# served by Cloudflare without running the Worker script or reading R2.
+#
+# A wrong image is fixed by adding its symbol to ops/logos/blocked.json
+# (the stock then shows its initials badge) and re-running this workflow.
+
+on:
+  schedule:
+    - cron: "30 3 3 * *" # 09:00 IST on the 3rd; clear of the nightly and the 1st-of-month rank
+  workflow_dispatch: {}
+
+concurrency:
+  group: logos
+  cancel-in-progress: false
+
+permissions: {}
+
+jobs:
+  logos:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install Pillow
+        run: pip install "pillow>=11,<13"
+      - name: Build logos
+        run: python ops/logos/build_logos.py
+      - name: Commit if anything changed
+        run: |
+          git add -A frontend/public/logos frontend/src/lib/logoIndex.ts
+          if git diff --cached --quiet; then
+            echo "No change."; exit 0
+          fi
+          git diff --cached --stat | tail -1
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "chore(logos): monthly logo refresh"
+          git push origin HEAD:main
+
+  alert:
+    needs: logos
+    if: always()
+    permissions: { issues: write, contents: read }
+    uses: ./.github/workflows/run-alert.yml
+    with:
+      title: "Logo refresh failing"
+      outcome: ${{ needs.logos.result }}
