@@ -41,6 +41,12 @@ async function ping(path, timeoutMs) {
 // secret: a fine-grained GitHub token limited to this repository with
 // "Actions: read and write". Without it nothing is dispatched and the
 // watchdog workflow alerts after 30 h with no successful ingest.
+/** True on the two keep-warm ticks a day that also warm the screener (03:00 and 13:00 UTC). */
+export function shouldWarmScreener(scheduledTime) {
+  const t = new Date(scheduledTime ?? Date.now());
+  return t.getUTCMinutes() < 10 && (t.getUTCHours() === 3 || t.getUTCHours() === 13);
+}
+
 export const NIGHTLY_CRON = "45 10 * * *";
 export const RETRY_CRON = "45 12 * * *";
 const REPO = "shyam-029/SignalDesk";
@@ -148,10 +154,19 @@ export default {
     }
     ctx.waitUntil(
       (async () => {
+        // /health never touches the database: it keeps Render awake while
+        // Neon is free to suspend (after 5 idle minutes) between real visits.
+        // Until 2026-11-13 every ping also asked for a screener row, which
+        // queries the database, so a ping every 10 minutes kept Neon's
+        // compute awake about half of the 17-hour window, roughly 2 of the
+        // free plan's 100 CU-hours a day.
         await ping("/health", 90_000);
-        // Also builds the screener snapshot after a restart or nightly run,
-        // so no visitor pays for that build.
-        await ping("/api/v1/screener?limit=1", 120_000);
+        // The screener snapshot (built from the database) is warmed only
+        // twice a day: 08:30 IST, the first visits of the day, and
+        // 18:30 IST, after the nightly has finished.
+        if (shouldWarmScreener(event.scheduledTime)) {
+          await ping("/api/v1/screener?limit=1", 120_000);
+        }
       })(),
     );
   },
