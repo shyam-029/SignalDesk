@@ -1,6 +1,6 @@
 -- Storage forensics (Phase 1 of the 2026-11 remediation). READ-ONLY.
 --
--- Run by .github/workflows/db-probe.yml on manual dispatch, and executed
+-- Run by .github/workflows/backup.yml (storage job) on manual dispatch, and executed
 -- against the CI test database by backend/tests/test_storage_forensics_sql.py
 -- so a syntax error can never reach production.
 --

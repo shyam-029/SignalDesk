@@ -2,7 +2,7 @@
 #
 # Pure functions, no I/O, no DB, no network. Numbers come from two places:
 #   - the pinned operational constants below (measured production facts,
-#     refreshed whenever a db-probe run reports a new reality), and
+#     refreshed whenever the weekly storage report (backup.yml) reports a new reality), and
 #   - live arguments callers pass (the retention pass measures the actual
 #     database size; tests pass synthetic sizes).
 #
@@ -23,7 +23,7 @@ BYTES_PER_MB = 1_000_000
 NEON_CAP_BYTES = 1024 * 1024 * 1024
 
 # Production database size at the last probe (2026-11-10: 561,414,144 B).
-# Refresh after every db-probe run so the canary tracks reality.
+# Refresh from the weekly storage report (backup.yml, storage job) so the canary tracks reality.
 BASELINE_BYTES = 561_414_144
 
 # Daily growth band (low, high) in bytes/day: from the post-Phase-2 hope
@@ -75,7 +75,7 @@ def canary_verdict(
 
     Projects every horizon at the HIGH end of the measured growth band and
     reports `ok` only when ALL horizons stay at or under the hard cap. The
-    pinned baseline makes this test a live alarm: when a db-probe refresh
+    pinned baseline makes this test a live alarm: when a storage-report refresh
     of BASELINE_BYTES (or a real growth-rate change) pushes the projection
     past the cap, CI goes red and the gated retention cut becomes due.
     """

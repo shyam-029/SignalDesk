@@ -140,7 +140,15 @@ jobs:
     permissions:
       issues: write
       contents: read
-    uses: ./.github/workflows/run-alert.yml
-    with:
-      title: "Monthly restore test failing"
-      outcome: ${{ needs.restore-test.result }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            ops/ci
+            .github/actions
+      - uses: ./.github/actions/alert
+        with:
+          title: "Monthly restore test failing"
+          outcome: ${{ needs.restore-test.result }}

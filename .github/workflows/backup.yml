@@ -7,7 +7,13 @@ name: backup
 # Two INDEPENDENT jobs (Phase 0 remediation, 2026-11-10):
 #   backup          dump -> verify the archive -> upload. Its result answers
 #                   one question only: "do we have a restorable backup?"
-#   storage-canary  logs pg_database_size and fails at/above 450 MB.
+#   storage         database size, Alembic revision and largest tables;
+#                   fails at/above 800 MB (Neon enforces 1024 MB). On manual
+#                   dispatch with `forensics`, also the full read-only
+#                   storage forensics. This was the separate db-probe.yml
+#                   (Mondays) until 2026-11-13.
+# Dispatch with `skip_dump` to get only the storage report (no 50-100 MB dump
+# read from Neon).
 # Before this split the canary ran BETWEEN the dump and the upload in a single
 # job, so once the database crossed 450 MB every dump was discarded and no
 # backup was stored (observed 2026-11-10: a 55 MB dump thrown away). The
@@ -22,7 +28,16 @@ name: backup
 on:
   schedule:
     - cron: "0 2 * * 0" # Sundays 02:00 UTC; far from ingest (10:45) and rank (04:00)
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      skip_dump:
+        description: "Storage report only, no backup dump"
+        type: boolean
+        default: false
+      forensics:
+        description: "Also run the full storage forensics (ops/sql/storage_forensics.sql and job_health.sql, read-only)"
+        type: boolean
+        default: false
 
 concurrency:
   group: backup
@@ -30,6 +45,7 @@ concurrency:
 
 jobs:
   backup:
+    if: ${{ !inputs.skip_dump }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
@@ -140,16 +156,48 @@ jobs:
           echo "- R2: copied and verified, newest $KEEP kept" >> "$GITHUB_STEP_SUMMARY"
 
 
-  storage-canary:
+  storage:
     # Runs after the backup job whatever its outcome (sequenced only to avoid
-    # two simultaneous connections to Neon), and can never affect it.
+    # two simultaneous connections to Neon), and can never affect it. Every
+    # query here is read-only; the forensics scripts wrap themselves in
+    # BEGIN READ ONLY and are also run against the CI test database by
+    # backend/tests/test_storage_forensics_sql.py. The fresh numbers feed
+    # BASELINE_BYTES in backend/app/services/storage.py.
     needs: backup
     if: always()
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     env:
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
     steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: ops/sql
+
+      - name: Database size, Alembic revision and largest tables
+        run: |
+          set -euo pipefail
+          PGURL=$(echo "$DATABASE_URL" | sed -e 's/^postgresql+asyncpg:/postgresql:/' -e 's/ssl=require/sslmode=require/')
+          docker run --rm -e PGURL="$PGURL" postgres:17 sh -c '
+            psql "$PGURL" -X -v ON_ERROR_STOP=1 -P pager=off \
+              -c "SELECT pg_size_pretty(pg_database_size(current_database())) AS db_size;" \
+              -c "SELECT version_num AS alembic_revision FROM alembic_version;" \
+              -c "SELECT relname AS table,
+                         pg_size_pretty(pg_total_relation_size(relid)) AS total_size,
+                         n_live_tup AS approx_rows
+                  FROM pg_stat_user_tables
+                  ORDER BY pg_total_relation_size(relid) DESC
+                  LIMIT 8;"'
+
+      - name: Ingestion health and storage forensics (dispatch with forensics only)
+        if: github.event_name == 'workflow_dispatch' && inputs.forensics
+        run: |
+          set -euo pipefail
+          PGURL=$(echo "$DATABASE_URL" | sed -e 's/^postgresql+asyncpg:/postgresql:/' -e 's/ssl=require/sslmode=require/')
+          docker run --rm -v "$PWD/ops/sql:/sql:ro" -e PGURL="$PGURL" postgres:17 sh -c '
+            psql "$PGURL" -X -v ON_ERROR_STOP=1 -P pager=off -f /sql/job_health.sql &&
+            psql "$PGURL" -X -v ON_ERROR_STOP=1 -P pager=off -f /sql/storage_forensics.sql'
+
       - name: Storage canary (advisory alarm at 800 MB of the 1024 MB Neon limit)
         run: |
           set -euo pipefail
@@ -163,7 +211,7 @@ jobs:
             # pg_database_size includes dead-tuple bloat, so crossing the line
             # does not by itself mean live data grew. Measure before acting;
             # any data deletion (including prune-alpha) needs owner approval.
-            echo "::error::STORAGE ALARM: at/above 800 MB (Neon enforces 1024 MB). Run db-probe forensics (dead tuples, index sizes) before acting. Do NOT run prune-alpha or delete data without owner approval."
+            echo "::error::STORAGE ALARM: at/above 800 MB (Neon enforces 1024 MB). Dispatch this workflow with skip_dump and forensics (dead tuples, index sizes) before acting. Do NOT run prune-alpha or delete data without owner approval."
             exit 1
           fi
 
@@ -175,7 +223,15 @@ jobs:
     permissions:
       issues: write
       contents: read
-    uses: ./.github/workflows/run-alert.yml
-    with:
-      title: "Weekly backup failing"
-      outcome: ${{ needs.backup.result }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            ops/ci
+            .github/actions
+      - uses: ./.github/actions/alert
+        with:
+          title: "Weekly backup failing"
+          outcome: ${{ needs.backup.result }}

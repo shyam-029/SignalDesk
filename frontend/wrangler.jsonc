@@ -32,13 +32,13 @@
     "binding": "ASSETS",
     "not_found_handling": "single-page-application"
   },
-  // Per-stock page snapshots, written nightly by stock-snapshots.yml and
+  // Per-stock page snapshots, written nightly by ingest.yml (stock-snapshots job) and
   // served at /snapshot/stock/<SYMBOL>.json (worker/index.js). Read-only use.
   "r2_buckets": [
     { "binding": "SNAPSHOTS", "bucket_name": "signaldesk-cache" }
   ],
   "triggers": {
-    // keep-warm pings; then the nightly ingest trigger at 16:15 IST and its
+    // keep-warm pings (the only API pinger since 2026-11-13); then the nightly ingest trigger at 16:15 IST and its
     // retry at 18:15 IST (worker/index.js, ensureNightly). The trigger needs
     // the GITHUB_DISPATCH_TOKEN secret (Worker > Settings > Variables and
     // Secrets); Workers Builds deploys keep secrets.

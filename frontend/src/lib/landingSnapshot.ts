@@ -1,6 +1,6 @@
 // Landing-page snapshot (work list item 13).
 //
-// A nightly workflow (.github/workflows/landing-snapshot.yml) commits
+// The nightly workflow (.github/workflows/ingest.yml, landing-snapshot job) commits
 // public/snapshot/landing.json: the landing page's API responses, each under
 // the TanStack Query key its hook uses. Cloudflare serves it as a static
 // file, so it arrives in milliseconds even while the Render API is still
