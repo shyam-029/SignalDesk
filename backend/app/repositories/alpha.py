@@ -2,7 +2,7 @@
 
 from datetime import date
 
-from sqlalchemy import and_, delete, func, select
+from sqlalchemy import and_, delete, func, select, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -67,12 +67,32 @@ async def upsert_snapshot(
             "fundamental": stmt.excluded.fundamental,
             "technical": stmt.excluded.technical,
             "sentiment": stmt.excluded.sentiment,
-            "components_json": stmt.excluded.components_json,
+            # The live pass owns the technical components; the strength pass
+            # owns its own keys (PRESERVED_KEYS) in the same field. Keep
+            # those, so re-running the live snapshots on their own never
+            # wipes the day's ratings.
+            "components_json": func.coalesce(
+                stmt.excluded.components_json, text("'{}'::jsonb")
+            ).op("||")(_preserved(AlphaScore.components_json)),
             "updated_at": func.now(),
         },
     )
     await session.execute(stmt)
     await session.commit()
+
+
+# Keys in components_json written by another pass (repositories/strength.py
+# RATING_KEYS; repeated here because that module imports nothing from this
+# one and a test keeps the two lists equal).
+PRESERVED_KEYS = ("strength", "steadiness")
+
+
+def _preserved(column):
+    """The stored row's PRESERVED_KEYS as a jsonb object (absent keys dropped)."""
+    pairs = []
+    for key in PRESERVED_KEYS:
+        pairs += [key, column.op("->")(key)]
+    return func.jsonb_strip_nulls(func.jsonb_build_object(*pairs))
 
 
 _SNAPSHOT_COLUMNS = ("composite", "fundamental", "technical", "sentiment", "components_json")

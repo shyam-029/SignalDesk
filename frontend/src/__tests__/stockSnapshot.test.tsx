@@ -22,6 +22,7 @@ import {
   useScores,
   useSentiment,
   useStockDetail,
+  useStrength,
   useTechnicals,
   useValuation,
 } from "@/lib/hooks";
@@ -46,6 +47,7 @@ const BACKEND_KEYS = [
   ["peers", S],
   ["news", S, 12],
   ["sentiment", S],
+  ["strength", S],
 ];
 
 function jsonResponse(body: unknown, ok = true) {
@@ -85,6 +87,7 @@ describe("stock snapshot", () => {
         usePeers(S);
         useNews(S, 12);
         useSentiment(S);
+        useStrength(S);
       },
       { wrapper },
     );

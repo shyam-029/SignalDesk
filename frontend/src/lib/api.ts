@@ -12,6 +12,7 @@ import type {
   QualityResponse,
   QuarterlyTrendResponse,
   ShareholdingResponse,
+  StrengthResponse,
   RiskResponse,
   ValuationHistoryResponse,
   AlphaExplanationResponse,
@@ -171,6 +172,8 @@ export const api = {
     apiGet<RiskResponse>(`/stocks/${encodeURIComponent(symbol)}/risk`),
   quality: (symbol: string) =>
     apiGet<QualityResponse>(`/stocks/${encodeURIComponent(symbol)}/quality`),
+  strength: (symbol: string) =>
+    apiGet<StrengthResponse>(`/stocks/${encodeURIComponent(symbol)}/strength`),
   shareholding: (symbol: string) =>
     apiGet<ShareholdingResponse>(`/stocks/${encodeURIComponent(symbol)}/shareholding`),
   quarterlyTrend: (symbol: string) =>

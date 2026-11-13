@@ -5,6 +5,7 @@ import { PanelRightClose, PanelRightOpen } from "lucide-react";
 
 import { StockHeader } from "@/components/stock/StockHeader";
 import { PerformanceStrip } from "@/components/stock/PerformanceStrip";
+import { RatingsStrip } from "@/components/stock/RatingsStrip";
 import { AlphaSection } from "@/components/stock/AlphaSection";
 import { PriceSection } from "@/components/stock/PriceTechnicals";
 import { ValuationSection } from "@/components/stock/ValuationSection";
@@ -98,6 +99,9 @@ export default function StockDetailPage() {
       <StockHeader symbol={canonical} />
       <ErrorBoundary label="performance">
         <PerformanceStrip symbol={canonical} />
+      </ErrorBoundary>
+      <ErrorBoundary label="ratings">
+        <RatingsStrip symbol={canonical} />
       </ErrorBoundary>
       <SectionIndex railOpen={railOpen} onToggleRail={toggleRail} />
       {/* Wide screens: the report on the left, a sticky summary rail on the

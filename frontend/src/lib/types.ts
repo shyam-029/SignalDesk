@@ -521,6 +521,21 @@ export interface OwnershipQuarter {
   institutions: number | null;
 }
 
+/** One-year price strength, ranked against the rest of the list each night. */
+export interface StrengthResponse {
+  symbol: string;
+  status: "available" | "short_history" | "suspect_move" | "stale" | "not_computed";
+  as_of: string | null;
+  /** 0 to 100, 100 = strongest price over the past year on the list. */
+  strength: number | null;
+  /** 0 to 100, 100 = calmest price over the past year on the list. */
+  steadiness: number | null;
+  year_return_pct: number | null;
+  from_high_pct: number | null;
+  bars: number;
+  bars_needed: number;
+}
+
 export interface ShareholdingResponse {
   symbol: string;
   insufficient_data: boolean;

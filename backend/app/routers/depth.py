@@ -24,8 +24,10 @@ from app.repositories import financial_periods as fp_repo
 from app.repositories import financials as fin_repo
 from app.repositories import prices as price_repo
 from app.repositories import shareholding as shareholding_repo
+from app.repositories import strength as strength_repo
 from app.routers.common import resolve_stock
 from app.services import depth
+from app.services import strength as strength_svc
 from app.services.altman import is_financial_sector
 
 router = APIRouter(prefix="/stocks", tags=["depth"])
@@ -453,4 +455,64 @@ async def get_shareholding(symbol: str, session: SessionDep) -> ShareholdingResp
         to_period=trend.to_period,
         promoter_direction=trend.promoter_direction,
         institution_direction=trend.institution_direction,
+    )
+
+
+class StrengthResponse(BaseModel):
+    symbol: str
+    # "available" | "short_history" | "suspect_move" | "stale" | "not_computed"
+    status: str
+    as_of: date | None = None
+    # Rank among the shares rated that day, 0 to 100 (100 = strongest).
+    strength: float | None = None
+    # Rank of one-year price swings, turned round (100 = calmest).
+    steadiness: float | None = None
+    year_return_pct: float | None = None
+    from_high_pct: float | None = None
+    bars: int = 0
+    bars_needed: int = strength_svc.HISTORY_BARS
+
+
+@router.get("/{symbol}/strength", response_model=StrengthResponse)
+async def get_strength(symbol: str, session: SessionDep) -> StrengthResponse:
+    """One-year price strength, ranked against the rest of the list.
+
+    The rank is computed for the whole list by the nightly pass
+    (jobs.record_strength_scores) and read back here; this endpoint never
+    ranks. It does re-check the share's own stored prices, so a share that
+    no longer qualifies (too little history, a stale last bar, or a one-day
+    move too big to be real) shows no score and the reason, never an old
+    one.
+    """
+    stock = await resolve_stock(session, symbol)
+    facts = (
+        await strength_repo.get_price_facts(session, date.today(), stock_id=stock.id)
+    ).get(stock.symbol)
+    bars = facts.bars if facts else 0
+    if facts is None:
+        return StrengthResponse(symbol=stock.symbol, status=strength_svc.REASON_SHORT_HISTORY)
+    # Staleness against the whole list is judged by the nightly pass; here
+    # only the share's own history is checked.
+    own, reason = strength_svc.inputs_for(facts, None)
+    if reason is not None:
+        return StrengthResponse(symbol=stock.symbol, status=reason, bars=bars)
+
+    stored = await strength_repo.get_latest_rating(session, stock.symbol)
+    if stored is None:
+        return StrengthResponse(symbol=stock.symbol, status="not_computed", bars=bars)
+    as_of, values = stored
+    if (facts.last_date - as_of).days > strength_svc.STALE_DAYS:
+        # The newest rating is older than the prices: the last pass left
+        # this share unrated (for example a stale bar at the time).
+        return StrengthResponse(symbol=stock.symbol, status="not_computed", bars=bars)
+    return StrengthResponse(
+        symbol=stock.symbol,
+        status="available",
+        as_of=as_of,
+        strength=values.get(strength_repo.KEY_STRENGTH),
+        steadiness=values.get(strength_repo.KEY_STEADINESS),
+        # From the share's own stored prices, read just above.
+        year_return_pct=round(own.year_return_pct, 2),
+        from_high_pct=round(own.from_high_pct, 2),
+        bars=bars,
     )

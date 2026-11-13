@@ -9,6 +9,7 @@ import {
   useRisk,
   useScores,
   useStockDetail,
+  useStrength,
   useValuationHistory,
 } from "@/lib/hooks";
 import { scoreBand } from "@/lib/semantic";
@@ -38,7 +39,9 @@ export function AtAGlance({
   const history = useValuationHistory(symbol).data;
   const risk = useRisk(symbol).data;
   const trend = useQuarterlyTrend(symbol).data;
-  const latestOwners = useShareholding(symbol).data?.quarters.at(-1);
+  const strengthData = useStrength(symbol).data;
+  const strength = strengthData?.status === "available" ? strengthData : undefined;
+  const latestOwners =useShareholding(symbol).data?.quarters.at(-1);
 
   const pe = history?.multiples.find((m) => m.metric === "pe" && m.status === "available");
   const signal = alpha?.value_signal;
@@ -120,6 +123,11 @@ export function AtAGlance({
             latestOwners?.institutions != null ? `${latestOwners.institutions.toFixed(1)}%` : "-"
           }
         />
+      </Group>
+
+      <Group href="#ratings" title="Price strength">
+        <ScoreLine label="Strength" value={strength?.strength} small />
+        <ScoreLine label="Steadiness" value={strength?.steadiness} small />
       </Group>
 
       <Group href="#risk" title="Risk">

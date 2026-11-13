@@ -95,6 +95,8 @@ def stock_queries(symbol: str) -> list[tuple[list[Any], str]]:
         (["peers", symbol], f"/stocks/{s}/peers"),
         (["news", symbol, 12], f"/stocks/{s}/news?limit=12"),
         (["sentiment", symbol], f"/stocks/{s}/sentiment"),
+        # One small row; feeds the ratings strip at the top of the page.
+        (["strength", symbol], f"/stocks/{s}/strength"),
     ]
 
 
