@@ -575,3 +575,109 @@ export interface QualityResponse {
   to_period: string | null;
   cash_flow_available: boolean;
 }
+
+// --- Edge features (2026-11-14) -------------------------------------------
+
+/** GET /stocks/{symbol}/expectations: the growth today's price assumes. */
+export interface ExpectationsResponse {
+  symbol: string;
+  status: "ok" | "not_meaningful";
+  reason: "no_market_value" | "no_earnings" | "loss_making" | null;
+  market_value: number | null;
+  earnings: number | null;
+  earnings_basis: "last_4_quarters" | "latest_annual" | null;
+  earnings_period_end: string | null;
+  pe: number | null;
+  years: number;
+  terminal_growth_pct: number;
+  implied: { discount_rate_pct: number; growth_pct: number; bound: "below" | "above" | null }[];
+  own: {
+    years: number | null;
+    from_year_end: string | null;
+    to_year_end: string | null;
+    earnings_growth_pct: number | null;
+    revenue_growth_pct: number | null;
+  };
+  base_rate_pct: number | null;
+  base_rate_windows: number;
+  base_rate_years: number;
+}
+
+/** The spread of returns that followed a set of past moments, in percent. */
+export interface SetupSpread {
+  n: number;
+  p10?: number | null;
+  p25?: number | null;
+  median?: number | null;
+  p75?: number | null;
+  p90?: number | null;
+  share_up?: number | null;
+  share_beat_list?: number | null;
+  median_vs_list?: number | null;
+  shares?: number | null;
+  from_?: string | null;
+  to?: string | null;
+  closeness?: number | null;
+}
+
+/** GET /stocks/{symbol}/setups: past moments like today, and what came next. */
+export interface SetupsResponse {
+  symbol: string;
+  status: "ok" | "none";
+  asof: string | null;
+  today: {
+    strength: number;
+    steadiness: number;
+    high_rank: number;
+    year_return_pct: number;
+    from_high_pct: number;
+  } | null;
+  horizons: { horizon: "3m" | "12m"; similar: SetupSpread; all_samples: SetupSpread }[];
+  samples: number | null;
+  shares: number | null;
+  sample_from: string | null;
+  sample_to: string | null;
+  neighbours: number | null;
+}
+
+export interface TrackHolding {
+  rank: number;
+  symbol: string;
+  name: string | null;
+  score: number | null;
+  entry_date: string | null;
+  return_pct: number | null;
+}
+
+export interface FrozenList {
+  list_date: string;
+  rating: "alpha" | "strength";
+  started: boolean;
+  return_pct: number | null;
+  list_average_pct: number | null;
+  index_pct: number | null;
+  holdings: TrackHolding[];
+}
+
+export interface StrengthBacktest {
+  asof: string;
+  top_n: number;
+  from_: string;
+  to: string;
+  months_count: number;
+  months_beat: number;
+  top_yearly: number;
+  list_yearly: number;
+  shares: number;
+  curve: { month: string; top: number; list: number }[];
+  years: { year: string; top: number; list: number; months: number }[];
+  quintiles: (number | null)[];
+}
+
+/** GET /track-record. */
+export interface TrackRecordResponse {
+  backtest: StrengthBacktest | null;
+  lists: FrozenList[];
+  latest_close: string | null;
+  index_name: string;
+}

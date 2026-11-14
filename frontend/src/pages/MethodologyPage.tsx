@@ -20,6 +20,7 @@ export default function MethodologyPage() {
         <Technical />
         <Sentiment />
         <Valuation />
+        <Evidence />
         <Data />
       </div>
     </div>
@@ -210,6 +211,39 @@ function Valuation() {
       <p className="mt-3 text-sm leading-relaxed text-muted">
         Relative cheapness is not intrinsic cheapness; the entire peer group can be
         expensive. Valuation is reported separately from the Alpha Score by design.
+      </p>
+    </section>
+  );
+}
+
+function Evidence() {
+  return (
+    <section>
+      <h2 className="font-display text-2xl font-semibold">Evidence and expectations</h2>
+      <p className="mt-3 text-sm leading-relaxed text-muted">
+        <span className="font-medium text-foreground">Track record.</span> On the first trading
+        night of each month the 20 highest-rated shares by Alpha and by Strength are stored and
+        never edited, then followed from the next day's close against the average share on the
+        list and the NIFTY 50, with equal amounts in each share and no costs. Beside them, a
+        back-test applies the same top-20 Strength rule to every month of about ten years of
+        prices. A back-test flatters: today's largest companies are used throughout, so firms
+        that shrank or delisted are missing.
+      </p>
+      <p className="mt-3 text-sm leading-relaxed text-muted">
+        <span className="font-medium text-foreground">Stocks like this.</span> Every month-end
+        over those ten years, each share gets the same Strength and Steadiness ranks the
+        nightly pass gives, plus where its distance from its one-year high ranks. For a share
+        today, the 200 past cases closest on those three ranks (its own past year excluded) are
+        shown with what their prices did over the next 3 and 12 months, beside the same figures
+        for every past month-end. Rebuilt weekly.
+      </p>
+      <p className="mt-3 text-sm leading-relaxed text-muted">
+        <span className="font-medium text-foreground">What the price assumes.</span> A reverse
+        discounted-earnings model: the yearly earnings growth, held for ten years and then
+        settling at 6% a year, that makes the latest year's earnings worth today's market value
+        when discounted at 12% (11% and 13% shown too). It is set beside the company's own
+        growth and the share of three-year stretches in which listed companies grew earnings
+        that fast. Loss-making companies get no figure.
       </p>
     </section>
   );

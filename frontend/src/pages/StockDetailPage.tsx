@@ -12,6 +12,8 @@ import { ValuationSection } from "@/components/stock/ValuationSection";
 import { FundamentalsSection } from "@/components/stock/FundamentalsSection";
 import { TechnicalsSection } from "@/components/stock/TechnicalsSection";
 import { RiskSection } from "@/components/stock/RiskSection";
+import { ExpectationsSection } from "@/components/stock/ExpectationsSection";
+import { SetupsSection } from "@/components/stock/SetupsSection";
 import { OwnershipSection } from "@/components/stock/OwnershipSection";
 import { AtAGlance } from "@/components/stock/AtAGlance";
 import { NewsSection } from "@/components/stock/NewsSection";
@@ -45,10 +47,12 @@ const SECTIONS = [
   { id: "alpha", label: "Alpha" },
   { id: "price", label: "Price" },
   { id: "valuation", label: "Valuation" },
+  { id: "expectations", label: "Expectations" },
   { id: "fundamentals", label: "Fundamentals" },
   { id: "ownership", label: "Ownership" },
   { id: "technicals", label: "Technicals" },
   { id: "risk", label: "Risk" },
+  { id: "setups", label: "Past patterns" },
   { id: "news", label: "News" },
   { id: "methodology", label: "Methodology" },
 ] as const;
@@ -128,6 +132,9 @@ export default function StockDetailPage() {
       <ErrorBoundary label="valuation">
         <ValuationSection symbol={canonical} />
       </ErrorBoundary>
+      <ErrorBoundary label="expectations">
+        <ExpectationsSection symbol={canonical} />
+      </ErrorBoundary>
       <ErrorBoundary label="fundamentals">
         <FundamentalsSection symbol={canonical} />
       </ErrorBoundary>
@@ -142,6 +149,9 @@ export default function StockDetailPage() {
         <RiskSection symbol={canonical} />
       </ErrorBoundary>
       </div>
+      <ErrorBoundary label="past patterns">
+        <SetupsSection symbol={canonical} />
+      </ErrorBoundary>
       <ErrorBoundary label="news">
         <NewsSection symbol={canonical} />
       </ErrorBoundary>
