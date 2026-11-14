@@ -192,6 +192,28 @@ async def apply_stock_updates(
     return updated
 
 
+async def fill_missing_isins(
+    session: AsyncSession, fills: list[tuple[int, str]]
+) -> int:
+    """Write an ISIN onto catalog rows that have none. Never overwrites one."""
+    written = 0
+    for i in range(0, len(fills), _CHUNK):
+        chunk = fills[i : i + _CHUNK]
+        ids = [stock_id for stock_id, _ in chunk]
+        still_empty = set(
+            (
+                await session.execute(
+                    select(Stock.id).where(Stock.id.in_(ids), Stock.isin.is_(None))
+                )
+            ).scalars()
+        )
+        params = [{"id": sid, "isin": isin} for sid, isin in chunk if sid in still_empty]
+        if params:
+            await session.execute(update(Stock), params)
+            written += len(params)
+    return written
+
+
 async def ensure_catalog_entries(
     session: AsyncSession,
     new_rows: list[tuple[str, str, str | None]],
