@@ -59,6 +59,7 @@ from app.errors import (
     request_validation_handler,
     validation_handler,
 )
+from app.funds_db import session as funds_session
 from app.jobs import start_scheduler
 from app.logging_utils import configure_logging, request_id_middleware
 from app.nan_guard import nan_guard_middleware
@@ -305,6 +306,9 @@ async def status_full(
       ingestion   - last recorded job_run, plus `stale` when the last
                     successful run is older than INGESTION_STALE_AFTER_SECONDS
       llm         - configured as a boolean (never the key or model endpoint)
+      funds_db    - the funds database (optional): configured, reachable,
+                    Alembic revision. Not part of the overall state, so an
+                    unset or asleep funds database never degrades stocks.
     """
     db_ok = False
     try:
@@ -346,4 +350,5 @@ async def status_full(
             "stale_after_seconds": INGESTION_STALE_AFTER_SECONDS,
         },
         "llm_configured": bool(settings.llm_api_key and settings.llm_model),
+        "funds_db": await funds_session.check(),
     }

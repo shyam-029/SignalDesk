@@ -1,0 +1,96 @@
+# Alembic environment for the FUNDS database (second Neon project).
+# Run with: alembic -c alembic_funds.ini upgrade head
+# Its own history and its own alembic_version table (in the funds database),
+# separate from the stocks history in alembic/.
+import asyncio
+from logging.config import fileConfig
+
+from alembic import context
+from sqlalchemy import pool
+from sqlalchemy.engine import Connection
+from sqlalchemy.ext.asyncio import async_engine_from_config
+
+from app.config import settings
+from app.db import asyncpg_ready_url
+from app.funds_db.models import FundsBase
+
+# Import models so their tables are registered on Base.metadata.
+
+# Alembic Config object, provides access to alembic.ini values.
+config = context.config
+
+
+def _funds_url() -> str:
+    """FUNDS_DATABASE_URL, required here. Never falls back to the stocks
+    database: a funds migration must not land in the wrong one."""
+    url = settings.funds_database_url.strip()
+    if not url:
+        raise SystemExit("FUNDS_DATABASE_URL is not set; refusing to run funds migrations.")
+    return url
+
+
+# Override the configured URL with the one from our .env (single source of
+# truth), normalized for asyncpg (sslmode -> ssl; see app.db.asyncpg_ready_url).
+# render_as_string(hide_password=False) is REQUIRED here: str(URL) masks the
+# password as '***' in SQLAlchemy 2, which turns every migration connection
+# into a guaranteed InvalidPasswordError.
+config.set_main_option(
+    "sqlalchemy.url",
+    asyncpg_ready_url(_funds_url()).render_as_string(hide_password=False),
+)
+
+# Interpret the config file for Python logging.
+if config.config_file_name is not None:
+    fileConfig(config.config_file_name)
+
+# Tell autogenerate which metadata to diff against the live DB.
+target_metadata = FundsBase.metadata
+
+
+def run_migrations_offline() -> None:
+    """Offline mode: emit SQL to a script instead of running against a live DB."""
+    url = config.get_main_option("sqlalchemy.url")
+    context.configure(
+        url=url,
+        target_metadata=target_metadata,
+        literal_binds=True,
+        dialect_opts={"paramstyle": "named"},
+    )
+
+    with context.begin_transaction():
+        context.run_migrations()
+
+
+def do_run_migrations(connection: Connection) -> None:
+    """Run migrations against a given connection (called via run_sync)."""
+    context.configure(connection=connection, target_metadata=target_metadata)
+
+    with context.begin_transaction():
+        context.run_migrations()
+
+
+async def run_async_migrations() -> None:
+    """Online mode with our async engine: run migrations on an async connection."""
+    connectable = async_engine_from_config(
+        config.get_section(config.config_ini_section, {}),
+        prefix="sqlalchemy.",
+        poolclass=pool.NullPool,
+    )
+
+    async with connectable.connect() as connection:
+        # run_sync bridges async->sync: Alembic's sync migration functions run
+        # inside this async connection's event loop.
+        await connection.run_sync(do_run_migrations)
+
+    await connectable.dispose()
+
+
+def run_migrations_online() -> None:
+    """Run migrations in online mode via an async event loop."""
+    asyncio.run(run_async_migrations())
+
+
+if context.is_offline_mode():
+    run_migrations_offline()
+else:
+    run_migrations_online()

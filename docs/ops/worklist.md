@@ -340,6 +340,21 @@ baseline). Each item touches `ingest.yml` / `jobs.py`, so one branch each.
       Goyal ...")
 - [ ] Alpha v2 with flexible, lower sentiment weighting
 - [ ] Redesign ETF and fund pages (needs holdings data first)
+- [~] Funds database (owner, 2026-11-14): a second Neon project. Its URL
+      lives only in the `FUNDS_DATABASE_URL` GitHub secret and Render
+      variable (owner adds both; never a local file, never chat). Plumbing:
+      `app/funds_db` (own base, optional engine: unset = no engine, stocks
+      unaffected), its own Alembic history (`alembic_funds.ini`; refuses to
+      run without the URL, never falls back to the stocks database), the
+      `migrate` workflow's new `database` choice, a CI step that migrates a
+      funds test copy up/down/up and checks models match, and `funds_db` in
+      `/status/full`. First tables per session 4's plan: fund_houses, funds
+      (direct growth plans), nav_history (packed by year), fund_returns,
+      fund_facts_monthly. Holdings tables are session 4's, later, on the
+      same funds history. [ ] Owner: add the secret on GitHub and Render,
+      then run `migrate` with database=funds. Next: point fund ingestion
+      and /funds at the new tables; drop the old mutual_funds and
+      mf_nav_history only after that, with approval
 - [~] Edge features (owner chose these three, 2026-11-14), one PR:
       **Track record** (`/track-record`): the top 20 by Alpha and by
       Strength are frozen in `pick_lists` on the first nightly of each
