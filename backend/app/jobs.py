@@ -2830,6 +2830,150 @@ async def freeze_pick_lists() -> dict:
     return {"fetched": sum(counts.values()), "errors": 0}
 
 
+# --- Funds database (second Neon project, 2026-11-14) ------------------------
+# Every direct growth plan and ETF in AMFI's daily file goes into the funds
+# database: catalog, today's NAV appended inside the database, NAV history
+# from mfapi.in for funds that have none yet (packed by year), and returns
+# worked out inside the database. The old curated pass (ingest_funds, stocks
+# database) keeps running until the old tables are retired.
+FUNDS_DB_JOB = "sync_funds_db"
+# A file with fewer live funds than this is broken or truncated (about 1,900
+# expected): nothing is written, so no fund is wrongly marked inactive.
+FUNDS_MIN_LIVE = 500
+# mfapi.in rate-limits (HTTP 429 at 8 at a time, measured 2026-11-14), so the
+# one-time history load goes 2 at a time, pauses and retries once when
+# refused, stops for the night after repeated refusals, and takes at most
+# FUNDS_HISTORY_PER_NIGHT funds a night: the ~1,900 funds load over a few
+# nights, after which only new launches need it. Measured locally: 600
+# funds took 35 min (mfapi answers slowly for long histories), so 400 a
+# night is about 23 min, run beside the news passes.
+FUNDS_HISTORY_CONCURRENCY = 2
+FUNDS_HISTORY_PER_NIGHT = 400
+FUNDS_HISTORY_PAUSE_S = 20
+FUNDS_HISTORY_MAX_REFUSALS = 5
+
+
+def _refused(exc: Exception) -> bool:
+    return "HTTP 429" in str(exc)
+
+
+async def _backfill_fund_history(
+    factory, todo: list[tuple[int, str]], client, pause_s: float = FUNDS_HISTORY_PAUSE_S
+) -> tuple[int, int, bool]:
+    """mfapi.in history for funds with none loaded.
+
+    Returns (loaded, failed, stopped early because mfapi kept refusing).
+    """
+    from app.repositories import funds_db as fdb
+    from app.services.fund_nav import pack
+
+    loaded = failed = 0
+    refusals_in_a_row = 0
+    stopped = False
+    for start in range(0, len(todo), FUNDS_HISTORY_CONCURRENCY):
+        batch = todo[start : start + FUNDS_HISTORY_CONCURRENCY]
+
+        async def fetch(code: str):
+            try:
+                return await fetch_mfapi_history(code, client=client)
+            except MarketDataError as exc:
+                if not _refused(exc):
+                    logger.warning("Fund history unavailable for %s: %s", code, exc)
+                    return []
+            await asyncio.sleep(pause_s)  # refused: pause once, then retry
+            try:
+                return await fetch_mfapi_history(code, client=client)
+            except MarketDataError as exc:
+                logger.warning("Fund history unavailable for %s: %s", code, exc)
+                return exc if _refused(exc) else []
+
+        results = await asyncio.gather(*(fetch(code) for _, code in batch))
+        for (fund_id, _), points in zip(batch, results):
+            if isinstance(points, Exception):
+                refusals_in_a_row += 1
+                failed += 1
+                continue
+            refusals_in_a_row = 0
+            if not points:
+                failed += 1
+                continue
+            async with factory() as session:
+                await fdb.write_history(session, fund_id, pack(points), "mfapi")
+                await session.commit()
+            loaded += 1
+        if refusals_in_a_row >= FUNDS_HISTORY_MAX_REFUSALS:
+            logger.warning(
+                "mfapi.in keeps refusing (%d in a row): fund history paused until the next night",
+                refusals_in_a_row,
+            )
+            stopped = True
+            break
+    return loaded, failed, stopped
+
+
+async def sync_funds_db(client=None) -> dict:
+    """Nightly: the funds database's catalog, NAVs, history and returns."""
+    import httpx
+
+    from app.funds_db import session as funds_session
+    from app.repositories import funds_db as fdb
+    from app.services import fund_returns
+    from app.services.fund_catalog import parse_catalog
+
+    factory = funds_session.funds_sessionmaker()
+    if factory is None:
+        logger.info("Funds database not configured; %s skipped", FUNDS_DB_JOB)
+        return {"fetched": 0, "errors": 0, "skipped": True}
+
+    owns = client is None
+    client = client or httpx.AsyncClient(timeout=httpx.Timeout(60.0), follow_redirects=True)
+    try:
+        text_ = await fetch_amfi_navall(client=client)
+        rows, counts = parse_catalog(text_)
+        if len(rows) < FUNDS_MIN_LIVE:
+            raise MarketDataError(f"AMFI file gave only {len(rows)} live funds; refusing to sync")
+
+        async with factory() as session:
+            houses = await fdb.upsert_houses(session, {r.fund_house for r in rows})
+            ids = await fdb.upsert_funds(session, rows, houses)
+            await fdb.append_navs(
+                session, [(ids[r.amfi_code], r.nav_date, r.nav) for r in rows if r.amfi_code in ids]
+            )
+            retired = await fdb.deactivate_missing(session, {r.amfi_code for r in rows})
+            await session.commit()
+            missing = await fdb.funds_without_history(session)
+            todo = missing[:FUNDS_HISTORY_PER_NIGHT]
+
+        done, failed, stopped = await _backfill_fund_history(
+            factory, todo, client, pause_s=FUNDS_HISTORY_PAUSE_S
+        )
+
+        async with factory() as session:
+            anchors, series = await fdb.return_inputs(session)
+            meta = await fdb.fund_meta(session)
+            ret_rows = fund_returns.compute(anchors, series, meta)
+            await fdb.write_returns(session, ret_rows)
+            await session.commit()
+    finally:
+        if owns:
+            await client.aclose()
+
+    logger.info(
+        "Funds database: %d live funds (%d houses), today's NAV for %d, %d retired, "
+        "history for %d funds (%d unavailable%s; %d still to load), returns for %d",
+        len(rows), len(houses), len(ids), retired, done, failed,
+        ", stopped early: rate-limited" if stopped else "",
+        len(missing) - done, len(ret_rows),
+    )
+    # A fund mfapi has no history for is normal (new launches); only a large
+    # share of failures marks the pass partial.
+    return {
+        "fetched": len(rows),
+        # Rate limiting is expected while the backlog loads; it is not an error.
+        "errors": failed if todo and not stopped and failed > len(todo) * 0.2 else 0,
+    }
+
+
 async def _ingest_passes() -> dict:
     """All ingestion passes, each recorded and isolated (one row per pass).
 
@@ -2879,6 +3023,8 @@ async def _ingest_passes() -> dict:
         ("ingest_etfs", ingest_etfs),
         # Curated fund catalog + AMFI daily NAV (Plan 8 slice).
         ("ingest_funds", ingest_funds),
+        # Funds database: every direct growth plan (skipped when not configured).
+        (FUNDS_DB_JOB, sync_funds_db),
         # Catch catalog stocks the universe passes dropped (renames/demergers).
         ("repair_catalog_gaps", repair_catalog_gaps),
         *setups,

@@ -28,6 +28,7 @@ import type {
   FinancialsHistoryResponse,
   FundDetailResponse,
   FundListResponse,
+  FundCategoryListResponse,
   Fundamentals,
   MarketNewsResponse,
   NewsListResponse,
@@ -86,6 +87,14 @@ export class ApiError extends Error {
 
 // Default is same-origin ("/api/v1"): the Vite dev server proxies /api to
 // FastAPI. Set VITE_API_BASE for direct or production API locations.
+/** Filters for the funds list beyond sort, direction and category. */
+export interface FundListOptions {
+  assetGroup?: string;
+  q?: string;
+  limit?: number;
+  offset?: number;
+}
+
 const API_BASE = import.meta.env.VITE_API_BASE ?? "/api/v1";
 
 async function parseError(response: Response): Promise<ApiError> {
@@ -202,14 +211,20 @@ export const api = {
 
   etfs: () => apiGet<EtfListResponse>("/etfs"),
 
-  funds: (sort?: string, direction?: string, category?: string) => {
+  funds: (sort?: string, direction?: string, category?: string, opts: FundListOptions = {}) => {
     const q = new URLSearchParams();
     if (sort) q.set("sort", sort);
     if (direction) q.set("direction", direction);
     if (category) q.set("category", category);
+    if (opts.assetGroup) q.set("asset_group", opts.assetGroup);
+    if (opts.q) q.set("q", opts.q);
+    if (opts.limit != null) q.set("limit", String(opts.limit));
+    if (opts.offset) q.set("offset", String(opts.offset));
     const suffix = q.toString() ? `?${q.toString()}` : "";
     return apiGet<FundListResponse>(`/funds${suffix}`);
   },
+
+  fundCategories: () => apiGet<FundCategoryListResponse>("/funds/categories"),
 
   fund: (fundId: number, window?: string) =>
     apiGet<FundDetailResponse>(

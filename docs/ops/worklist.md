@@ -355,6 +355,21 @@ baseline). Each item touches `ingest.yml` / `jobs.py`, so one branch each.
       then run `migrate` with database=funds. Next: point fund ingestion
       and /funds at the new tables; drop the old mutual_funds and
       mf_nav_history only after that, with approval
+- [~] Funds on the new database (2026-11-14): nightly pass `sync_funds_db`
+      (skipped while FUNDS_DATABASE_URL is unset) loads every direct growth
+      plan and ETF from AMFI's daily file (1,934 live, 55 fund houses;
+      categories tidied across AMFI's two spellings), appends today's NAV
+      inside the database, loads full history from mfapi.in for funds that
+      have none (2 at a time, pauses on HTTP 429, 400 a night: about 5
+      nights for the backlog; measured 600 in 35 min), and works out
+      1M-10Y returns, since-launch, volatility, deepest fall and category
+      rank inside the database (only ~2,000 result rows leave it). Local
+      copy: 27 MB of NAV history for 1,543 funds. `/funds` serves the new
+      database when configured (filters: asset type, category, search;
+      paged), else the old curated list; new `/funds/categories`. Pages:
+      asset tabs, category picker, search, paging, 5Y and rank columns; a
+      facts strip and 5Y/10Y/since-launch on the fund page. Old
+      `ingest_funds` keeps running until the old tables are retired.
 - [~] Edge features (owner chose these three, 2026-11-14), one PR:
       **Track record** (`/track-record`): the top 20 by Alpha and by
       Strength are frozen in `pick_lists` on the first nightly of each
