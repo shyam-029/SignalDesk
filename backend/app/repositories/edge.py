@@ -13,7 +13,7 @@ from app.models import EdgeSnapshot, FinancialPeriod, PickList
 
 UNIVERSE_NAME = "top1000"
 PICKS_PER_LIST = 20
-RATINGS = ("alpha", "strength")
+RATINGS = ("alpha", "strength", "underrated")
 
 # --- Snapshots -------------------------------------------------------------
 
@@ -137,13 +137,46 @@ async def latest_live_day(session: AsyncSession) -> date | None:
 
 
 async def has_list_in_month(session: AsyncSession, day: date) -> bool:
+    """True when every rating already has its list for this month (a rating
+    added later is written the next night; existing lists are never touched)."""
     first = day.replace(day=1)
-    found = (
+    got = (
         await session.execute(
-            select(PickList.id).where(PickList.list_date >= first).limit(1)
+            select(PickList.rating).where(PickList.list_date >= first).distinct()
         )
-    ).first()
-    return found is not None
+    ).scalars().all()
+    return set(got) >= set(RATINGS)
+
+
+async def _underrated_rows(session: AsyncSession, day: date):
+    """The scan's best matches (all four checks), as (symbol, score, close) rows."""
+    from types import SimpleNamespace
+
+    from app.repositories import underrated as underrated_repo
+
+    matches = [r for r in await underrated_repo.scan(session, day) if r.passes == 4]
+    chosen = matches[:PICKS_PER_LIST]
+    if not chosen:
+        return []
+    closes = {
+        r.symbol: r.close
+        for r in (
+            await session.execute(
+                text(
+                    """
+                    SELECT s.symbol, dp.close::float8 AS close
+                    FROM stocks s JOIN daily_prices dp ON dp.stock_id = s.id AND dp.date = :day
+                    WHERE s.symbol = ANY(:symbols)
+                    """
+                ),
+                {"day": day, "symbols": [r.symbol for r in chosen]},
+            )
+        ).all()
+    }
+    return [
+        SimpleNamespace(symbol=r.symbol, score=r.rank_gap or 0.0, close=closes.get(r.symbol))
+        for r in chosen
+    ]
 
 
 async def freeze_lists(session: AsyncSession, day: date) -> dict[str, int]:
@@ -153,13 +186,26 @@ async def freeze_lists(session: AsyncSession, day: date) -> dict[str, int]:
     and share is left exactly as it was).
     """
     counts: dict[str, int] = {}
-    for rating in RATINGS:
-        rows = (
+    existing = set(
+        (
             await session.execute(
-                text(_TOP_SQL.format(score=_SCORES[rating])),
-                {"day": day, "universe": UNIVERSE_NAME, "n": PICKS_PER_LIST},
+                select(PickList.rating).where(PickList.list_date >= day.replace(day=1))
             )
-        ).all()
+        ).scalars().all()
+    )
+    for rating in RATINGS:
+        if rating in existing:
+            counts[rating] = 0
+            continue
+        if rating == "underrated":
+            rows = await _underrated_rows(session, day)
+        else:
+            rows = (
+                await session.execute(
+                    text(_TOP_SQL.format(score=_SCORES[rating])),
+                    {"day": day, "universe": UNIVERSE_NAME, "n": PICKS_PER_LIST},
+                )
+            ).all()
         if not rows:
             counts[rating] = 0
             continue

@@ -6,6 +6,7 @@
 // "unknown symbol") instead of string-matching messages.
 
 import type {
+  UnderratedResponse,
   ExpectationsResponse,
   SetupsResponse,
   TrackRecordResponse,
@@ -194,6 +195,8 @@ export const api = {
     apiGet<ExpectationsResponse>(`/stocks/${encodeURIComponent(symbol)}/expectations`),
   setups: (symbol: string) =>
     apiGet<SetupsResponse>(`/stocks/${encodeURIComponent(symbol)}/setups`),
+  underrated: (minChecks = 3, limit = 50) =>
+    apiGet<UnderratedResponse>(`/screener/underrated?min_checks=${minChecks}&limit=${limit}`),
   trackRecord: () => apiGet<TrackRecordResponse>(`/track-record`),
   quarterlyTrend: (symbol: string) =>
     apiGet<QuarterlyTrendResponse>(

@@ -21,7 +21,11 @@ import type { FrozenList, StrengthBacktest } from "@/lib/types";
  * flatters) next to the numbers, not in a footnote elsewhere.
  */
 
-const RATING_NAME: Record<string, string> = { alpha: "Alpha", strength: "Strength" };
+const RATING_NAME: Record<string, string> = {
+  alpha: "Alpha",
+  strength: "Strength",
+  underrated: "Underrated",
+};
 
 function signed(v: number | null | undefined, digits = 1): string {
   if (v == null) return "-";
@@ -70,8 +74,8 @@ function FrozenLists({
       <p className="label-caps">Live record</p>
       <h2 className="mt-1 font-display text-2xl font-semibold">The monthly lists, frozen</h2>
       <p className="mt-2 max-w-3xl text-sm leading-relaxed text-muted">
-        On the first trading night of each month the 20 highest-rated shares by Alpha and by
-        Strength are written down and never edited. Each list is followed from the next day's
+        On the first trading night of each month the 20 highest-rated shares by Alpha, by
+        Strength and by the Underrated scan are written down and never edited. Each list is followed from the next day's
         close{latest ? `, to ${fmtDate(latest)}` : ""}: an equal amount in each share, no costs.
       </p>
 

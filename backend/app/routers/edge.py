@@ -351,7 +351,8 @@ def shape_lists(data: dict) -> tuple[list[FrozenListOut], date | None]:
             )
         )
     # Newest month first; Alpha's list before Strength's within a month.
-    out.sort(key=lambda x: (-x.list_date.toordinal(), x.rating != "alpha"))
+    order = {"alpha": 0, "strength": 1, "underrated": 2}
+    out.sort(key=lambda x: (-x.list_date.toordinal(), order.get(x.rating, 9)))
     return out, latest
 
 
