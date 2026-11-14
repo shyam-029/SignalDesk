@@ -626,3 +626,52 @@ class ShareholdingPeriod(Base):
     )
 
     stock: Mapped["Stock"] = relationship()
+
+
+class PickList(Base):
+    """One share on a rating's frozen monthly list (edge feature: track record).
+
+    On the first trading night of each month the top shares by each rating
+    are written here and never changed again, so the public track record
+    cannot be edited after the fact. entry_close is the close on list_date,
+    kept for reference; returns are counted from the next trading day's
+    close, since the list is only known once list_date has closed.
+    """
+
+    __tablename__ = "pick_lists"
+    __table_args__ = (
+        UniqueConstraint("list_date", "rating", "symbol", name="uq_pick_lists_date_rating_symbol"),
+        Index("ix_pick_lists_list_date", "list_date"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    list_date: Mapped[date]
+    rating: Mapped[str] = mapped_column(String(16))  # "alpha" | "strength"
+    rank: Mapped[int]
+    symbol: Mapped[str] = mapped_column(String(32))
+    score: Mapped[Numeric | None] = mapped_column(Numeric(6, 2))
+    entry_close: Mapped[Numeric | None] = mapped_column(Numeric(16, 4))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+
+class EdgeSnapshot(Base):
+    """A computed result kept for the site to read (edge features).
+
+    One row per key: "setups:<SYMBOL>" (similar past setups for one share),
+    "setups_baseline" (what came next for every past sample) and
+    "strength_backtest". Rewritten by the weekly pass; the payload is the
+    whole answer, so a page read is one small row.
+    """
+
+    __tablename__ = "edge_snapshots"
+    __table_args__ = (UniqueConstraint("key", name="uq_edge_snapshots_key"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    key: Mapped[str] = mapped_column(String(64))
+    asof: Mapped[date]
+    payload: Mapped[dict] = mapped_column(JSONB)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )

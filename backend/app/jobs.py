@@ -2652,6 +2652,176 @@ async def prune_news(keep: int = NEWS_KEEP_PER_STOCK) -> dict:
     return {"fetched": len(by_symbol), "deleted": deleted, "errors": 0}
 
 
+# --- Edge features (2026-11-14) ----------------------------------------------
+# Similar setups and the Strength back-test need about ten years of closes;
+# the database keeps two. This weekly pass fetches the ten years from Yahoo,
+# keeps them in memory only, and stores just the results (one small row per
+# share plus two summary rows in edge_snapshots).
+SETUPS_JOB = "build_price_setups"
+SETUPS_PERIOD = "10y"
+SETUPS_MIN_SHARES = 200  # fewer usable histories than this: store nothing
+
+
+async def _fetch_closes(provider: MarketDataProvider, symbols: list[str], today: date):
+    """Ten years of closes per symbol, with the nightly fetch's throttle guard.
+
+    Returns (series, failed count, throttle pauses); series maps symbol to
+    (ascending dates, closes array). A symbol that fails or comes back empty
+    is left out; nothing is written to the database.
+    """
+    import numpy as np
+
+    series: dict = {}
+    failures = 0
+    pauses = 0
+    concurrency = PRICE_CONCURRENCY
+    i = 0
+    while i < len(symbols):
+        batch = symbols[i : i + concurrency]
+        i += len(batch)
+        results = await asyncio.gather(
+            *(_fetch_bars_with_alias(provider, s, today, SETUPS_PERIOD) for s in batch),
+            return_exceptions=True,
+        )
+        failed = 0
+        for symbol, res in zip(batch, results):
+            if isinstance(res, Exception) or not res:
+                failed += 1
+                continue
+            bars = sorted(res, key=lambda b: b.date)
+            series[symbol] = (
+                [b.date for b in bars],
+                np.array([b.close for b in bars], dtype=float),
+            )
+        failures += failed
+        concurrency, throttled = _next_concurrency(
+            concurrency, PRICE_CONCURRENCY, len(batch), failed
+        )
+        if throttled and i < len(symbols):
+            pauses += 1
+            logger.warning(
+                "Setups price fetch looks throttled (%d of %d failed): %d at a time, "
+                "pausing %.0f s", failed, len(batch), concurrency, THROTTLE_PAUSE_S,
+            )
+            await asyncio.sleep(THROTTLE_PAUSE_S)
+    return series, failures, pauses
+
+
+def setups_rows(series: dict, today: date) -> tuple[list, dict]:
+    """Everything the setups pass stores, from fetched closes (pure, no I/O).
+
+    Returns (rows of (key, asof, payload), facts for the log). rows is empty
+    when the newest fetched day is more than a week old.
+    """
+    from app.repositories import edge as edge_repo
+    from app.services import setups as setups_svc
+
+    days, by_day = setups_svc.build_samples(series)
+    table = setups_svc.sample_table(by_day)
+    if not days or (today - days[-1]).days > 7:
+        return [], {"samples": int(table.days.size), "stale": True}
+    latest = days[-1]
+    rows: list = []
+    for sample in by_day.get(latest, []):
+        point = (sample.strength, sample.steadiness, sample.high_rank)
+        rows.append(
+            (
+                edge_repo.setups_key(sample.symbol),
+                latest,
+                {
+                    "asof": latest.isoformat(),
+                    "today": {
+                        "strength": sample.strength,
+                        "steadiness": sample.steadiness,
+                        "high_rank": sample.high_rank,
+                        "year_return_pct": sample.year_return_pct,
+                        "from_high_pct": sample.from_high_pct,
+                    },
+                    "horizons": setups_svc.similar(table, sample.symbol, latest, point),
+                },
+            )
+        )
+    rows.append(
+        (
+            edge_repo.SETUPS_BASELINE_KEY,
+            latest,
+            {
+                "asof": latest.isoformat(),
+                "samples": int(table.days.size),
+                "shares": len(series),
+                "from": str(table.days.min()) if table.days.size else None,
+                "to": str(table.days.max()) if table.days.size else None,
+                "horizons": setups_svc.baseline(table),
+                "neighbours": setups_svc.NEIGHBOURS,
+            },
+        )
+    )
+    backtest = setups_svc.strength_backtest(days, by_day)
+    backtest["asof"] = latest.isoformat()
+    backtest["shares"] = len(series)
+    rows.append((edge_repo.STRENGTH_BACKTEST_KEY, latest, backtest))
+    return rows, {"samples": int(table.days.size), "stale": False}
+
+
+async def build_price_setups(
+    provider: MarketDataProvider | None = None, today: date | None = None
+) -> dict:
+    """Weekly: similar past setups for every share and the Strength back-test."""
+    from app.repositories import edge as edge_repo
+
+    provider = provider or build_default_market_provider()
+    today = today or date.today()
+    async with SessionLocal() as session:
+        symbols = sorted(await _get_universe_symbols(session))
+    series, failures, pauses = await _fetch_closes(provider, symbols, today)
+    if len(series) < SETUPS_MIN_SHARES:
+        logger.error(
+            "Setups: only %d of %d price histories fetched; nothing stored",
+            len(series), len(symbols),
+        )
+        return {"fetched": len(series), "errors": max(failures, 1)}
+
+    rows, facts = await asyncio.to_thread(setups_rows, series, today)
+    if not rows:
+        logger.error("Setups: the newest fetched day is over a week old; nothing stored")
+        return {"fetched": len(series), "errors": 1}
+    async with SessionLocal() as session:
+        written = await edge_repo.upsert_snapshots(session, rows)
+    logger.info(
+        "Setups: %d shares fetched (%d failed, %d throttle pauses), %d samples, "
+        "%d rows written",
+        len(series), failures, pauses, facts["samples"], written,
+    )
+    # A handful of missing histories is normal (new listings, renames); only
+    # more than one in ten marks the pass partial.
+    return {
+        "fetched": len(series),
+        "errors": failures if failures > len(symbols) * 0.1 else 0,
+    }
+
+
+async def freeze_pick_lists() -> dict:
+    """Monthly: freeze each rating's top shares (public track record).
+
+    Runs every night after the ratings are stored, and acts only when no list
+    exists yet for the month of the newest live scores, so the first trading
+    night of a month writes the lists and every other night is a no-op.
+    """
+    from app.repositories import edge as edge_repo
+
+    async with SessionLocal() as session:
+        day = await edge_repo.latest_live_day(session)
+        if day is None:
+            logger.info("Pick lists: no live scores yet")
+            return {"fetched": 0, "errors": 0}
+        if await edge_repo.has_list_in_month(session, day):
+            logger.info("Pick lists: already frozen for %s", day.strftime("%B %Y"))
+            return {"fetched": 0, "errors": 0}
+        counts = await edge_repo.freeze_lists(session, day)
+    logger.info("Pick lists frozen for %s: %s", day, counts)
+    return {"fetched": sum(counts.values()), "errors": 0}
+
+
 async def _ingest_passes() -> dict:
     """All ingestion passes, each recorded and isolated (one row per pass).
 
@@ -2677,6 +2847,9 @@ async def _ingest_passes() -> dict:
             slow.append((name, run))
     if await due("ingest_company_profiles", WEEKLY_DAYS):
         slow.append(("ingest_company_profiles", ingest_company_profiles))
+    # Edge features: ten years of closes, weekly (Yahoo only; only the
+    # results are stored), after tonight's prices.
+    setups = [(SETUPS_JOB, build_price_setups)] if await due(SETUPS_JOB, WEEKLY_DAYS) else []
 
     full_alpha = await _alpha_full_backfill_due()
     alpha_pass = (
@@ -2700,6 +2873,7 @@ async def _ingest_passes() -> dict:
         ("ingest_funds", ingest_funds),
         # Catch catalog stocks the universe passes dropped (renames/demergers).
         ("repair_catalog_gaps", repair_catalog_gaps),
+        *setups,
     )
     news = (
         # Plan 18: no nightly LLM pre-warm — explanations are on-demand with
@@ -2716,6 +2890,9 @@ async def _ingest_passes() -> dict:
         # One-year price strength, ranked across the list in one pass and
         # merged into the rows the pass above just wrote. Must follow it.
         ("record_strength_scores", record_strength_scores),
+        # Public track record: the month's lists, frozen once (needs the
+        # Alpha and Strength values written just above).
+        ("freeze_pick_lists", freeze_pick_lists),
     )
 
     async def in_order(group) -> list[str]:

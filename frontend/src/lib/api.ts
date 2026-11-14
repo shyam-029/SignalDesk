@@ -6,6 +6,9 @@
 // "unknown symbol") instead of string-matching messages.
 
 import type {
+  ExpectationsResponse,
+  SetupsResponse,
+  TrackRecordResponse,
   AlphaHistoryResponse,
   AlphaResponse,
   AltmanResponse,
@@ -176,6 +179,13 @@ export const api = {
     apiGet<StrengthResponse>(`/stocks/${encodeURIComponent(symbol)}/strength`),
   shareholding: (symbol: string) =>
     apiGet<ShareholdingResponse>(`/stocks/${encodeURIComponent(symbol)}/shareholding`),
+  // Edge features: what the price assumes, similar past setups, and the
+  // public track record of the ratings' top picks.
+  expectations: (symbol: string) =>
+    apiGet<ExpectationsResponse>(`/stocks/${encodeURIComponent(symbol)}/expectations`),
+  setups: (symbol: string) =>
+    apiGet<SetupsResponse>(`/stocks/${encodeURIComponent(symbol)}/setups`),
+  trackRecord: () => apiGet<TrackRecordResponse>(`/track-record`),
   quarterlyTrend: (symbol: string) =>
     apiGet<QuarterlyTrendResponse>(
       `/stocks/${encodeURIComponent(symbol)}/quarterly-trend`,

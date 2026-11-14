@@ -12,6 +12,7 @@ const NAV = [
   { to: "/screener", label: "Screener" },
   { to: "/etfs", label: "ETFs" },
   { to: "/funds", label: "Funds" },
+  { to: "/track-record", label: "Track record" },
   { to: "/methodology", label: "Methodology" },
 ];
 

@@ -16,6 +16,7 @@ export function SiteFooter() {
           <nav aria-label="Footer navigation" className="grid grid-cols-2 gap-x-8 gap-y-2 text-xs text-muted sm:grid-cols-3">
             <Link to="/markets" className="hover:text-foreground">Markets</Link>
             <Link to="/screener" className="hover:text-foreground">Screener</Link>
+            <Link to="/track-record" className="hover:text-foreground">Track record</Link>
             <Link to="/methodology" className="hover:text-foreground">Methodology</Link>
             <Link to="/privacy" className="hover:text-foreground">Privacy</Link>
             <Link to="/terms" className="hover:text-foreground">Terms</Link>

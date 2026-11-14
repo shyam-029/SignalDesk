@@ -98,6 +98,30 @@ export function useRisk(symbol: string) {
   });
 }
 
+export function useExpectations(symbol: string) {
+  return useQuery({
+    queryKey: ["expectations", symbol],
+    queryFn: () => api.expectations(symbol),
+    staleTime: 10 * 60_000,
+  });
+}
+
+export function useSetups(symbol: string) {
+  return useQuery({
+    queryKey: ["setups", symbol],
+    queryFn: () => api.setups(symbol),
+    staleTime: 30 * 60_000,
+  });
+}
+
+export function useTrackRecord() {
+  return useQuery({
+    queryKey: ["track-record"],
+    queryFn: () => api.trackRecord(),
+    staleTime: 30 * 60_000,
+  });
+}
+
 export function useQuality(symbol: string) {
   return useQuery({
     queryKey: ["quality", symbol],

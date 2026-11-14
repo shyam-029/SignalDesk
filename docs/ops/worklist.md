@@ -340,6 +340,26 @@ baseline). Each item touches `ingest.yml` / `jobs.py`, so one branch each.
       Goyal ...")
 - [ ] Alpha v2 with flexible, lower sentiment weighting
 - [ ] Redesign ETF and fund pages (needs holdings data first)
+- [~] Edge features (owner chose these three, 2026-11-14), one PR:
+      **Track record** (`/track-record`): the top 20 by Alpha and by
+      Strength are frozen in `pick_lists` on the first nightly of each
+      month (insert-only) and followed from the next day's close against
+      the average share and the NIFTY 50; beside them a ten-year Strength
+      back-test (measured locally on 1,000 shares: top 20 about 40% a year
+      against 22% for the average share, 66 of 107 months ahead, each fifth
+      of the list in order; survivor bias stated on the page).
+      **Stocks like this** (stock page, "Past patterns"): the 200 past
+      month-ends closest on Strength, Steadiness and distance-from-high
+      rank, and what came next over 3 and 12 months. Both come from a
+      weekly pass, `build_price_setups`, that fetches ten years of closes
+      in memory only and stores ~1 MB of results in `edge_snapshots`
+      (measured: 1,000 fetched in 158 s, no throttling; 13 s of math).
+      **What the price assumes** (stock page, "Expectations"): a reverse
+      discounted-earnings model (10 years, then 6%, at 11/12/13%) against
+      the company's own growth and three-year base rates over ~860
+      company-stretches. [ ] Owner: merge, then run the `migrate`
+      workflow (upgrade head) before the next nightly, which otherwise
+      stops at its schema check
 
 ## Suggested order
 
