@@ -360,6 +360,10 @@ async def get_fund_full(session: AsyncSession, fund_id: int):
     ).first()
 
 
+async def has_live_funds(session: AsyncSession) -> bool:
+    return (await session.execute(select(Fund.id).where(Fund.active.is_(True)).limit(1))).first() is not None
+
+
 async def category_counts(session: AsyncSession) -> list[tuple[str | None, str | None, int]]:
     rows = (
         await session.execute(

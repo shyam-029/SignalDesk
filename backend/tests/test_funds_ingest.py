@@ -16,6 +16,7 @@ from app.config import settings
 from app.funds_db import session as funds_session
 from app.funds_db.models import Fund, FundReturns, FundsBase, NavHistory
 from app.repositories import funds_db as fdb
+from app.routers import funds as funds_router
 from app.services import fund_catalog as cat
 from app.services.fund_nav import pack, unpack
 from app.services.funds import window_returns
@@ -100,8 +101,10 @@ async def funds_factory(monkeypatch):
         pytest.skip(f"local funds test database unavailable: {type(exc).__name__}")
     factory = async_sessionmaker(bind=engine, expire_on_commit=False)
     funds_session.set_sessionmaker(factory)
+    funds_router.reset_cache()
     yield factory
     funds_session.set_sessionmaker(None)
+    funds_router.reset_cache()
     await engine.dispose()
 
 
@@ -214,3 +217,12 @@ async def test_funds_api_from_the_funds_database(client, funds_factory, monkeypa
     assert (await client.get("/api/v1/funds/999999")).status_code == 404
     bad = await client.get("/api/v1/funds?asset_group=crypto")
     assert bad.status_code == 422
+
+
+async def test_an_empty_funds_database_keeps_the_curated_list(client, funds_factory):
+    """Before the first nightly fills the funds database, /funds keeps
+    serving the old curated list instead of showing no funds."""
+    body = (await client.get("/api/v1/funds")).json()
+    assert body["source"] == "curated"
+    cats = (await client.get("/api/v1/funds/categories")).json()
+    assert cats["source"] == "curated"

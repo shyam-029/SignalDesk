@@ -11,6 +11,8 @@
 # All values come from stored AMFI/mfapi rows; missing history means missing
 # returns (None), never a fabricated figure.
 
+import logging
+import time
 from datetime import date, timedelta
 from typing import Annotated, Literal
 
@@ -27,6 +29,7 @@ from app.services.fund_nav import unpack
 from app.services.funds import FUND_WINDOWS, downsample, window_returns
 
 router = APIRouter(prefix="/funds", tags=["funds"])
+logger = logging.getLogger(__name__)
 
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
 
@@ -141,6 +144,35 @@ _SORT_FIELD = {
 }
 
 
+_READY_TTL_S = 600
+_ready: tuple[float, bool] | None = None
+
+
+async def _funds_db_factory():
+    """The funds session factory, but only once the funds database holds live
+    funds; until its first nightly fills it, the curated list keeps serving.
+    The answer is cached for ten minutes."""
+    global _ready
+    factory = funds_session.funds_sessionmaker()
+    if factory is None:
+        return None
+    now = time.monotonic()
+    if _ready is None or now - _ready[0] > _READY_TTL_S:
+        try:
+            async with factory() as fsession:
+                ok = await fdb.has_live_funds(fsession)
+        except Exception as exc:  # noqa: BLE001 - an asleep or unreachable funds db
+            logger.warning("funds database unavailable: %s", type(exc).__name__)
+            ok = False
+        _ready = (now, ok)
+    return factory if _ready[1] else None
+
+
+def reset_cache() -> None:
+    global _ready
+    _ready = None
+
+
 def _f(v) -> float | None:
     return float(v) if v is not None else None
 
@@ -228,7 +260,7 @@ async def list_funds(
             "Unsupported asset_group value",
             {"asset_group": asset_group, "supported": list(ASSET_GROUPS)},
         )
-    factory = funds_session.funds_sessionmaker()
+    factory = await _funds_db_factory()
     if factory is not None:
         async with factory() as fsession:
             rows, total = await fdb.list_funds_page(
@@ -266,7 +298,7 @@ async def list_funds(
 @router.get("/categories", response_model=CategoryListResponse)
 async def list_categories(session: SessionDep) -> CategoryListResponse:
     """Asset groups and categories with how many live funds each holds."""
-    factory = funds_session.funds_sessionmaker()
+    factory = await _funds_db_factory()
     if factory is not None:
         async with factory() as fsession:
             rows = await fdb.category_counts(fsession)
@@ -319,7 +351,7 @@ async def get_fund(
     120 points); 1m/3m/6m/1y/3y slice to the window first. Returns cover the
     FULL stored history regardless of the chart window.
     """
-    factory = funds_session.funds_sessionmaker()
+    factory = await _funds_db_factory()
     if factory is not None:
         return await _detail_from_funds_db(factory, fund_id, window)
     fund = await fund_repo.get_fund(session, fund_id)
