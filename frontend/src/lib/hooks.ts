@@ -4,7 +4,7 @@
 
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { api, type ScreenerParams } from "@/lib/api";
+import { api, type FundListOptions, type ScreenerParams } from "@/lib/api";
 import type { ExplainQuestionType } from "@/lib/types";
 
 export const PRICE_RANGES = ["1mo", "3mo", "6mo", "1y", "2y"] as const;
@@ -164,11 +164,25 @@ export function useEtfs() {
   });
 }
 
-export function useFunds(sort?: string, direction?: string) {
+export function useFunds(
+  sort?: string,
+  direction?: string,
+  category?: string,
+  opts: FundListOptions = {},
+) {
   return useQuery({
-    queryKey: ["funds", sort ?? null, direction ?? null],
-    queryFn: () => api.funds(sort, direction),
+    queryKey: ["funds", sort ?? null, direction ?? null, category ?? null, opts],
+    queryFn: () => api.funds(sort, direction, category, opts),
     staleTime: 5 * 60_000,
+    placeholderData: keepPreviousData,
+  });
+}
+
+export function useFundCategories() {
+  return useQuery({
+    queryKey: ["fund-categories"],
+    queryFn: () => api.fundCategories(),
+    staleTime: 30 * 60_000,
   });
 }
 

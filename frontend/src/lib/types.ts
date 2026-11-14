@@ -367,11 +367,29 @@ export interface FundSummary {
   // 1y/3y are annualised (CAGR %) by the backend.
   return_1y_pct: number | null;
   return_3y_pct: number | null;
+  // Funds database only (absent or null from the curated source).
+  return_5y_pct?: number | null;
+  return_10y_pct?: number | null;
+  return_since_launch_pct?: number | null;
+  fund_house?: string | null;
+  asset_group?: "equity" | "hybrid" | "debt" | "other" | null;
+  kind?: "open" | "closed" | "etf" | "index" | "fof" | null;
+  category_rank?: number | null;
+  category_size?: number | null;
+  volatility_pct?: number | null;
+  max_drawdown_pct?: number | null;
 }
 
 export interface FundListResponse {
   items: FundSummary[];
   total: number;
+  /** "funds_db": every direct growth plan; "curated": the older short list. */
+  source?: "funds_db" | "curated";
+}
+
+export interface FundCategoryListResponse {
+  items: { asset_group: string | null; category: string | null; count: number }[];
+  source: "funds_db" | "curated";
 }
 
 export interface NavPoint {
@@ -394,6 +412,19 @@ export interface FundDetailResponse {
   return_6m_pct: number | null;
   return_1y_pct: number | null;
   return_3y_pct: number | null;
+  // Funds database only (absent or null from the curated source).
+  return_5y_pct?: number | null;
+  return_10y_pct?: number | null;
+  return_since_launch_pct?: number | null;
+  fund_house?: string | null;
+  asset_group?: "equity" | "hybrid" | "debt" | "other" | null;
+  kind?: "open" | "closed" | "etf" | "index" | "fof" | null;
+  category_rank?: number | null;
+  category_size?: number | null;
+  volatility_pct?: number | null;
+  max_drawdown_pct?: number | null;
+  isin?: string | null;
+  launch_date?: string | null;
   nav_points: number;
   history_start: string | null;
   history_end: string | null;

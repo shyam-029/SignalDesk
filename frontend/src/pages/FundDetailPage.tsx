@@ -5,7 +5,7 @@ import { ArrowLeft } from "lucide-react";
 import { useFund } from "@/lib/hooks";
 import { DataState } from "@/components/data/DataState";
 import { NavChart } from "@/components/fund/NavChart";
-import { fmtPrice, fmtSignedPct } from "@/lib/format";
+import { fmtDate, fmtPrice, fmtSignedPct } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 /**
@@ -23,6 +23,8 @@ const WINDOWS = [
   { key: "6m", label: "6M" },
   { key: "1y", label: "1Y" },
   { key: "3y", label: "3Y" },
+  { key: "5y", label: "5Y" },
+  { key: "10y", label: "10Y" },
   { key: "all", label: "All" },
 ] as const;
 
@@ -40,6 +42,38 @@ export default function FundDetailPage() {
     ["1Y (CAGR)", fund?.return_1y_pct ?? null],
     ["3Y (CAGR)", fund?.return_3y_pct ?? null],
   ];
+  // Longer windows exist only with the funds database.
+  if (fund?.return_5y_pct !== undefined) {
+    returns.push(
+      ["5Y (CAGR)", fund.return_5y_pct ?? null],
+      ["10Y (CAGR)", fund.return_10y_pct ?? null],
+      ["Since launch", fund.return_since_launch_pct ?? null],
+    );
+  }
+  const facts: Array<[string, string, string?]> = fund
+    ? [
+        ["Fund house", fund.fund_house ?? "-"],
+        [
+          "Rank in category",
+          fund.category_rank != null && fund.category_size != null
+            ? `${fund.category_rank} of ${fund.category_size}`
+            : "-",
+          "By one-year return",
+        ],
+        ["Launched", fund.launch_date ? fmtDate(fund.launch_date) : "-", "First NAV on record"],
+        [
+          "Volatility",
+          fund.volatility_pct != null ? `${fund.volatility_pct.toFixed(1)}%` : "-",
+          "A year, from daily moves",
+        ],
+        [
+          "Deepest fall",
+          fund.max_drawdown_pct != null ? `${fund.max_drawdown_pct.toFixed(1)}%` : "-",
+          "From a peak, last 3 years",
+        ],
+      ]
+    : [];
+  const hasFacts = fund?.fund_house !== undefined;
   const navs = fund?.items ?? [];
   const chartPositive =
     navs.length > 1 ? navs[navs.length - 1].nav >= navs[0].nav : true;
@@ -74,9 +108,23 @@ export default function FundDetailPage() {
                 </p>
               </div>
               <p className="num mt-1 text-xs text-faint">
-                AMFI {fund.amfi_code} · {fund.plan}
+                AMFI {fund.amfi_code}
+                {fund.isin ? ` · ${fund.isin}` : ""}
+                {fund.kind === "etf" ? " · ETF" : fund.plan ? ` · ${fund.plan}` : ""}
                 {fund.option ? ` · ${fund.option}` : ""}
               </p>
+
+              {hasFacts && (
+                <dl className="mt-5 grid gap-px border border-line bg-line sm:grid-cols-3 lg:grid-cols-5">
+                  {facts.map(([label, value, note]) => (
+                    <div key={label} className="bg-surface p-4">
+                      <dt className="label-caps">{label}</dt>
+                      <dd className="num mt-1 text-sm font-medium">{value}</dd>
+                      {note && <dd className="mt-0.5 text-[11px] text-faint">{note}</dd>}
+                    </div>
+                  ))}
+                </dl>
+              )}
 
               {/* NAV chart with window selector */}
               <div className="mt-6 border border-line bg-surface">
@@ -114,7 +162,12 @@ export default function FundDetailPage() {
               </div>
 
               {/* Returns */}
-              <div className="mt-6 grid gap-px border border-line bg-line sm:grid-cols-3 lg:grid-cols-5">
+              <div
+                className={cn(
+                  "mt-6 grid gap-px border border-line bg-line sm:grid-cols-3",
+                  returns.length > 5 ? "lg:grid-cols-4" : "lg:grid-cols-5",
+                )}
+              >
                 {returns.map(([label, value]) => (
                   <div key={label} className="bg-surface p-5">
                     <p className="label-caps">{label}</p>
@@ -154,7 +207,7 @@ export default function FundDetailPage() {
               <p className="mt-4 text-xs leading-relaxed text-faint">
                 NAVs are daily close values from AMFI (official) with a
                 documented fallback backfill marked per row. Returns are
-                computed from stored history only; 1Y/3Y are annualised. Past
+                computed from stored history only; 1Y and longer are annualised. Past
                 performance is not indicative of future results. Not
                 investment advice.
               </p>
