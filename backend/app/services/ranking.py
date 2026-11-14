@@ -201,6 +201,37 @@ def match_master_to_catalog(
     return matches
 
 
+def missing_isin_fills(
+    rows: list[NseMasterRow],
+    catalog: list[CatalogStock],
+    matches: dict[str, tuple[int, str, str]],
+) -> list[tuple[int, str]]:
+    """(stock_id, isin) for matched catalog rows that have no ISIN yet.
+
+    Rows seeded before the isin column existed (the original large-cap list)
+    never received one, because the ISIN was only written when a row was
+    created. Fill-only: a stored ISIN is never changed, and an ISIN that
+    another catalog row already holds is left alone (one entry per ISIN).
+    Only equity-series master rows are trusted as the source.
+    """
+    by_id = {c.id: c for c in catalog}
+    taken = {c.isin.upper() for c in catalog if c.isin}
+    fills: dict[int, str] = {}
+    for row in rows:
+        if not row.isin or not rankable_series(row):
+            continue
+        hit = matches.get(row.symbol)
+        if hit is None:
+            continue
+        stock = by_id.get(hit[0])
+        isin = row.isin.strip().upper()
+        if stock is None or stock.isin or stock.id in fills or isin in taken:
+            continue
+        taken.add(isin)
+        fills[stock.id] = isin
+    return sorted(fills.items())
+
+
 def curated_excluded(row: NseMasterRow) -> tuple[str, str] | None:
     """Curated E2/E4 disposition for a master row (never rankable)."""
     return curated_exclusion(row.symbol)

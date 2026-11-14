@@ -178,6 +178,46 @@ def test_match_isin_is_rename_unmapped():
     assert matches["NEWSYM"] == (1, "OLDSYM.NS", "isin")
 
 
+def test_missing_isin_fills_only_empty_rows_and_never_duplicates():
+    catalog = _catalog(
+        (1, "RELIANCE.NS", "Reliance", None, True),       # empty: filled
+        (2, "TCS.NS", "TCS", "INE467B01029", True),        # has one: untouched
+        (3, "TATAMOTORS.NS", "Tata Motors", None, True),   # empty, alias match: filled
+        (4, "CLASH.NS", "Clash", None, True),              # master ISIN held by row 2
+        (5, "BOND.NS", "Bond", None, True),                # non-equity series: skipped
+    )
+    rows = [
+        _row("RELIANCE", isin="ine002a01018"),
+        _row("TCS", isin="INE000000001"),
+        _row("TMPV", isin="INE155A01022"),
+        _row("CLASH", isin="INE467B01029"),
+        _row("BOND", series="IL", isin="INE111A07010"),
+        _row("NOISIN"),
+    ]
+    matches = svc.match_master_to_catalog(rows, catalog, {"TATAMOTORS": "TMPV"})
+    assert svc.missing_isin_fills(rows, catalog, matches) == [
+        (1, "INE002A01018"),
+        (3, "INE155A01022"),
+    ]
+
+
+async def test_rank_fills_missing_isins_without_overwriting(session_factory, monkeypatch):
+    monkeypatch.setattr(jobs_module, "SessionLocal", session_factory)
+    async with session_factory() as s:
+        s.add_all([
+            Stock(symbol="RELIANCE.NS", name="Reliance"),
+            Stock(symbol="TCS.NS", name="TCS", isin="INE000KEEP01"),
+        ])
+        await s.commit()
+    rows = [_row("RELIANCE", isin="INE002A01018"), _row("TCS", isin="INE467B01029")]
+    provider = StubRankProvider(mcaps={"RELIANCE": 100.0, "TCS": 50.0})
+    await jobs_module.rank_universe(provider=provider, master_rows=rows)
+    await jobs_module.rank_universe(provider=provider, master_rows=rows)  # idempotent
+    async with session_factory() as s:
+        got = {r.symbol: r.isin for r in (await s.execute(select(Stock))).scalars()}
+    assert got == {"RELIANCE.NS": "INE002A01018", "TCS.NS": "INE000KEEP01"}
+
+
 def test_match_unknown_symbol_has_no_entry():
     matches = svc.match_master_to_catalog([_row("BRANDNEW")], _catalog(), {})
     assert "BRANDNEW" not in matches

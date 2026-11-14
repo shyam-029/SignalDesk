@@ -2319,9 +2319,17 @@ async def rank_universe(
                 continue
             new_entries.append((row.symbol, row.name, row.isin))
         created = await ranking_repo.ensure_catalog_entries(session, new_entries)
+        # Catalog rows that predate the isin column never got one; fill them
+        # from the master (fill-only, never an overwrite).
+        filled = await ranking_repo.fill_missing_isins(
+            session, ranking_svc.missing_isin_fills(rows, catalog, matches)
+        )
         await session.commit()
+    if filled:
+        logger.info("Ranking filled %d missing ISINs", filled)
     if created:
         logger.info("Ranking created %d new catalog rows", created)
+    if created or filled:
         async with SessionLocal() as session:
             catalog = await ranking_repo.load_catalog_facts(session)
         matches = ranking_svc.match_master_to_catalog(rows, catalog, SYMBOL_ALIASES)
