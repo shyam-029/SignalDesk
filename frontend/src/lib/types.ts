@@ -682,7 +682,7 @@ export interface TrackHolding {
 
 export interface FrozenList {
   list_date: string;
-  rating: "alpha" | "strength";
+  rating: "alpha" | "strength" | "underrated";
   started: boolean;
   return_pct: number | null;
   list_average_pct: number | null;
@@ -711,4 +711,36 @@ export interface TrackRecordResponse {
   lists: FrozenList[];
   latest_close: string | null;
   index_name: string;
+}
+
+/** GET /screener/underrated: good businesses whose price assumes little. */
+export interface UnderratedCheck {
+  key: string;
+  label: string;
+  /** null: not enough data to say. */
+  passed: boolean | null;
+  detail: string;
+}
+
+export interface UnderratedItem {
+  symbol: string;
+  name: string;
+  sector: string | null;
+  passes: number;
+  needed_growth_pct: number | null;
+  own_growth_pct: number | null;
+  gap_points: number | null;
+  low_base: boolean;
+  fundamental: number | null;
+  strength: number | null;
+  from_high_pct: number | null;
+  checks: UnderratedCheck[];
+}
+
+export interface UnderratedResponse {
+  items: UnderratedItem[];
+  matches: number;
+  near_misses: number;
+  scanned: number;
+  thresholds: Record<string, number>;
 }

@@ -161,6 +161,17 @@ export default function ScreenerPage() {
         }
       />
 
+      <Link
+        to="/underrated"
+        className="mb-6 block border border-line bg-surface px-5 py-3 text-sm transition-colors hover:border-rule"
+      >
+        <span className="font-semibold">Underrated scan</span>
+        <span className="ml-2 text-muted">
+          Good businesses whose price assumes little and which the market has not yet re-rated.
+        </span>
+        <span className="ml-2 text-cobalt">Open</span>
+      </Link>
+
       <div className="grid gap-6 lg:grid-cols-12">
         {/* ---- Left: filters ---- */}
         <aside className="lg:col-span-3">

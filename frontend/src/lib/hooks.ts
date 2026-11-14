@@ -114,6 +114,14 @@ export function useSetups(symbol: string) {
   });
 }
 
+export function useUnderrated(minChecks: number) {
+  return useQuery({
+    queryKey: ["underrated", minChecks],
+    queryFn: () => api.underrated(minChecks),
+    staleTime: 30 * 60_000,
+  });
+}
+
 export function useTrackRecord() {
   return useQuery({
     queryKey: ["track-record"],

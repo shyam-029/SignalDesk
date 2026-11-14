@@ -355,6 +355,20 @@ baseline). Each item touches `ingest.yml` / `jobs.py`, so one branch each.
       then run `migrate` with database=funds. Next: point fund ingestion
       and /funds at the new tables; drop the old mutual_funds and
       mf_nav_history only after that, with approval
+- [~] Underrated scan (owner, 2026-11-14; the owner will use it as a
+      watchlist): `/underrated` and `GET /screener/underrated`. Four checks,
+      every figure shown: good business (Fundamental 70+, solvency 50+),
+      price assumes little (needed growth at 12% is 10% or less and the
+      company grew 5+ points faster), cheap against peers, not yet
+      re-rated (Strength 60 or below, 10%+ under the one-year high). Local
+      run: 73 of 1,000 pass all four, 202 pass three. Growth above 100%
+      (from a tiny profit) is flagged and counts as at most 40% for ranking.
+      Own-history valuation is not a check (only ~4 years of statements);
+      it stays on the stock page. UNTESTED as a strategy: its top 20 is
+      frozen monthly as a third list on the track record (`pick_lists`,
+      rating `underrated`; a rating added later is written without touching
+      existing lists). Known false positives: cyclical peak profits (metals)
+      read as "price assumes falling profits"
 - [~] Funds on the new database (2026-11-14): nightly pass `sync_funds_db`
       (skipped while FUNDS_DATABASE_URL is unset) loads every direct growth
       plan and ETF from AMFI's daily file (1,934 live, 55 fund houses;

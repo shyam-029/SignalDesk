@@ -23,6 +23,7 @@ const FundDetailPage = lazy(() => import("@/pages/FundDetailPage"));
 const StockDetailPage = lazy(() => import("@/pages/StockDetailPage"));
 const MethodologyPage = lazy(() => import("@/pages/MethodologyPage"));
 const TrackRecordPage = lazy(() => import("@/pages/TrackRecordPage"));
+const UnderratedPage = lazy(() => import("@/pages/UnderratedPage"));
 const NotFoundPage = lazy(() => import("@/pages/NotFoundPage"));
 
 const queryClient = new QueryClient({
@@ -81,6 +82,7 @@ export default function App() {
                       <Route path="/stocks/:symbol" element={<StockDetailPage />} />
                       <Route path="/methodology" element={<MethodologyPage />} />
                       <Route path="/track-record" element={<TrackRecordPage />} />
+                      <Route path="/underrated" element={<UnderratedPage />} />
                       <Route path="/privacy" element={<LegalPage kind="privacy" />} />
                       <Route path="/terms" element={<LegalPage kind="terms" />} />
                       <Route path="/cookies" element={<LegalPage kind="cookies" />} />
