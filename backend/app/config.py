@@ -24,6 +24,14 @@ class Settings(BaseSettings):
     # postgresql+asyncpg://user:pass@host:port/dbname
     database_url: str
 
+    # Funds database (a second Neon project, owner decision 2026-11-14): fund
+    # catalog, packed NAV history, returns, monthly facts and holdings. The
+    # same URL forms as database_url are accepted. Empty = no funds database:
+    # the funds engine is not created and nothing that needs it runs, so the
+    # stocks app and the tests are unaffected. Set only as a GitHub secret and
+    # a Render variable, never in a local file pointing at production.
+    funds_database_url: str = ""
+
     # Redis connection string — optional for now, used in a later caching phase.
     redis_url: str = ""
 

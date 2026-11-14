@@ -24,6 +24,14 @@ on:
         description: "Alembic revision target (head, <hash>, -1, base)"
         required: true
         default: head
+      database:
+        description: "stocks (the main database) | funds (the second Neon project)"
+        required: true
+        default: stocks
+        type: choice
+        options:
+          - stocks
+          - funds
 
 concurrency:
   group: migrate
@@ -35,6 +43,9 @@ jobs:
     timeout-minutes: 15
     env:
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      # Only read by the funds history (alembic_funds.ini), which refuses to
+      # run without it and never falls back to DATABASE_URL.
+      FUNDS_DATABASE_URL: ${{ secrets.FUNDS_DATABASE_URL }}
       APP_ENV: production
     defaults:
       run:
@@ -54,11 +65,25 @@ jobs:
         env:
           DIRECTION: ${{ inputs.direction }}
           REVISION: ${{ inputs.revision }}
+          TARGET_DB: ${{ inputs.database }}
         run: |
-          if [ "$DIRECTION" = "downgrade" ]; then
-            alembic downgrade "$REVISION"
+          if [ "$TARGET_DB" = "funds" ]; then
+            ini=alembic_funds.ini
           else
-            alembic upgrade "$REVISION"
+            ini=alembic.ini
+          fi
+          echo "Database: $TARGET_DB ($ini)"
+          if [ "$DIRECTION" = "downgrade" ]; then
+            alembic -c "$ini" downgrade "$REVISION"
+          else
+            alembic -c "$ini" upgrade "$REVISION"
           fi
       - name: Show current revision
-        run: alembic current
+        env:
+          TARGET_DB: ${{ inputs.database }}
+        run: |
+          if [ "$TARGET_DB" = "funds" ]; then
+            alembic -c alembic_funds.ini current
+          else
+            alembic current
+          fi

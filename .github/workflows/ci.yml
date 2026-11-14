@@ -41,6 +41,15 @@ jobs:
         run: pip install -r requirements.txt
       - name: Run migrations
         run: alembic upgrade head
+      - name: Funds database migrations (up, down, up, and models match)
+        env:
+          FUNDS_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/signaldesk_funds_test
+        run: |
+          PGPASSWORD=postgres psql -h localhost -U postgres -c "CREATE DATABASE signaldesk_funds_test"
+          alembic -c alembic_funds.ini upgrade head
+          alembic -c alembic_funds.ini downgrade base
+          alembic -c alembic_funds.ini upgrade head
+          alembic -c alembic_funds.ini check
       - name: Run tests
         run: pytest
 
