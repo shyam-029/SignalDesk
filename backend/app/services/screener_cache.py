@@ -26,7 +26,7 @@ from dataclasses import dataclass
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import JobRun, Stock
+from app.models import Financials, JobRun, Stock
 from app.repositories.stocks import active_universe_filter
 from app.services import analysis
 
@@ -43,6 +43,31 @@ class ScreenRow:
     solvency: int | None
     valuation_status: str | None
     margin_pct: float | None
+    market_cap: float | None = None
+    # "large" | "mid" | "small" by market-value rank in the list (SEBI's
+    # definition: the 100 largest, the next 150, everything after); None
+    # when no market value is stored.
+    cap_size: str | None = None
+
+
+LARGE_CAP_COUNT = 100
+MID_CAP_COUNT = 150
+
+
+def cap_sizes(caps: dict[str, float | None]) -> dict[str, str]:
+    """symbol -> large/mid/small from market-value rank (largest first)."""
+    ranked = sorted(
+        (s for s, c in caps.items() if c is not None and c > 0),
+        key=lambda s: (-caps[s], s),  # type: ignore[operator]
+    )
+    out: dict[str, str] = {}
+    for i, symbol in enumerate(ranked):
+        out[symbol] = (
+            "large" if i < LARGE_CAP_COUNT
+            else "mid" if i < LARGE_CAP_COUNT + MID_CAP_COUNT
+            else "small"
+        )
+    return out
 
 
 @dataclass
@@ -81,6 +106,14 @@ async def _build(session: AsyncSession) -> list[ScreenRow]:
     stmt = select(Stock).where(Stock.is_etf.is_(False))
     stmt = active_universe_filter(stmt).order_by(Stock.symbol)
     stocks = (await session.execute(stmt)).scalars().all()
+    cap_by_id = {
+        stock_id: float(cap) if cap is not None else None
+        for stock_id, cap in (
+            await session.execute(select(Financials.stock_id, Financials.market_cap))
+        ).all()
+    }
+    caps = {s.symbol: cap_by_id.get(s.id) for s in stocks}
+    sizes = cap_sizes(caps)
     rows: list[ScreenRow] = []
     for stock in stocks:
         a = await analysis.analyze_stock(session, stock)
@@ -94,6 +127,8 @@ async def _build(session: AsyncSession) -> list[ScreenRow]:
                 solvency=a.solvency,
                 valuation_status=a.valuation_status,
                 margin_pct=a.margin_pct,
+                market_cap=caps.get(a.symbol),
+                cap_size=sizes.get(a.symbol),
             )
         )
     return rows

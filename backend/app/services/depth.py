@@ -58,6 +58,69 @@ class AnnualFacts:
     net_income: float | None = None
     revenue: float | None = None
     book_equity: float | None = None
+    # Operating profit / revenue (decimal). Only used to spot a year whose
+    # net profit was lifted by a one-off gain (underlying_earnings).
+    operating_margin: float | None = None
+
+
+# A year counts as lifted by a one-off gain when its net profit is above its
+# operating profit AND its net-to-operating ratio is this many times the
+# company's usual one. Both are needed: a holding company whose profit is
+# mostly investment income is above 1 every year, and is left alone.
+ONE_OFF_RATIO_MULTIPLE = 1.3
+ONE_OFF_MIN_NORMAL_YEARS = 2
+
+
+def _net_to_operating(fact: AnnualFacts) -> float | None:
+    if (
+        not _finite(fact.net_income)
+        or not _finite(fact.revenue)
+        or not _finite(fact.operating_margin)
+        or fact.revenue <= 0
+        or fact.operating_margin <= 0
+        or fact.net_income <= 0
+    ):
+        return None
+    return fact.net_income / (fact.revenue * fact.operating_margin)
+
+
+def underlying_earnings(facts: list[AnnualFacts]) -> tuple[list[AnnualFacts], list[date]]:
+    """Replace a one-off-inflated year's net profit with an underlying estimate.
+
+    A demerger or asset-sale gain can double one year's reported profit (ITC,
+    year to March 2025: 34,747 Cr against about 20,000 Cr in the years either
+    side). Dividing the price by it makes the P/E fall off a cliff for a year
+    and distorts the stock's own median. Such a year is detected from stored
+    figures only: net profit above operating profit, at a ratio well above
+    the company's own usual ratio in its other years. Its profit is replaced
+    by operating profit x the usual ratio. Returns the facts and the period
+    ends that were adjusted, so the page can say so. Nothing else changes.
+    """
+    ratios = {f.period_end: _net_to_operating(f) for f in facts}
+    out: list[AnnualFacts] = []
+    adjusted: list[date] = []
+    for fact in facts:
+        ratio = ratios[fact.period_end]
+        others = [r for d, r in ratios.items() if d != fact.period_end and r is not None]
+        if ratio is None or ratio <= 1.0 or len(others) < ONE_OFF_MIN_NORMAL_YEARS:
+            out.append(fact)
+            continue
+        usual = median(others)
+        if ratio < usual * ONE_OFF_RATIO_MULTIPLE:
+            out.append(fact)
+            continue
+        estimate = fact.revenue * fact.operating_margin * usual
+        out.append(
+            AnnualFacts(
+                period_end=fact.period_end,
+                net_income=estimate,
+                revenue=fact.revenue,
+                book_equity=fact.book_equity,
+                operating_margin=fact.operating_margin,
+            )
+        )
+        adjusted.append(fact.period_end)
+    return out, adjusted
 
 
 @dataclass

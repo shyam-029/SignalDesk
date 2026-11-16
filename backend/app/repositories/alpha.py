@@ -101,6 +101,51 @@ _SNAPSHOT_COLUMNS = ("composite", "fundamental", "technical", "sentiment", "comp
 _SYNC_CHUNK_ROWS = 2000
 
 
+async def reblend_live_snapshots(
+    session: AsyncSession, symbol: str, strength_by_day: dict, blend
+) -> int:
+    """Re-blend a symbol's LIVE snapshots under the current method.
+
+    A live snapshot (fundamental IS NOT NULL) keeps the fundamental and
+    sentiment scores recorded that day, and sync_backfill_snapshots never
+    touches it. Its composite, though, was blended by whatever formula ran
+    that night: snapshots taken before methodology v2.0 used the technical
+    score as the price pillar, so the Alpha line showed a cliff where the
+    old-method days met the recomputed ones. This sets each live day's
+    composite to blend(fundamental, Strength that day, sentiment), with that
+    day's own recorded scores, and stores the Strength used. Days with no
+    Strength rank are left alone. Returns the number of rows changed.
+    """
+    rows = (
+        await session.execute(
+            select(AlphaScore).where(
+                AlphaScore.symbol == symbol, AlphaScore.fundamental.is_not(None)
+            )
+        )
+    ).scalars().all()
+    changed = 0
+    for row in rows:
+        day_strength = strength_by_day.get(row.date)
+        if day_strength is None:
+            continue
+        composite, _ = blend(
+            float(row.fundamental),
+            round(day_strength),
+            float(row.sentiment) if row.sentiment is not None else None,
+        )
+        components = dict(row.components_json or {})
+        stored = float(row.composite) if row.composite is not None else None
+        if stored == composite and components.get("strength") == day_strength:
+            continue
+        components["strength"] = day_strength
+        row.composite = composite
+        row.components_json = components
+        changed += 1
+    if changed:
+        await session.commit()
+    return changed
+
+
 async def sync_backfill_snapshots(
     session: AsyncSession, symbol: str, rows: list[dict]
 ) -> dict[str, int]:

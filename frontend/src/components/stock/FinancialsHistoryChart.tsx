@@ -47,26 +47,6 @@ export function FinancialsHistoryChart({ symbol }: { symbol: string }) {
   const hasNetIncome = periods.some((p) => p.net_income != null);
   const hasMargins = periods.some((p) => p.operating_margin != null || p.net_margin != null);
 
-  const moneyLines = React.useMemo<TimeSeriesLine[]>(
-    () => [
-      {
-        key: "revenue",
-        label: "Revenue",
-        color: "--cobalt",
-        data: periods.map((p) => ({ time: p.period_end, value: p.revenue == null ? null : p.revenue / 1e7 })),
-        histogram: true,
-      },
-      {
-        key: "net_income",
-        label: "Net income",
-        color: "--accent-jade",
-        data: periods.map((p) => ({ time: p.period_end, value: p.net_income == null ? null : p.net_income / 1e7 })),
-        histogram: true,
-      },
-    ],
-    [periods],
-  );
-
   const marginLines = React.useMemo<TimeSeriesLine[]>(
     () => [
       {
@@ -146,10 +126,14 @@ export function FinancialsHistoryChart({ symbol }: { symbol: string }) {
           {(hasRevenue || hasNetIncome) && (
             <div className="bg-surface p-5">
               <p className="label-caps mb-3">Revenue and net income (₹ Cr)</p>
-              <TimeSeriesChart
-                lines={moneyLines}
+              <GroupedBars
+                periods={periods.map((p) => ({
+                  label: fmtDate(p.period_end),
+                  short: shortPeriod(p.period_end),
+                  revenue: p.revenue == null ? null : p.revenue / 1e7,
+                  netIncome: p.net_income == null ? null : p.net_income / 1e7,
+                }))}
                 height={220}
-                valueFormatter={(v) => `${v.toLocaleString("en-IN", { maximumFractionDigits: 0 })} Cr`}
               />
               <p className="num mt-2 text-xs text-faint">
                 One bar per {periodNoun}
@@ -220,4 +204,120 @@ export function FinancialsHistoryChart({ symbol }: { symbol: string }) {
 
 function crValue(rupees: number): string {
   return `₹${(rupees / 1e7).toLocaleString("en-IN", { maximumFractionDigits: 0 })} Cr`;
+}
+
+function shortPeriod(iso: string): string {
+  const d = new Date(iso);
+  return d.toLocaleDateString("en-IN", { month: "short", year: "2-digit", timeZone: "UTC" });
+}
+
+interface BarPeriod {
+  label: string;
+  short: string;
+  revenue: number | null;
+  netIncome: number | null;
+}
+
+const crFmt = (v: number | null) =>
+  v == null ? "-" : `${v.toLocaleString("en-IN", { maximumFractionDigits: 0 })} Cr`;
+
+/**
+ * GroupedBars: revenue and net income side by side for each period. The two
+ * used to be drawn as overlapping histogram series, where the revenue bar
+ * covered the net income bar completely. Here each period is a pair of bars
+ * on one scale (a loss hangs below the zero line), and pointing at a period
+ * shows both figures in the readout above. Plain SVG that fills its
+ * container; no interpolation, a missing figure is simply not drawn.
+ */
+function GroupedBars({ periods, height }: { periods: BarPeriod[]; height: number }) {
+  const [hover, setHover] = React.useState<number | null>(null);
+  const values = periods.flatMap((p) => [p.revenue, p.netIncome]).filter((v): v is number => v != null);
+  const max = Math.max(0, ...values);
+  const min = Math.min(0, ...values);
+  const span = max - min || 1;
+  const W = 600;
+  const padTop = 8;
+  const padBottom = 22;
+  const plotH = height - padTop - padBottom;
+  const y = (v: number) => padTop + ((max - v) / span) * plotH;
+  const slot = W / Math.max(periods.length, 1);
+  const barW = Math.min(slot * 0.34, 34);
+  const shown = hover != null ? periods[hover] : [...periods].reverse().find((p) => p.revenue != null || p.netIncome != null);
+  // Label every period when there is room, otherwise every second or third.
+  const every = Math.ceil(periods.length / 8);
+
+  return (
+    <div>
+      <div className="num mb-2 flex flex-wrap gap-x-5 gap-y-1 text-xs text-muted">
+        {shown && <span className="text-foreground">{shown.label}</span>}
+        <span className="flex items-baseline gap-1.5">
+          <span aria-hidden className="inline-block size-2 bg-cobalt" />
+          Revenue <span className="text-foreground">{crFmt(shown?.revenue ?? null)}</span>
+        </span>
+        <span className="flex items-baseline gap-1.5">
+          <span aria-hidden className="inline-block size-2 bg-accent-jade" />
+          Net income <span className="text-foreground">{crFmt(shown?.netIncome ?? null)}</span>
+        </span>
+      </div>
+      <svg
+        viewBox={`0 0 ${W} ${height}`}
+        preserveAspectRatio="none"
+        className="block w-full"
+        style={{ height }}
+        role="img"
+        aria-label="Revenue and net income for each period"
+        onMouseLeave={() => setHover(null)}
+      >
+        {[0, 0.25, 0.5, 0.75, 1].map((t) => (
+          <line
+            key={t}
+            x1={0}
+            x2={W}
+            y1={padTop + t * plotH}
+            y2={padTop + t * plotH}
+            stroke="var(--line)"
+            strokeWidth={1}
+            vectorEffect="non-scaling-stroke"
+          />
+        ))}
+        {periods.map((p, i) => {
+          const cx = slot * i + slot / 2;
+          const bar = (v: number | null, x: number, color: string) =>
+            v == null ? null : (
+              <rect
+                x={x}
+                width={barW}
+                y={Math.min(y(v), y(0))}
+                height={Math.max(Math.abs(y(v) - y(0)), 1)}
+                fill={`var(${color})`}
+                opacity={hover == null || hover === i ? 1 : 0.45}
+              />
+            );
+          return (
+            <g key={p.label} onMouseEnter={() => setHover(i)}>
+              {/* Full-height hit area so the whole column responds. */}
+              <rect x={slot * i} width={slot} y={0} height={height} fill="transparent" />
+              {hover === i && (
+                <rect x={slot * i} width={slot} y={padTop} height={plotH} fill="var(--surface-2)" opacity={0.6} />
+              )}
+              {bar(p.revenue, cx - barW - 1, "--cobalt")}
+              {bar(p.netIncome, cx + 1, "--accent-jade")}
+            </g>
+          );
+        })}
+        <line x1={0} x2={W} y1={y(0)} y2={y(0)} stroke="var(--rule)" strokeWidth={1} vectorEffect="non-scaling-stroke" />
+      </svg>
+      {/* Period labels sit outside the stretched SVG so the text is not distorted. */}
+      <div className="num -mt-5 flex text-[11px] text-faint" aria-hidden>
+        {periods.map((p, i) => (
+          <span key={p.label} className="min-w-0 flex-1 truncate text-center">
+            {i % every === 0 || i === periods.length - 1 ? p.short : ""}
+          </span>
+        ))}
+      </div>
+      <p className="num mt-1 text-[11px] text-faint">
+        Scale: {crFmt(min < 0 ? min : 0)} to {crFmt(max)}
+      </p>
+    </div>
+  );
 }

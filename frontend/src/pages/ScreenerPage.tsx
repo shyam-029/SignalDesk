@@ -24,6 +24,14 @@ const STATUSES = [
   { value: "overvalued", label: "Pricier" },
 ] as const;
 
+/** Company size by market value (SEBI's cut: 100 largest, next 150, the rest). */
+const CAPS = [
+  { value: "", label: "Any" },
+  { value: "large", label: "Large" },
+  { value: "mid", label: "Mid" },
+  { value: "small", label: "Small" },
+] as const;
+
 /** One-click starting points. Each is just a combination of the filters. */
 const PRESETS: Array<{
   name: string;
@@ -70,6 +78,7 @@ export default function ScreenerPage() {
   const [status, setStatus] = React.useState<string>("");
   const [sector, setSector] = React.useState<string>(searchParams.get("sector") ?? "");
   const [industry, setIndustry] = React.useState<string>(searchParams.get("industry") ?? "");
+  const [cap, setCap] = React.useState<string>(searchParams.get("cap") ?? "");
   const [minP, setMinP] = React.useState(0);
   const [minS, setMinS] = React.useState(0);
   const [sort, setSort] = React.useState<SortState>(null);
@@ -78,9 +87,10 @@ export default function ScreenerPage() {
   const sectorsQuery = useStockList(1, 1);
   const sectors = sectorsQuery.data?.sectors ?? [];
 
-  const anyFilter = minP > 0 || minS > 0 || status !== "" || sector !== "" || industry !== "";
+  const anyFilter = minP > 0 || minS > 0 || status !== "" || cap !== "" || sector !== "" || industry !== "";
   const reset = () => {
     setStatus("");
+    setCap("");
     setSector("");
     setIndustry("");
     setMinP(0);
@@ -92,7 +102,7 @@ export default function ScreenerPage() {
   const [page, setPage] = React.useState(1);
   React.useEffect(() => {
     setPage(1);
-  }, [status, sector, industry, minP, minS, sort?.key, sort?.direction]);
+  }, [status, cap, sector, industry, minP, minS, sort?.key, sort?.direction]);
 
   // Sliders fire on every step; the request follows a moment later.
   const [serverP, serverS] = useDebounced(minP, minS);
@@ -101,6 +111,7 @@ export default function ScreenerPage() {
     status: status || null,
     sector: sector || null,
     industry: industry || null,
+    cap: cap || null,
     minProfitability: serverP > 0 ? serverP : null,
     minSolvency: serverS > 0 ? serverS : null,
     sort: sort?.key,
@@ -116,10 +127,11 @@ export default function ScreenerPage() {
       status,
       sector,
       industry,
+      cap,
       minProfitability: minP > 0 ? minP : null,
       minSolvency: minS > 0 ? minS : null,
     }),
-    [status, sector, industry, minP, minS],
+    [status, cap, sector, industry, minP, minS],
   );
   const match = React.useCallback((r: ScreenResult) => matchesFilter(r, filter), [filter]);
 
@@ -195,7 +207,7 @@ export default function ScreenerPage() {
             <div className="border-b border-line px-5 py-4">
               <p className="label-caps mb-2" id="valuation-filter-label">Valuation against peers</p>
               <div
-                className="grid grid-cols-4 gap-px border border-line bg-line"
+                className="grid grid-cols-4 gap-px border border-rule bg-rule"
                 role="group"
                 aria-labelledby="valuation-filter-label"
               >
@@ -209,13 +221,51 @@ export default function ScreenerPage() {
                       "px-1 py-2 text-xs font-medium transition-colors",
                       status === s.value
                         ? "bg-foreground text-background"
-                        : "bg-surface text-muted hover:text-foreground",
+                        : "bg-surface text-muted hover:bg-surface-2 hover:text-foreground",
                     )}
                   >
                     {s.label}
                   </button>
                 ))}
               </div>
+            </div>
+
+            <div className="border-b border-line px-5 py-4">
+              <p className="label-caps mb-2" id="cap-filter-label">Company size</p>
+              <div
+                className="grid grid-cols-4 gap-px border border-rule bg-rule"
+                role="group"
+                aria-labelledby="cap-filter-label"
+              >
+                {CAPS.map((c) => (
+                  <button
+                    key={c.value}
+                    type="button"
+                    onClick={() => setCap(c.value)}
+                    aria-pressed={cap === c.value}
+                    title={
+                      c.value === "large"
+                        ? "The 100 largest companies by market value"
+                        : c.value === "mid"
+                          ? "The next 150 companies (101 to 250)"
+                          : c.value === "small"
+                            ? "Every company after the 250 largest"
+                            : "All sizes"
+                    }
+                    className={cn(
+                      "px-1 py-2 text-xs font-medium transition-colors",
+                      cap === c.value
+                        ? "bg-foreground text-background"
+                        : "bg-surface text-muted hover:bg-surface-2 hover:text-foreground",
+                    )}
+                  >
+                    {c.label}
+                  </button>
+                ))}
+              </div>
+              <p className="mt-2 text-xs text-faint">
+                Large: the 100 biggest by market value. Mid: the next 150. Small: the rest.
+              </p>
             </div>
 
             <div className="space-y-5 border-b border-line px-5 py-4">

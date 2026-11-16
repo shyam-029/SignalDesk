@@ -82,6 +82,9 @@ class ValuationHistoryResponse(BaseModel):
     # unadjusted split or bonus), which distorts every multiple before it.
     suspect_move_pct: float | None
     suspect_move_date: date | None
+    # Fiscal years whose profit was lifted by a one-off gain and replaced by
+    # an underlying estimate for the P/E (services/depth.underlying_earnings).
+    adjusted_years: list[date] = []
     multiples: list[MultipleBandOut]
 
 
@@ -229,11 +232,18 @@ async def get_valuation_history(
                 net_income=_f(p.net_income),
                 revenue=_f(p.revenue),
                 book_equity=equity_by_fy.get(_fiscal_year(p.period_end)),
+                operating_margin=_f(p.operating_margin),
             )
             for p in periods
         ),
         key=lambda f: f.period_end,
     )
+    # A year lifted by a one-off gain would make the P/E fall off a cliff.
+    # Banks and insurers are skipped: operating margin is not a meaningful
+    # base for them.
+    adjusted_years: list = []
+    if not is_financial_sector(stock.sector, stock.industry):
+        facts, adjusted_years = depth.underlying_earnings(facts)
     # A one-day move too large to be real marks an unadjusted split or bonus:
     # prices before it sit on a different share basis from today's count, so
     # only the days from that move onward are used. Nothing is rescaled.
@@ -254,6 +264,7 @@ async def get_valuation_history(
         publication_lag_days=depth.PUBLICATION_LAG_DAYS,
         suspect_move_pct=suspect_pct,
         suspect_move_date=suspect_day,
+        adjusted_years=adjusted_years,
         multiples=[
             MultipleBandOut(
                 metric=b.metric,

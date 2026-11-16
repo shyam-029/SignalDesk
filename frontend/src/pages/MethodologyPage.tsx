@@ -238,7 +238,7 @@ function Evidence() {
         for every past month-end. Rebuilt weekly.
       </p>
       <p className="mt-3 text-sm leading-relaxed text-muted">
-        <span className="font-medium text-foreground">What the price assumes.</span> A reverse
+        <span className="font-medium text-foreground">Growth built into the price.</span> A reverse
         discounted-earnings model: the yearly earnings growth, held for ten years and then
         settling at 6% a year, that makes the latest year's earnings worth today's market value
         when discounted at 12% (11% and 13% shown too). It is set beside the company's own

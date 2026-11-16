@@ -43,15 +43,15 @@ function expectations(over: Partial<ExpectationsResponse> = {}): ExpectationsRes
 describe("expectationsSummary", () => {
   it("states the growth at the 12% rate", () => {
     expect(expectationsSummary(expectations())).toBe(
-      "The price assumes earnings growing about 27.9% a year for 10 years",
+      "Profit must grow about 27.9% a year for 10 years to justify the price",
     );
   });
 
-  it("says shrinking for a negative answer and nothing for a loss-maker", () => {
+  it("says no growth is needed for a negative answer and nothing for a loss-maker", () => {
     const shrinking = expectations({
       implied: [{ discount_rate_pct: 12, growth_pct: -5.9, bound: null }],
     });
-    expect(expectationsSummary(shrinking)).toContain("shrinking about 5.9% a year");
+    expect(expectationsSummary(shrinking)).toBe("The price holds up even if profit stops growing");
     expect(
       expectationsSummary(expectations({ status: "not_meaningful", reason: "loss_making" })),
     ).toBeNull();

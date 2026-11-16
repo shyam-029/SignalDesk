@@ -40,6 +40,8 @@ export interface ScreenFilter {
   status: string;
   sector: string;
   industry: string;
+  /** Company size: "large" | "mid" | "small"; empty or absent = any. */
+  cap?: string;
   minProfitability: number | null;
   minSolvency: number | null;
 }
@@ -48,6 +50,7 @@ export function matchesFilter(r: ScreenResult, f: ScreenFilter): boolean {
   if (f.status && r.valuation_status !== f.status) return false;
   if (f.sector && r.sector !== f.sector) return false;
   if (f.industry && r.industry !== f.industry) return false;
+  if (f.cap && r.cap_size !== f.cap) return false;
   if (f.minProfitability != null && (r.profitability == null || r.profitability < f.minProfitability)) {
     return false;
   }

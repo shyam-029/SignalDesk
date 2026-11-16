@@ -50,19 +50,25 @@
 
 :root {
   /* Light: "Paper + Petrol". Neutral cool paper, ink text, one petrol accent. */
-  --bg: #f6f7f9;
+  /* 2026-11-16: the page is a cool blue-grey rather than near-white, so the
+     white panels stand off it; hairlines are darker so a panel's edge and a
+     button's edge can be seen. */
+  --bg: #e9eef4;
   --surface: #ffffff;
-  --surface-2: #eef1f5;
-  --section-alt: #f0f2f6;
+  --surface-2: #e4ebf3;
+  --section-alt: #dfe7f0;
   --ink: #0d1726;
-  --muted: #465366;
+  --muted: #3f4c5f;
   /* >= 4.5:1 against the light background for small label text. */
-  --faint: #626e80;
-  --line: #dfe4eb;
-  --rule: #c9d1dc;
+  --faint: #566275;
+  --line: #c6d0dc;
+  --rule: #9fadbf;
 
-  --cobalt: #005f78;
+  --cobalt: #00607a;
   --cobalt-strong: #00485c;
+  /* Tint behind a control under the pointer or in its chosen state. */
+  --control-hover: #d6e6ec;
+  --shadow-panel: 0 1px 2px rgb(13 23 38 / 0.06), 0 4px 14px -8px rgb(13 23 38 / 0.18);
 
   --accent-jade: #167a4e;
   --accent-amber: #8f6410;
@@ -88,15 +94,19 @@
   /* Dark: "Graphite + Amber". Neutral near-black surfaces (no brown cast),
      soft white ink, one amber accent. The --cobalt token carries the identity
      accent in both themes (petrol in light, amber in dark). */
-  --bg: #0b0d10;
-  --surface: #111418;
-  --surface-2: #181c22;
-  --section-alt: #0e1114;
+  /* 2026-11-16: panels are a clear step lighter than the page and the
+     hairlines brighter, so tiles no longer melt into the background. */
+  --bg: #090b0e;
+  --surface: #141920;
+  --surface-2: #1d232c;
+  --section-alt: #0e1217;
   --ink: #e9ebee;
-  --muted: #a4acb8;
-  --faint: #7d8694;
-  --line: #1f242c;
-  --rule: #2d343e;
+  --muted: #a9b1bd;
+  --faint: #838c9a;
+  --line: #2a323d;
+  --rule: #485362;
+  --control-hover: #2a2618;
+  --shadow-panel: 0 1px 0 rgb(255 255 255 / 0.03) inset, 0 6px 18px -10px rgb(0 0 0 / 0.8);
 
   --cobalt: #d9a94a;
   --cobalt-strong: #e6bb62;
@@ -140,6 +150,37 @@
   .glass {
     background: var(--surface);
     border: 1px solid var(--line);
+    box-shadow: var(--shadow-panel);
+  }
+
+  /* Anything clickable that draws its own hairline (filter chips, tab
+     buttons, outline buttons, "Why" toggles): the edge uses the stronger
+     rule colour so it can be seen where the button starts and ends, and it
+     turns to the accent under the pointer. Buttons with no border class are
+     untouched. */
+  :where(button, [role="tab"], a[role="button"], select, summary)[class*="border-line"],
+  :where(button, [role="tab"])[class*="border-rule"] {
+    border-color: var(--rule);
+  }
+
+  :where(button, [role="tab"], a[role="button"], select)[class*="border-"]:not(:disabled):hover {
+    border-color: var(--cobalt);
+  }
+
+  :where(button, [role="tab"])[class*="border-"][aria-pressed="true"],
+  :where(button, [role="tab"])[class*="border-"][aria-selected="true"] {
+    border-color: var(--cobalt);
+    background: var(--control-hover);
+    color: var(--ink);
+  }
+
+  /* Index tape on the landing page: one loop a minute. */
+  .index-tape-track {
+    animation: pulse-marquee 60s linear infinite;
+  }
+
+  .index-tape:hover .index-tape-track {
+    animation-play-state: paused;
   }
 
   /* Floating panel (dialogs, menus): fully opaque with a single shadow. */
@@ -170,7 +211,8 @@
   }
 
   @media (prefers-reduced-motion: reduce) {
-    .marquee-track {
+    .marquee-track,
+    .index-tape-track {
       animation: none;
     }
   }

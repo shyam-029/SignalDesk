@@ -1,0 +1,105 @@
+name: funds
+
+# The mutual fund run (owner decision 2026-11-16): daily at 18:00 UTC =
+# 23:30 IST. AMFI publishes each day's NAVs late in the evening, so funds do
+# not belong in the 16:15 IST stock run (ingest.yml), where they were until
+# now and always read the previous day's NAVs.
+#
+# What it does (backend/app/jobs.py, _funds_passes): the curated fund list on
+# the main database, then the funds database: the catalog of every direct
+# growth plan, today's NAVs appended inside the database, returns worked out
+# in SQL, and up to 400 funds' past history a night until all are loaded.
+#
+# Started by the Cloudflare Worker at 23:30 IST (frontend/worker/index.js,
+# FUNDS_CRON). The GitHub schedule below is the backup: it can be hours late,
+# and ends at once when today's run already succeeded or is still going.
+# Runs every day: AMFI's file is unchanged on a holiday, so a holiday run
+# only continues the history load.
+#
+# Logs are public: connection details are never printed.
+
+on:
+  schedule:
+    - cron: "45 18 * * *" # 00:15 IST, 45 minutes after the Worker's slot
+  workflow_dispatch: {}
+
+concurrency:
+  group: funds-nightly
+  cancel-in-progress: false
+
+jobs:
+  funds:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      go: ${{ steps.guard.outputs.go }}
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      FUNDS_DATABASE_URL: ${{ secrets.FUNDS_DATABASE_URL }}
+      APP_ENV: production
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - name: Has today's run already happened? (backup start only)
+        id: guard
+        working-directory: ${{ github.workspace }}
+        env:
+          EVENT: ${{ github.event_name }}
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          go=true
+          if [ "$EVENT" = schedule ]; then
+            # The Worker's 18:00 UTC run and this 18:45 UTC backup fall on the
+            # same UTC date.
+            utc=$(date -u +%F)
+            others=$(gh api -X GET "repos/$GITHUB_REPOSITORY/actions/workflows/funds.yml/runs" \
+              -f created=">=$utc" -f per_page=30 \
+              --jq "[.workflow_runs[] | select(.id != $RUN_ID) | select(.status != \"completed\" or .conclusion == \"success\")] | length" \
+              2>/dev/null || echo 0)
+            if [ "${others:-0}" -gt 0 ]; then
+              go=false
+              echo "Today's fund run was already started on time: nothing to do."
+            else
+              echo "::warning::Backup start: the on-time trigger (Cloudflare Worker) did not start today's fund run."
+            fi
+          fi
+          echo "go=$go" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v4
+        if: steps.guard.outputs.go == 'true'
+      - uses: actions/setup-python@v5
+        if: steps.guard.outputs.go == 'true'
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+      - name: Install dependencies
+        if: steps.guard.outputs.go == 'true'
+        run: pip install -r requirements.txt
+      - name: Mutual fund run (curated list, then the funds database)
+        if: steps.guard.outputs.go == 'true'
+        run: python -m app.jobs funds-nightly
+
+  # A failed run opens (or updates) a GitHub issue; the next success closes it.
+  alert:
+    needs: funds
+    if: always() && needs.funds.outputs.go == 'true'
+    permissions:
+      issues: write
+      contents: read
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            ops/ci
+            .github/actions
+      - uses: ./.github/actions/alert
+        with:
+          title: "Mutual fund run failing"
+          outcome: ${{ needs.funds.result }}

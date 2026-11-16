@@ -11,7 +11,7 @@ const buttonVariants = cva(
       variant: {
         default: "bg-foreground text-background hover:opacity-85",
         cobalt: "bg-cobalt text-white hover:bg-cobalt-strong dark:text-foreground",
-        outline: "border border-line bg-transparent hover:bg-surface-2",
+        outline: "border border-rule bg-surface hover:border-cobalt hover:bg-surface-2",
         ghost: "hover:bg-surface-2",
         link: "text-cobalt underline-offset-4 hover:underline dark:text-cobalt-strong",
       },
