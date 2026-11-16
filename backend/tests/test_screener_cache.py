@@ -77,7 +77,10 @@ async def test_rows_match_direct_analysis(client, seeded, session_factory):
         stocks = (await session.execute(select(Stock))).scalars().all()
         for stock in stocks:
             a = await analysis.analyze_stock(session, stock)
-            assert items[a.symbol] == {
+            # Company size (market_cap, cap_size) is added by the cache from
+            # the stored market values, not by analyze_stock.
+            got = {k: v for k, v in items[a.symbol].items() if k not in ("market_cap", "cap_size")}
+            assert got == {
                 "symbol": a.symbol,
                 "name": a.name,
                 "sector": a.sector,

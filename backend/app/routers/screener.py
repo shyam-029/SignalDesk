@@ -15,7 +15,8 @@ router = APIRouter(prefix="/screener", tags=["screener"])
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
 
 VALID_STATUSES = ("undervalued", "overvalued", "fairly_valued")
-VALID_SORTS = ("symbol", "company", "sector", "profitability", "solvency", "margin_pct")
+VALID_CAPS = ("large", "mid", "small")
+VALID_SORTS = ("symbol", "company", "sector", "profitability", "solvency", "margin_pct", "market_cap")
 DEFAULT_LIMIT = 50
 MAX_LIMIT = 250
 
@@ -29,6 +30,8 @@ class ScreenResult(BaseModel):
     solvency: int | None
     valuation_status: str | None
     margin_pct: float | None
+    market_cap: float | None = None
+    cap_size: str | None = None  # "large" | "mid" | "small"
 
 
 class ScreenerResponse(BaseModel):
@@ -44,6 +47,7 @@ async def screener(
     status: str | None = None,
     sector: str | None = None,
     industry: str | None = None,
+    cap: str | None = None,
     min_profitability: float | None = Query(None, ge=0, le=100),
     min_solvency: float | None = Query(None, ge=0, le=100),
     sort: str = Query("symbol"),
@@ -61,6 +65,10 @@ async def screener(
         raise ValidationError(
             "Unsupported status value",
             {"status": status, "supported": list(VALID_STATUSES)},
+        )
+    if cap is not None and cap not in VALID_CAPS:
+        raise ValidationError(
+            "Unsupported cap value", {"cap": cap, "supported": list(VALID_CAPS)}
         )
     if sort not in VALID_SORTS:
         raise ValidationError(
@@ -85,6 +93,8 @@ async def screener(
             continue
         if status and a.valuation_status != status:
             continue
+        if cap and a.cap_size != cap:
+            continue
         if min_profitability is not None and (
             a.profitability is None or a.profitability < min_profitability
         ):
@@ -104,6 +114,8 @@ async def screener(
                 solvency=a.solvency,
                 valuation_status=a.valuation_status,
                 margin_pct=a.margin_pct,
+                market_cap=a.market_cap,
+                cap_size=a.cap_size,
             )
         )
 

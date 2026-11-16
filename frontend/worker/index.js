@@ -50,8 +50,12 @@ export function shouldWarmScreener(scheduledTime) {
 
 export const NIGHTLY_CRON = "45 10 * * *";
 export const RETRY_CRON = "45 12 * * *";
+// Mutual funds have their own run at 18:00 UTC = 23:30 IST, after AMFI has
+// published the day's NAVs (funds.yml).
+export const FUNDS_CRON = "0 18 * * *";
 const REPO = "shyam-029/SignalDesk";
 const WORKFLOW = "ingest.yml";
+export const FUNDS_WORKFLOW = "funds.yml";
 const ACTIVE = new Set(["queued", "in_progress", "waiting", "requested", "pending"]);
 
 function github(env, path, init = {}) {
@@ -68,8 +72,8 @@ function github(env, path, init = {}) {
   });
 }
 
-/** Start today's ingest unless one is running or has succeeded. Returns what it did. */
-export async function ensureNightly(env, now = new Date()) {
+/** Start today's run of `workflow` unless one is running or has succeeded. Returns what it did. */
+export async function ensureNightly(env, now = new Date(), workflow = WORKFLOW) {
   if (!env.GITHUB_DISPATCH_TOKEN) {
     console.log("nightly: GITHUB_DISPATCH_TOKEN is not set; nothing dispatched");
     return "no-token";
@@ -77,7 +81,7 @@ export async function ensureNightly(env, now = new Date()) {
   const today = now.toISOString().slice(0, 10);
   const res = await github(
     env,
-    `/actions/workflows/${WORKFLOW}/runs?created=${encodeURIComponent(">=" + today)}&per_page=30`,
+    `/actions/workflows/${workflow}/runs?created=${encodeURIComponent(">=" + today)}&per_page=30`,
   );
   if (!res.ok) {
     console.log(`nightly: could not list today's runs (HTTP ${res.status}); nothing dispatched`);
@@ -94,11 +98,11 @@ export async function ensureNightly(env, now = new Date()) {
     console.log(`nightly: run ${done.id} already succeeded today`);
     return "done";
   }
-  const d = await github(env, `/actions/workflows/${WORKFLOW}/dispatches`, {
+  const d = await github(env, `/actions/workflows/${workflow}/dispatches`, {
     method: "POST",
     body: JSON.stringify({ ref: "main" }),
   });
-  console.log(`nightly: dispatch ${WORKFLOW} -> HTTP ${d.status} (${runs.length} earlier run(s) today)`);
+  console.log(`nightly: dispatch ${workflow} -> HTTP ${d.status} (${runs.length} earlier run(s) today)`);
   return d.status === 204 ? "dispatched" : "dispatch-failed";
 }
 
@@ -150,6 +154,14 @@ export default {
     if (event.cron === NIGHTLY_CRON || event.cron === RETRY_CRON) {
       ctx.waitUntil(
         ensureNightly(env).catch((err) => console.log(`nightly: error ${err}`)),
+      );
+      return;
+    }
+    if (event.cron === FUNDS_CRON) {
+      ctx.waitUntil(
+        ensureNightly(env, new Date(), FUNDS_WORKFLOW).catch((err) =>
+          console.log(`funds: error ${err}`),
+        ),
       );
       return;
     }

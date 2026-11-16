@@ -42,7 +42,8 @@
     // retry at 18:15 IST (worker/index.js, ensureNightly). The trigger needs
     // the GITHUB_DISPATCH_TOKEN secret (Worker > Settings > Variables and
     // Secrets); Workers Builds deploys keep secrets.
-    "crons": ["*/10 2-18 * * *", "45 10 * * *", "45 12 * * *"]
+    // "0 18 * * *" starts the mutual fund run at 23:30 IST (funds.yml).
+    "crons": ["*/10 2-18 * * *", "45 10 * * *", "45 12 * * *", "0 18 * * *"]
   },
   "observability": { "enabled": true }
 }

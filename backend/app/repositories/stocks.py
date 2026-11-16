@@ -90,8 +90,11 @@ async def search_universe(
 ) -> list[Stock]:
     """Server-side search over the active universe by symbol or company name.
 
-    Case-insensitive substring match; symbol-prefix matches first, then
-    name matches, each alphabetical. Replaces the old client-side filter
+    Case-insensitive substring match. An exact symbol match comes first;
+    everything else is ordered by market value, largest first (owner request
+    2026-11-16: typing "tata" should list the biggest Tata company first,
+    not the alphabetically first). Companies with no stored market value
+    come last, alphabetically. Replaces the old client-side filter
     over the first catalog page, which could only ever see 250 of 2,900
     rows (ETERNAL/SWIGGY/IFCI were ranked-in and invisible).
     """
@@ -105,16 +108,27 @@ async def search_universe(
         )
     )
     stmt = active_universe_filter(stmt)
-    rows = (await session.execute(stmt)).scalars().all()
+    rows = list((await session.execute(stmt)).scalars().all())
+    caps: dict[int, float] = {}
+    if rows:
+        from app.models import Financials
 
-    def _rank(s: Stock) -> tuple[int, str]:
+        caps = {
+            stock_id: float(cap)
+            for stock_id, cap in (
+                await session.execute(
+                    select(Financials.stock_id, Financials.market_cap).where(
+                        Financials.stock_id.in_([s.id for s in rows]),
+                        Financials.market_cap.is_not(None),
+                    )
+                )
+            ).all()
+        }
+
+    def _rank(s: Stock) -> tuple[int, float, str]:
         sym = s.symbol.upper()
-        name = (s.name or "").upper()
-        if sym.startswith(bare) or sym.split(".")[0].startswith(bare):
-            return (0, sym)
-        if name.startswith(bare):
-            return (1, sym)
-        return (2, sym)
+        exact = sym == bare or sym.split(".")[0] == bare
+        return (0 if exact else 1, -caps.get(s.id, 0.0), sym)
 
     rows.sort(key=_rank)
     return rows[:limit]

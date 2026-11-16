@@ -196,6 +196,16 @@ export function ValuationHistory({ symbol }: { symbol: string }) {
               {data.publication_lag_days} days after the year ends) and today&rsquo;s share
               count. Share issues and buybacks inside the period are not adjusted for. The
               period is as long as the stored price history.
+              {band?.metric === "pe" && (data.adjusted_years?.length ?? 0) > 0 && (
+                <>
+                  {" "}
+                  Profit for the year to{" "}
+                  {data.adjusted_years!.map((d) => fmtDate(d)).join(" and ")} included a large
+                  one-off gain, so the P/E uses an estimate of that year&rsquo;s underlying
+                  profit (its operating profit at the company&rsquo;s usual ratio) instead of
+                  the reported figure.
+                </>
+              )}
             </p>
           )}
         </DataState>

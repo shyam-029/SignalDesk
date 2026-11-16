@@ -73,8 +73,10 @@ const skeletonRow = (
  * USD/INR, Gold, India VIX, midcap breadth and the sector indexes
  * (Bank/IT/Pharma), each against its PREVIOUS stored close. Reads only the
  * stored benchmark tables; a macro row with no reliable free source
- * (smallcap) stays absent rather than stale. A static row (it scrolls
- * sideways on narrow screens): the stock ticker above is the one moving strip.
+ * (smallcap) stays absent rather than stale. The row moves as a continuous
+ * loop (the chips are rendered twice, so -50% is one full cycle); it pauses
+ * under the pointer and stands still under reduced motion, where it scrolls
+ * sideways by hand instead.
  */
 export function MarketPulse() {
   const query = useBenchmarks();
@@ -95,10 +97,18 @@ export function MarketPulse() {
           compact
           className="min-w-0 flex-1"
         >
-          <div className="flex min-w-0 flex-1 items-center gap-2 overflow-x-auto [scrollbar-width:none]">
-            {cards.map((b) => (
-              <IndexChip key={b.symbol} b={b} />
-            ))}
+          <div className="marquee index-tape min-w-0 flex-1 overflow-hidden motion-reduce:overflow-x-auto [scrollbar-width:none]">
+            <div className="index-tape-track flex w-max items-center gap-2 pr-2">
+              {cards.map((b) => (
+                <IndexChip key={b.symbol} b={b} />
+              ))}
+              {/* Second copy for the seamless loop; hidden from assistive tech. */}
+              <div aria-hidden className="flex items-center gap-2 motion-reduce:hidden">
+                {cards.map((b) => (
+                  <IndexChip key={`dup-${b.symbol}`} b={b} />
+                ))}
+              </div>
+            </div>
           </div>
         </DataState>
       </div>

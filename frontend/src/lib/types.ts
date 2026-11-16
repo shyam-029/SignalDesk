@@ -205,6 +205,8 @@ export interface ScreenResult {
   solvency: number | null;
   valuation_status: string | null;
   margin_pct: number | null;
+  market_cap?: number | null;
+  cap_size?: "large" | "mid" | "small" | null;
 }
 
 export interface ScreenerResponse {
@@ -493,6 +495,8 @@ export interface ValuationHistoryResponse {
   publication_lag_days: number;
   suspect_move_pct: number | null;
   suspect_move_date: string | null;
+  /** Fiscal years whose profit was lifted by a one-off gain and replaced by an underlying estimate. */
+  adjusted_years?: string[];
   multiples: MultipleBand[];
 }
 

@@ -1116,6 +1116,13 @@ async def _backfill_one_alpha(
     # to write (an empty recompute never deletes stored history).
     async with SessionLocal() as session:
         counts = await alpha_repo.sync_backfill_snapshots(session, symbol, rows)
+        # Live snapshots keep their own day's fundamental and sentiment, but
+        # their composite is re-blended with that day's Strength so the whole
+        # line follows one method (no cliff where old-method days remain).
+        if strength_by_day:
+            counts["reblended"] = await alpha_repo.reblend_live_snapshots(
+                session, symbol, strength_by_day, _renormalized
+            )
     if stats is not None:
         for key, value in counts.items():
             stats[key] = stats.get(key, 0) + value
@@ -1843,8 +1850,9 @@ async def ingest_balance_sheets(
 # Most stocks fetched per night. The pattern changes once a quarter, the
 # provider's rate limit for this endpoint is not documented, and the nightly
 # has a time budget: a bounded slice per night covers the whole universe in
-# about a week and then idles until the next quarter is published.
-SHAREHOLDING_NIGHTLY_CAP = 150
+# three nights and then idles until the next quarter is published. (Was 150:
+# a week to fill the list, during which most stock pages showed no owners.)
+SHAREHOLDING_NIGHTLY_CAP = 400
 # Listed companies file the pattern within 21 days of the quarter end.
 SHAREHOLDING_FILING_DAYS = 21
 
@@ -3021,10 +3029,10 @@ async def _ingest_passes() -> dict:
         ("ingest_benchmarks", ingest_benchmarks),
         # ETF catalog + prices (Plan 9 slice); is_etf stocks, never universes.
         ("ingest_etfs", ingest_etfs),
-        # Curated fund catalog + AMFI daily NAV (Plan 8 slice).
-        ("ingest_funds", ingest_funds),
-        # Funds database: every direct growth plan (skipped when not configured).
-        (FUNDS_DB_JOB, sync_funds_db),
+        # Mutual funds are NOT here (owner decision 2026-11-16): AMFI
+        # publishes the day's NAVs late in the evening, hours after this
+        # 16:15 IST run, so funds have their own run at 23:30 IST
+        # (run_funds_nightly, .github/workflows/funds.yml).
         # Catch catalog stocks the universe passes dropped (renames/demergers).
         ("repair_catalog_gaps", repair_catalog_gaps),
         *setups,
@@ -3073,6 +3081,36 @@ async def _ingest_passes() -> dict:
         "errors": failed + partial,
         "partial_passes": partial,
     }
+
+
+FUNDS_NIGHTLY_JOB = "funds_nightly"
+
+
+async def _funds_passes() -> dict:
+    """The mutual fund run (23:30 IST): AMFI's NAVs for the day are out by then.
+
+    Two passes, each recorded and isolated like the stock nightly's: the
+    curated list on the main database (still read by the site until the
+    funds database is live) and the funds database (every direct growth
+    plan; a quiet no-op when FUNDS_DATABASE_URL is not set).
+    """
+    statuses = [
+        await _record_pass("ingest_funds", ingest_funds),
+        await _record_pass(FUNDS_DB_JOB, sync_funds_db),
+    ]
+    failed = statuses.count("failed")
+    partial = statuses.count("partial")
+    if failed == len(statuses):
+        raise RuntimeError(f"all {failed} fund passes failed")
+    return {
+        "fetched": statuses.count("success"),
+        "errors": failed + partial,
+        "partial_passes": partial,
+    }
+
+
+async def _funds_all() -> str:
+    return await _record_pass(FUNDS_NIGHTLY_JOB, _funds_passes)
 
 
 async def _ingest_all() -> str:
@@ -3171,6 +3209,9 @@ if __name__ == "__main__":
         # Curated fund catalog + AMFI daily NAV, plus the mfapi history
         # backfill (documented fallback) on explicit runs.
         status = asyncio.run(_record_pass("ingest_funds", ingest_funds, True))
+    elif command == "funds-nightly":
+        # The 23:30 IST mutual fund run: curated list + funds database.
+        status = asyncio.run(_funds_all())
     elif command == "balance-sheets":
         # Annual balance sheets for the active universe (Altman Z-Score data).
         status = asyncio.run(_record_pass("ingest_balance_sheets", ingest_balance_sheets))
@@ -3191,7 +3232,7 @@ if __name__ == "__main__":
     else:
         raise SystemExit(
             f"Unknown command: {command} "
-            "(use 'backfill', 'ingest', 'rank', 'etfs', 'funds', "
+            "(use 'backfill', 'ingest', 'rank', 'etfs', 'funds', 'funds-nightly', "
             "'balance-sheets' or 'prune-alpha')"
         )
     # Exit non-zero ONLY on a hard job failure so CI/workflow conclusions

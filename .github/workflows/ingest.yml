@@ -32,6 +32,13 @@ name: ingest
 # weekly, each judged from its own last successful run (app/jobs.py).
 
 on:
+  # Backup start (2026-11-16): the Worker did not dispatch on 14, 15 or 16
+  # November and nothing ran for three days. GitHub's own schedule can be
+  # hours late, but it does not depend on the Worker or its token. A run
+  # started this way ends at once when today's run already succeeded or is
+  # still going (first step), so the night never runs twice.
+  schedule:
+    - cron: "30 11 * * *" # 17:00 IST, 45 minutes after the Worker's slot
   # Dispatched by the Cloudflare Worker daily (see above) or by hand.
   workflow_dispatch:
     inputs:
@@ -52,6 +59,9 @@ jobs:
   ingest:
     runs-on: ubuntu-latest
     timeout-minutes: 330
+    permissions:
+      contents: read
+      actions: read # the backup start reads today's runs of this workflow
     outputs:
       open: ${{ steps.market.outputs.open }}
     env:
@@ -72,7 +82,25 @@ jobs:
         working-directory: ${{ github.workspace }}
         env:
           FORCE: ${{ inputs.run_on_closed_day && 'true' || 'false' }}
+          EVENT: ${{ github.event_name }}
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ github.run_id }}
         run: |
+          # Backup start only: nothing to do when today's run is done or going.
+          if [ "$EVENT" = schedule ]; then
+            utc=$(date -u +%F)
+            others=$(gh api -X GET "repos/$GITHUB_REPOSITORY/actions/workflows/ingest.yml/runs" \
+              -f created=">=$utc" -f per_page=30 \
+              --jq "[.workflow_runs[] | select(.id != $RUN_ID) | select(.status != \"completed\" or .conclusion == \"success\")] | length" \
+              2>/dev/null || echo 0)
+            if [ "${others:-0}" -gt 0 ]; then
+              echo "Today's run was already started on time: nothing to do."
+              echo "### Backup start: today's run already happened" >> "$GITHUB_STEP_SUMMARY"
+              echo "open=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            echo "::warning::Backup start: the on-time trigger (Cloudflare Worker) did not start today's run. Check the Worker's GITHUB_DISPATCH_TOKEN secret and its logs."
+          fi
           today=$(TZ=Asia/Kolkata date +%F)
           dow=$(TZ=Asia/Kolkata date +%u)
           open=true; why="a trading day"
