@@ -117,7 +117,8 @@ export function useSetups(symbol: string) {
 export function useUnderrated(minChecks: number) {
   return useQuery({
     queryKey: ["underrated", minChecks],
-    queryFn: () => api.underrated(minChecks),
+    // 100 covers every full match with room to spare (the API allows 200).
+    queryFn: () => api.underrated(minChecks, 100),
     staleTime: 30 * 60_000,
   });
 }
